@@ -8,7 +8,7 @@ Entry points: Tapping the "Changes" tab within any Session view.
 +-----------------------------------+
 | [<] fix-scanner-mtime [working][:]|
 +-----------------------------------+
-| [Chat] [Changes*] [Term] [Files]  |
+|[Chat][Changes*][Term][Files][Cmts]|
 +-----------------------------------+
 | Repo: [ PiRemote (main)        v] |
 | Files modified: 2   (+14 -3)      |
@@ -59,15 +59,18 @@ Pull down on changes list: Trigger fresh server-side git diff execution and upda
 Loading: Displays "Scanning Workdir for Repos..." progress spinner with elapsed time counter during deep directory scans.
 Empty: Displays centered card: "No Changes found. Working tree is clean." with a re-scan button.
 Error: If git command fails or folder is not a git repository, displays error card: "Git diff error: fatal not a git repository."
-Live: As the agent edits files in background, diff updates automatically via Datastar SSE patches.
-Backgrounded: File watching pauses while app is backgrounded. View refreshes on resume.
+Live: While the Changes tab is open and in the foreground, edits show through Datastar SSE patches under the delivery policy in Data Needs. No stream runs when the tab is hidden or the app is backgrounded.
+Stale: If a refresh is due while a line is selected or a Comment draft is open, the view does not patch. A banner reads "Changes updated. Tap to refresh."
+Backgrounded: The Changes stream closes. View refreshes once on resume.
 Slow-scan: If Repo discovery exceeds 2 seconds in large Workdirs, a progress bar shows: "Scanning directory tree... (ignoring caches and vendor)".
 
 ## Data Needs
 
 Scanner fields: Workdir path from session header line.
 herdr actions: Not used directly for review.
-SSE events: Server watches git directory and pushes `changes_updated` fragment when files change on disk.
+SSE events: Stream `/events/session/<id>/changes` opens when the Changes tab shows and closes when it hides or the app backgrounds. PLAN R2 and R4 promise discovery and rendering only, not live push, so the stream is an addition kept cheap. The server never watches the working tree. Events: `changes_updated` (fragment with the re-diffed file cards) and `changes_stale` (no fragment, drives the banner).
+Re-diff triggers: stream connect (tab focus or resume), pull-to-refresh, Repo picker change, Status moving from working to idle, blocked, or done, and a Session jsonl tool-result entry (any tool, since bash can write files) landing on the scanner tail.
+Throttle: tool-result triggers debounce with a 3 s quiet period. At most one re-diff per 10 s per Repo. The server compares `git status --porcelain` plus diff hash with the last sent state and sends nothing if unchanged. Only changed file cards are patched; collapse state is kept. Pull-to-refresh and Repo change skip the debounce and the 10 s cap.
 Git service: Server runs pruned discovery scan for `.git` using denylist (node_modules, vendor, build, dist, target, .venv, hidden dirs); runs `git status` and `git diff` per Repo; fetches raw file blobs.
 State JSON: Read and write active Repo choice per Session to remember preference across visits.
 

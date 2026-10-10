@@ -8,7 +8,7 @@ Entry points: Tapping the "Files" tab in Session view.
 +-----------------------------------+
 | [<] fix-scanner-mtime [working][:]|
 +-----------------------------------+
-| [Chat] [Changes] [Term] [Files*]  |
+|[Chat][Changes][Term][Files*][Cmts]|
 +-----------------------------------+
 | Repo: [ PiRemote (main)        v] |
 | Path: /internal/scanner           |

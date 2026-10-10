@@ -9,7 +9,7 @@ Entry points: Present at the top of every tab within an active Session view.
 | [<] fix-scanner-mtime [working][:]|
 |     ~/Dev/EstebanForge/PiRemote   |
 +-----------------------------------+
-| [Chat*] [Changes] [Term] [Files]  |
+|[Chat*][Changes][Term][Files][Cmts]|
 +-----------------------------------+
 |                                   |
 |       (Session tab content)       |

@@ -56,13 +56,14 @@ Pull down from top: Force immediate re-read of subagent jsonl file from server d
 Loading: Displays skeleton message placeholders while subagent jsonl file loads from disk.
 Empty: Displays centered card: "Subagent initialized. Awaiting first execution output."
 Error: If subagent session file cannot be located on disk, displays red error card: "Subagent session file missing."
-Live: While parent subagent task runs, new entries stream in real time over SSE. Status badge shows `[working]`.
+Live: While the parent subagent tool call has no result, new entries stream in real time over SSE. Status badge shows `[working]`. The badge is derived, not reported by herdr (see Data Needs).
 Backgrounded: SSE stream halts. Reconnection verifies if subagent concluded while backgrounded and fetches final entries.
 
 ## Data Needs
 
 Scanner fields: Locate subagent session file referenced by path or ID in parent session entry; parse subagent jsonl tree (`id`, `parentId`, `cwd`, roles, content blocks).
-herdr actions: Not directly driven via herdr; subagent runs within parent process or as autonomous child process.
+herdr actions: None for the subagent. herdr knows only the parent and reports Status for the parent alone.
+Status badge source: derived on the server from the parent Session. (1) The parent jsonl holds a tool-result entry for the subagent tool call: `[done]`. (2) No result yet and parent Status is working: `[working]`. (3) No result yet and parent Status is blocked: `[blocked]`. (4) No result yet and parent Status is idle, done, or unknown: `[unknown]`, since the run ended without a result. Subagent jsonl entry order is never used for the badge. The subagent file shape is verified against real files at M0 (V6).
 SSE events: Client subscribes to SSE stream targeting the subagent's specific session ID (`/events/session/<subagent-id>`).
 Git service: Not used directly by this screen.
 State JSON: Inherits parent session UI settings.
@@ -73,7 +74,7 @@ Backgrounding and SSE death: Client reconnects with last received event ID from 
 herdr attach contention: Subagents do not have separate interactive herdr panes; peek and takeover rules do not apply.
 Unknown jsonl entries: Custom entry types within subagent file render as collapsible raw JSON rows without failing.
 Missing Workdir or Repo: Subagent inherits parent Workdir; if path is removed, transcript still displays cached lines.
-Stale Status: Subagent Status reflects entry sequence; if parent aborts subagent, status updates to `[done]` or `[unknown]`.
+Stale Status: The badge follows the parent Status and parent tool-result rules above. If the parent is aborted before a result arrives, the badge shows `[unknown]`.
 Deeply nested subagents: If a subagent spawns another subagent, breadcrumbs truncate with middle ellipsis (`parent > ... > subagent-3`) to maintain 360 px width.
 Scroll restoration: Returning to parent Session restores exact scroll offset where the user clicked the subagent link.
 Parent completes before child: If parent terminates prematurely, subagent transcript marks last entry with a cancellation notice.

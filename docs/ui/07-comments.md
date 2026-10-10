@@ -8,7 +8,7 @@ Entry points: Tapping "Comments" tab in Session view; tapping "Add Comment" on a
 +-----------------------------------+
 | [<] fix-scanner-mtime [working][:]|
 +-----------------------------------+
-| [Chat] [Changes] [Term] [Comments*|
+|[Chat][Changes][Term][Files][Cmts*]|
 +-----------------------------------+
 | Pending Tray: (2 comments)        |
 | [Discard All]     [Send All (2) >]|

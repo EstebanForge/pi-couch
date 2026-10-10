@@ -8,7 +8,7 @@ Entry points: App launch via Android WebView APK shell (P8) or mobile browser PW
 +-----------------------------------+
 | PiRemote              [Status] [:]|
 +-----------------------------------+
-| Tabs: [Chat*] [Chg] [Term] [File] |
+|[Chat*][Changes][Term][Files][Cmts]|
 +-----------------------------------+
 |                                   |
 | Viewport Content                  |
@@ -31,6 +31,7 @@ Entry points: App launch via Android WebView APK shell (P8) or mobile browser PW
 PiRemote uses a flat two-tier hierarchy: the Session list at root, and an active Session view.
 Selecting a Session opens its dedicated container.
 Inside a Session, five tabs organize tools: Chat (default), Changes, Terminal, Files, Comments.
+All five show at once as equal 72 px cells on a 360 px viewport, with no scrolling strip. Labels are short: Chat, Changes, Term, Files, Cmts. Each cell keeps a 48 px minimum touch area; the 8 px margin rule is met by cell padding.
 The desktop layout uses the identical DOM stretched horizontally; it never splits into a multi-column desktop layout.
 The session header anchors to the top edge and displays Session name, Workdir path, Status badge, terminal toggle, and menu button.
 The bottom bar anchors inputs in the thumb zone for reliable one-hand reach.

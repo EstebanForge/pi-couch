@@ -8,9 +8,9 @@ Entry points: Tapping a Session card on the session list screen; default tab whe
 +-----------------------------------+
 | [<] fix-scanner-mtime [working][:]|
 +-----------------------------------+
-| [Chat*] [Changes] [Term] [Files]  |
+|[Chat*][Changes][Term][Files][Cmts]|
 +-----------------------------------+
-| [Branch: main (active)]   [Search]|
+| [Active branch]           [Search]|
 +-----------------------------------+
 |                                   |
 |                +----------------+ |
@@ -41,7 +41,7 @@ Entry points: Tapping a Session card on the session list screen; default tab whe
 
 Header bar provides back button, Session name, live Status badge, quick terminal toggle, and session menu button (V8).
 Tabs navigation strip sits below header: Chat (active), Changes, Terminal, Files, Comments.
-Subheader strip displays the active branch label and an in-transcript search toggle button (V3, V10).
+Subheader strip displays a read-only "Active branch" label and an in-transcript search toggle button (V3, V10). The label means the pi Session tree branch (the `id`/`parentId` path ending at the current leaf), not a git branch; it is not tappable in v1 because the branch picker is unscheduled, and it is hidden when the tree has a single path. The git branch shows in the Repo picker on the Changes tab.
 Transcript container holds message bubbles: user owner messages right-aligned, assistant messages left-aligned.
 Thinking blocks render inside collapsible cards with token counts, collapsed by default after message completion.
 Tool-call rows render as compact one-line bars showing execution icon, tool name, brief arguments, and success checkmark (V4).
@@ -58,7 +58,8 @@ Tap "Copy" icon: Copy message markdown, code snippet, or tool output directly to
 Tap "Search" button: Open search input field to filter and highlight matching text occurrences throughout the transcript (V10).
 Tap "Stop" button: Send Ctrl-C key sequence through herdr `send-keys` API to halt active generation immediately (D5).
 Tap submit button: Submit entered text to herdr `agent prompt` API for Steering (D3). If the agent is working, pi queue mode buffers the message as a queued follow-up (D4).
-Tap attachment icon: Open system photo picker or camera to attach images as base64 data to the prompt (D6).
+Tap attachment icon: Open system photo picker or camera. Each image shows as a thumbnail chip above the input with a remove button (D6). On submit the server sends the image as base64 in the herdr prompt when the Driver supports it.
+Image fallback: if herdr prompt does not accept images, the server saves the file under the Session state directory (outside the Workdir) and appends a line to the prompt text: `Attached image: <absolute path>`. The chip then reads "Sent as file path" so the user knows the model gets a path, not the pixels. If the file save fails, the prompt is not sent and an error card shows the failure (D6).
 Scroll up in transcript: Suspend auto-scroll lock so the user can read previous messages without viewport jumping.
 Scroll to bottom: Re-engage auto-scroll lock to track new incoming streaming tokens.
 
@@ -73,7 +74,7 @@ Backgrounded: Browser suspends SSE. When app regains focus, client reconnects wi
 ## Data Needs
 
 Scanner fields: Read session jsonl entries linked by `id` and `parentId`, extract active branch path, message roles, content blocks (text, thinking, toolCall), and token usage statistics.
-herdr actions: Send `agent prompt` for Steering, `send-keys` with Ctrl-C byte sequence for Stop, and subscribe to agent Status updates.
+herdr actions: Send `agent prompt` for Steering (with base64 images where supported, else a path note, D6), `send-keys` with Ctrl-C byte sequence for Stop, and subscribe to agent Status updates.
 SSE events: Server streams `transcript_append` events for new entries and `status_update` events for live badge changes.
 Git service: Not used directly on this screen.
 State JSON: Read user display preferences (expanded tool rows, search query).

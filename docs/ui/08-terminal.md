@@ -8,7 +8,7 @@ Entry points: Tapping the "Terminal" tab in Session view; tapping quick terminal
 +-----------------------------------+
 | [<] fix-scanner-mtime [working][:]|
 +-----------------------------------+
-| [Chat] [Changes] [Term*] [Files]  |
+|[Chat][Changes][Term*][Files][Cmts]|
 +-----------------------------------+
 | Peek Mode (Read-only)             |
 | [ Take the wheel (Attach)       ] |
