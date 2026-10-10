@@ -1,0 +1,11 @@
+[Unit]
+Description=PiRemote web client for pi sessions
+After=network-online.target
+
+[Service]
+ExecStart=%h/.local/bin/piremote --addr 127.0.0.1:8090
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

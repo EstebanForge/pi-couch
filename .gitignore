@@ -4,3 +4,6 @@ dist/
 *.sqlite-*
 .env
 .DS_Store
+bin/
+*_templ.go
+internal/web/static/js/main.js
