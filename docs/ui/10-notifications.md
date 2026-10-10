@@ -44,9 +44,9 @@ Android system notification structure: Shows app icon, notification title format
 
 Permission ask timing: The browser or WebView does not prompt for notification permission on initial page load. Instead, PiRemote asks only when the user submits their first Steering prompt or explicitly toggles the notification setting.
 Notification delivery triggers: Web push sends using VAPID keys upon specific herdr Status transitions:
-- Transition `working` to `idle`: "Agent is idle and awaiting your next command."
+- Transition `working` to `done`: "Agent completed task execution." This is the normal completion transition for pi; a finished turn reports `done`, not `idle` (M0 findings).
 - Transition `working` to `blocked`: "Agent is blocked and requires clarification or input."
-- Transition `working` to `done`: "Agent completed task execution."
+- Transition `working` to `idle`: rare for pi; kept for agents that report it.
 Notifications do not fire for `idle` to `working` or minor intermediate token updates to prevent phone notification clutter.
 Tap-through target: Tapping the system notification opens the Android WebView APK shell or browser directly into that specific Session chat view.
 

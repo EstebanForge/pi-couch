@@ -41,7 +41,7 @@ Top bar displays app title "PiRemote", search filter button, and top "+" shortcu
 Filter bar provides a Workdir dropdown selector to isolate a single folder, plus activity sort indicator.
 Session group header displays folder path, expand or collapse chevron, and count of contained sessions.
 Session card displays the session name (explicit `--name` flag or truncated first prompt text), age timestamp, and last message snippet.
-Status badge displays one of five states: working (blue), idle (green), blocked (amber), done (gray), unknown (red) (V12).
+Status badge displays one of five states: working (blue), idle (green), blocked (amber), done (gray), unknown (red) (V12). Verified M0 delta: pi turn completion reports `done`, not `idle`; a gray `done` badge means the turn finished and pi waits for input. `idle` appears only before the first prompt.
 Driver badge appears if an active herdr target currently drives the session.
 Named badge appears if the session was explicitly assigned a name via the `--name` flag.
 Resume button appears on inactive sessions that have no live Driver.
@@ -68,7 +68,7 @@ Backgrounded: SSE connection suspends. UI freezes timestamps. Immediate refresh 
 ## Data Needs
 
 Scanner fields: JSONL file paths under `~/.pi/agent/sessions/`, header metadata (`id`, `cwd`/Workdir, `name`), file last modification timestamp (`mtime`), and trailing prompt snippet.
-herdr actions: Query `agent snapshot` via socket to obtain live target list, map target pane to session ID, and resolve Driver presence and Status.
+herdr actions: Query the agent snapshot via socket to obtain live target list, map each pane to its session file through the pane's `agent_session` path (populated live on first prompt), and resolve Driver presence and Status.
 SSE events: Server streams `session_list_patch` containing updated cards, timestamp updates, and Status transitions.
 Git service: Not used on this screen.
 State JSON: Read user preferences file for closed (hidden) session IDs to omit them from the default view.

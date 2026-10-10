@@ -33,14 +33,14 @@ Entry points: Tapping the "Terminal" tab in Session view; tapping quick terminal
 
 Top header maintains persistent session navigation and status indicators.
 Mode banner: Indicates current attachment state. In "Peek Mode (Read-only)" (T4), it presents a prominent "Take the wheel (Attach)" button (T3). When attached interactively, it displays "Attached (Interactive)" with a "Detach" button.
-Terminal viewport: Embeds vendored xterm.js canvas rendering the PTY output from `herdr agent attach` (T1).
+Terminal viewport: Embeds vendored xterm.js canvas rendering the pane's ANSI stream fetched over the herdr socket with `pane.read` format `ansi`; `pane_output_changed` events plus buffer revisions drive incremental redraws (T1). Verified in M0 findings: the socket has no attach method and no PTY bridge exists.
 Mobile key bar: Sits fixed directly above the on-screen keyboard in the thumb zone. Includes buttons: `[ESC]`, `[TAB]`, `[CTRL]`, `[ALT]`, `[^]` (up), `[v]` (down), `[<]` (left), `[>]` (right) (T2).
 Key latch indicators: Modifier keys (`CTRL` and `ALT`) toggle an active latch highlight when pressed once, applying to the next typed character before resetting. Double-tapping locks modifier.
 Terminal toolbar: Bottom edge holds font size reset button and copy selection button.
 
 ## Interactions
 
-Tap "Take the wheel": If no other client is attached, server connects interactive PTY immediately. If another client holds the attach lock, a modal dialog appears: "Target pane is attached by another client. Take over session?" Tapping "Takeover" invokes `--takeover` on herdr attach (T3).
+Tap "Take the wheel": Switches from peek to interactive mode: keystrokes enabled and sent through `pane.send_input`. There is no takeover dialog: the socket has no attach lock and no `--takeover` (M0 findings). If the desk holds a CLI attach, both sides see output and typed input interleaves; a banner notes "Desk terminal attached" when the pane reports one.
 Tap "Detach": Drop interactive PTY connection and revert to read-only peek stream.
 Tap terminal viewport: In interactive mode, focuses hidden input element to invoke system on-screen software keyboard.
 Tap mobile key (`ESC`, `TAB`, arrow keys): Sends corresponding ANSI escape sequence through WebSocket to server PTY.
@@ -56,14 +56,14 @@ Swipe up or down inside terminal viewport: Scroll terminal history buffer when n
 Loading: Viewport renders black canvas with centered text: "Connecting to terminal bridge...".
 Peek: Read-only stream renders live terminal output without sending keystrokes or claiming exclusive attach lock (T4).
 Interactive: Bidirectional WebSocket stream active; keystrokes send directly to PTY; mobile key row enabled.
-Contended: Another client holds the herdr attach lock; takeover confirmation modal is displayed (T3).
+Contended: The desk holds a CLI attach on the same pane; interactive mode stays available and a coexistence banner is shown (T3).
 Error: If PTY spawn fails or herdr target disappears, displays red banner: "Failed to connect to target pane. Session may be stopped."
 Backgrounded: WebSocket disconnects automatically when browser or WebView enters background to avoid keeping unused PTY processes alive on the server.
 
 ## Data Needs
 
 Scanner fields: Workdir path for context.
-herdr actions: Spawns `herdr agent attach <target>` via Go server PTY bridge (creack/pty); passes `--takeover` only upon explicit user confirmation.
+herdr actions: `pane.read` (format `ansi`, revision tracked) on connect and on `pane_output_changed` events; `pane.send_input` for keystrokes and `pane.send_keys` for the key row. No PTY process, no cgo (M0 findings).
 SSE events: Secondary to WebSocket; transmits Status badge changes in header.
 Git service: Not used directly by terminal.
 State JSON: Stores preferred terminal font size.
@@ -71,7 +71,7 @@ State JSON: Stores preferred terminal font size.
 ## Edge Cases
 
 Backgrounding and SSE death: Mobile browser backgrounds drop WebSocket connections immediately. Upon return to foreground, PiRemote reconnects in peek mode to avoid stealing focus if another client connected in the meantime.
-herdr attach contention: herdr strictly enforces one attach client per pane. Defaulting to read-only peek mode ensures viewing on phone never interrupts a desktop session at Esteban's desk (T3, T4).
+herdr attach contention: The socket has no attach lock, so phone and desk can share the pane; the banner keeps the user aware. Peek mode remains the default so a phone visit never types into the desk session (T3, T4).
 Unknown jsonl entries: Not applicable; terminal bridge operates on raw byte streams from herdr PTY, completely independent of jsonl parsing.
 Missing Workdir or Repo: Terminal opens in whichever directory herdr target is located; missing repo does not prevent terminal access.
 Stale Status: If agent Driver terminates, PTY stream closes and displays message: "Terminal disconnected: process exited."
