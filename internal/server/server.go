@@ -3,10 +3,13 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/a-h/templ"
@@ -55,7 +58,10 @@ func (a *app) routes() http.Handler {
 
 	mux.HandleFunc("GET /", a.list)
 	mux.HandleFunc("GET /stream/sessions", a.streamSessions)
+	mux.HandleFunc("GET /stream/transcript/{key}", a.streamTranscript)
 	mux.HandleFunc("GET /sessions/{key}", a.transcript)
+	mux.HandleFunc("POST /sessions/{key}/prompt", a.steerPrompt)
+	mux.HandleFunc("POST /sessions/{key}/stop", a.steerStop)
 	mux.Handle("GET /static/", web.Static())
 	return mux
 }
@@ -86,19 +92,8 @@ func (a *app) streamSessions(w http.ResponseWriter, r *http.Request) {
 			return
 		default:
 		}
-		if a.watcher != nil {
-			select {
-			case <-a.watcher.Events():
-			case <-time.After(heartbeat):
-			case <-r.Context().Done():
-				return
-			}
-		} else {
-			select {
-			case <-time.After(heartbeat):
-			case <-r.Context().Done():
-				return
-			}
+		if !a.waitTick(r) {
+			return
 		}
 	}
 }
@@ -123,7 +118,132 @@ func (a *app) transcript(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	serveTempl(w, r, pages.Transcript(meta, items))
+	badges := a.herdr.Badges(r.Context())
+	serveTempl(w, r, pages.Transcript(meta, items, badges[meta.Path], noticeText(r.URL.Query())))
+}
+
+// noticeText maps POST redirect flags into one line of feedback.
+func noticeText(q url.Values) string {
+	switch {
+	case q.Get("sent") == "1":
+		return "Sent. Steering queues while the agent works."
+	case q.Get("stopped") == "1":
+		return "Ctrl-C sent."
+	case q.Get("err") == "notdriven":
+		return "No herdr driver is running this session."
+	case q.Get("err") == "empty":
+		return "Nothing to send."
+	default:
+		return ""
+	}
+}
+
+func (a *app) steerPrompt(w http.ResponseWriter, r *http.Request) {
+	key := r.PathValue("key")
+	back := "/sessions/" + url.PathEscape(key)
+	text := strings.TrimSpace(r.FormValue("text"))
+	if text == "" {
+		http.Redirect(w, r, back+"?err=empty", http.StatusSeeOther)
+		return
+	}
+	meta, ok := a.idx.Meta(key)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	target, err := a.herdr.TargetForPath(ctx, meta.Path)
+	if err != nil {
+		http.Redirect(w, r, back+"?err=notdriven", http.StatusSeeOther)
+		return
+	}
+	if err := a.herdr.Prompt(ctx, target, text); err != nil {
+		a.logger.Error("prompt", "err", err)
+		http.Redirect(w, r, back+"?err=notdriven", http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, back+"?sent=1", http.StatusSeeOther)
+}
+
+func (a *app) steerStop(w http.ResponseWriter, r *http.Request) {
+	key := r.PathValue("key")
+	back := "/sessions/" + url.PathEscape(key)
+	meta, ok := a.idx.Meta(key)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	target, err := a.herdr.TargetForPath(ctx, meta.Path)
+	if err != nil {
+		http.Redirect(w, r, back+"?err=notdriven", http.StatusSeeOther)
+		return
+	}
+	if err := a.herdr.SendKeys(ctx, target, []string{"ctrl+c"}); err != nil {
+		a.logger.Error("stop", "err", err)
+	}
+	http.Redirect(w, r, back+"?stopped=1", http.StatusSeeOther)
+}
+
+// streamTranscript patches the chat tail, driver badge, and stop box on
+// session writes and heartbeat.
+func (a *app) streamTranscript(w http.ResponseWriter, r *http.Request) {
+	key := r.PathValue("key")
+	limit := defaultTail
+	if n, err := strconv.Atoi(r.URL.Query().Get("n")); err == nil && n > 0 && n <= 1000 {
+		limit = n
+	}
+	sse := datastar.NewSSE(w, r)
+	for {
+		meta, ok := a.idx.Meta(key)
+		if !ok {
+			return
+		}
+		_, items, err := a.idx.Transcript(key, limit)
+		if err != nil {
+			return
+		}
+		badges := a.herdr.Badges(r.Context())
+		status := badges[meta.Path]
+		for _, patch := range []struct {
+			sel string
+			c   templ.Component
+		}{
+			{"#chat", pages.TranscriptItems(items)},
+			{"#driver-badge", pages.DriverBadge(status)},
+			{"#stop-box", pages.StopForm(key, status)},
+		} {
+			if err := sse.PatchElementTempl(patch.c, datastar.WithSelector(patch.sel), datastar.WithModeInner()); err != nil {
+				return
+			}
+		}
+		if !a.waitTick(r) {
+			return
+		}
+	}
+}
+
+// waitTick blocks for the next update trigger; false means the client left.
+func (a *app) waitTick(r *http.Request) bool {
+	ctx := r.Context()
+	if a.watcher != nil {
+		select {
+		case <-a.watcher.Events():
+			return true
+		case <-time.After(heartbeat):
+			return true
+		case <-ctx.Done():
+			return false
+		}
+	}
+	select {
+	case <-time.After(heartbeat):
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 func serveTempl(w http.ResponseWriter, r *http.Request, c templ.Component) {

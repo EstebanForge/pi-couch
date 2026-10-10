@@ -89,6 +89,38 @@ func (c *Client) Badges(ctx context.Context) map[string]string {
 	return out
 }
 
+// TargetForPath returns the pane id of the agent driving the session file.
+// Pane ids are verified targets for prompt and send_keys (M1 probe).
+func (c *Client) TargetForPath(ctx context.Context, path string) (string, error) {
+	agents, err := c.Agents(ctx)
+	if err != nil {
+		return "", err
+	}
+	for _, a := range agents {
+		if a.Session != nil && a.Session.Value == path {
+			return a.PaneID, nil
+		}
+	}
+	return "", ErrNotDriven
+}
+
+// ErrNotDriven means no herdr agent currently runs that session file.
+var ErrNotDriven = errors.New("herdr: no agent runs this session")
+
+// Prompt submits text to the agent. pi queues it when working: steering
+// rides on pi's queue mode, no UI toggle (ADR-0001).
+func (c *Client) Prompt(ctx context.Context, target, text string) error {
+	_, err := c.call(ctx, "agent.prompt", map[string]any{"target": target, "text": text})
+	return err
+}
+
+// SendKeys delivers key presses; abort is SendKeys(ctx, target, ["ctrl+c"])
+// per ADR-0001, not an API verb.
+func (c *Client) SendKeys(ctx context.Context, target string, keys []string) error {
+	_, err := c.call(ctx, "agent.send_keys", map[string]any{"target": target, "keys": keys})
+	return err
+}
+
 func (c *Client) call(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	dialer := net.Dialer{Timeout: c.timeout}
 	conn, err := dialer.DialContext(ctx, "unix", c.path)

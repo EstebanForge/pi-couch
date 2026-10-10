@@ -6,7 +6,7 @@ import (
 	"github.com/EstebanForge/piremote/internal/pi"
 )
 
-templ Transcript(meta pi.SessionMeta, items []pi.ViewItem) {
+templ Transcript(meta pi.SessionMeta, items []pi.ViewItem, driver string, notice string) {
 	<!doctype html>
 	<html lang="en">
 		<head>
@@ -15,6 +15,7 @@ templ Transcript(meta pi.SessionMeta, items []pi.ViewItem) {
 			<meta name="color-scheme" content="dark light"/>
 			<title>{ meta.DisplayName() }</title>
 			<link rel="stylesheet" href="/static/app.css"/>
+			<script src="/static/js/datastar.js" defer></script>
 		</head>
 		<body>
 			<header>
@@ -31,39 +32,84 @@ templ Transcript(meta pi.SessionMeta, items []pi.ViewItem) {
 					if meta.TotalCost > 0 {
 						<span>{ fmt.Sprintf("$%.2f", meta.TotalCost) }</span>
 					}
+					<span id="driver-badge">@DriverBadge(driver)</span>
 				</p>
 			</header>
+			if notice != "" {
+				<div class="notice">{ notice }</div>
+			}
+			<div id="stop-box" class="stopbox">@StopForm(meta.Key, driver)</div>
 			<main class="chat">
-				for _, it := range items {
-					switch it.Kind {
-					case "user":
-						<div class="msg user">
-							<p>{ it.Text }</p>
-							if it.Images > 0 {
-								<span class="chip">{ fmt.Sprintf("%d image(s)", it.Images) }</span>
-							}
-						</div>
-					case "text":
-						<div class="msg assistant"><p>{ it.Text }</p></div>
-					case "thinking":
-						if it.Redacted {
-							<details class="thinking redacted"><summary>thinking (redacted)</summary></details>
-						} else {
-							<details class="thinking"><summary>thinking</summary><p>{ it.Text }</p></details>
-						}
-					case "tool_call":
-						<div class="tool call"><span class="chip">{ it.ToolName }</span><code>{ it.Text }</code></div>
-					case "tool_result":
-						if it.IsError {
-							<details class="tool result error"><summary>{ it.ToolName + " error" }</summary><pre>{ it.Text }</pre></details>
-						} else {
-							<details class="tool result"><summary>{ it.ToolName }</summary><pre>{ it.Text }</pre></details>
-						}
-					case "marker", "bash", "custom":
-						<div class="marker">{ it.Text }</div>
-					}
-				}
+				<div id="chat" data-on-load={ sseTranscript(meta.Key) }>
+					@TranscriptItems(items)
+				</div>
 			</main>
+			<div class="steerbar">
+				if driver == "working" || driver == "blocked" {
+					<form method="post" action={ templ.URL("/sessions/" + meta.Key + "/stop") } class="steer">
+						<button class="stop" type="submit">Stop (Ctrl-C)</button>
+					</form>
+				}
+				<form method="post" action={ templ.URL("/sessions/" + meta.Key + "/prompt") } class="composer">
+					<textarea name="text" required placeholder="Steer the agent"></textarea>
+					<button type="submit">Send</button>
+				</form>
+			</div>
 		</body>
 	</html>
+}
+
+// TranscriptItems is the live-patched transcript fragment.
+templ TranscriptItems(items []pi.ViewItem) {
+	for _, it := range items {
+		switch it.Kind {
+		case "user":
+			<div class="msg user">
+				<p>{ it.Text }</p>
+				if it.Images > 0 {
+					<span class="chip">{ fmt.Sprintf("%d image(s)", it.Images) }</span>
+				}
+			</div>
+		case "text":
+			<div class="msg assistant"><p>{ it.Text }</p></div>
+		case "thinking":
+			if it.Redacted {
+				<details class="thinking redacted"><summary>thinking (redacted)</summary></details>
+			} else {
+				<details class="thinking"><summary>thinking</summary><p>{ it.Text }</p></details>
+			}
+		case "tool_call":
+			<div class="tool call"><span class="chip">{ it.ToolName }</span><code>{ it.Text }</code></div>
+		case "tool_result":
+			if it.IsError {
+				<details class="tool result error"><summary>{ it.ToolName + " error" }</summary><pre>{ it.Text }</pre></details>
+			} else {
+				<details class="tool result"><summary>{ it.ToolName }</summary><pre>{ it.Text }</pre></details>
+			}
+		case "marker", "bash", "custom":
+			<div class="marker">{ it.Text }</div>
+		}
+	}
+}
+
+// DriverBadge renders inside #driver-badge; empty status clears it.
+templ DriverBadge(status string) {
+	if status != "" {
+		<span class={ "badge", "b-" + status }>{ status }</span>
+	}
+}
+
+// StopForm renders inside #stop-box. Ctrl-C on an idle pi prompt is
+// destructive (it can exit pi), so the button exists only while the
+// driver reports working or blocked.
+templ StopForm(key string, status string) {
+	if status == "working" || status == "blocked" {
+		<form method="post" action={ templ.URL("/sessions/" + key + "/stop") } class="steer">
+			<button class="stop" type="submit">Stop (Ctrl-C)</button>
+		</form>
+	}
+}
+
+func sseTranscript(key string) string {
+	return `@get('/stream/transcript/` + key + `')`
 }

@@ -201,6 +201,83 @@ header .sub {
 	border-top: 1px solid #262b33;
 }
 
+.notice {
+	padding: 8px 16px;
+	font-size: 13px;
+	background: #1d3a5f;
+	color: #bfdbfe;
+}
+
+.steerbar {
+	position: sticky;
+	bottom: 0;
+	background: #0f1115;
+	border-top: 1px solid #262b33;
+	padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+	display: grid;
+	gap: 8px;
+}
+
+.stopbox:empty {
+	display: none;
+}
+
+.composer {
+	display: grid;
+	grid-template-columns: 1fr auto;
+	gap: 8px;
+}
+
+.composer textarea {
+	resize: none;
+	min-height: 44px;
+	padding: 10px;
+	border-radius: 10px;
+	border: 1px solid #2a2f39;
+	background: #1a1d24;
+	color: inherit;
+	font: inherit;
+}
+
+button {
+	padding: 10px 16px;
+	border: 0;
+	border-radius: 10px;
+	background: #1d3a5f;
+	color: #bfdbfe;
+	font: inherit;
+	font-weight: 600;
+}
+
+button.stop {
+	background: #5f1d1d;
+	color: #fca5a5;
+	width: 100%;
+}
+
+@media (prefers-color-scheme: light) {
+	.steerbar {
+		background: #ffffff;
+		border-top-color: #e5e7eb;
+	}
+	.composer textarea {
+		background: #f3f4f6;
+		border-color: #e5e7eb;
+	}
+	button {
+		background: #dbeafe;
+		color: #1e3a8a;
+	}
+	button.stop {
+		background: #fee2e2;
+		color: #991b1b;
+	}
+	.notice {
+		background: #dbeafe;
+		color: #1e3a8a;
+	}
+}
+
 @media (prefers-color-scheme: light) {
 	.tool pre {
 		background: #e5e7eb;

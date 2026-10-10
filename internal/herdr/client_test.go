@@ -103,6 +103,57 @@ func TestDeadSocketIsEmptyNotError(t *testing.T) {
 	}
 }
 
+func TestPromptAndSendKeys(t *testing.T) {
+	path := fakeSocket(t, func(t *testing.T, req []byte) []byte {
+		var m struct {
+			ID     string `json:"id"`
+			Method string `json:"method"`
+			Params struct {
+				Target string   `json:"target"`
+				Text   string   `json:"text"`
+				Keys   []string `json:"keys"`
+			} `json:"params"`
+		}
+		if err := json.Unmarshal(bytes.TrimSuffix(req, []byte("\n")), &m); err != nil {
+			t.Errorf("bad request: %v", err)
+		}
+		switch m.Method {
+		case "agent.prompt":
+			if m.Params.Target != "wX:p1" || m.Params.Text != "hello" {
+				t.Errorf("prompt params: %+v", m.Params)
+			}
+		case "agent.send_keys":
+			if m.Params.Target != "wX:p1" || len(m.Params.Keys) != 1 || m.Params.Keys[0] != "ctrl+c" {
+				t.Errorf("send_keys params: %+v", m.Params)
+			}
+		default:
+			t.Errorf("unexpected method %q", m.Method)
+		}
+		return []byte("{\"id\":\"x\",\"result\":{\"type\":\"ok\"}}\n")
+	})
+	c := &Client{path: path, timeout: 2 * time.Second}
+	if err := c.Prompt(context.Background(), "wX:p1", "hello"); err != nil {
+		t.Fatalf("Prompt: %v", err)
+	}
+	if err := c.SendKeys(context.Background(), "wX:p1", []string{"ctrl+c"}); err != nil {
+		t.Fatalf("SendKeys: %v", err)
+	}
+}
+
+func TestTargetForPath(t *testing.T) {
+	path := fakeSocket(t, func(t *testing.T, req []byte) []byte {
+		return []byte("{\"id\":\"x\",\"result\":" + agentsResult + "}\n")
+	})
+	c := &Client{path: path, timeout: 2 * time.Second}
+	target, err := c.TargetForPath(context.Background(), "/s/one.jsonl")
+	if err != nil || target != "p1" {
+		t.Fatalf("TargetForPath: %v %q", err, target)
+	}
+	if _, err := c.TargetForPath(context.Background(), "/s/missing.jsonl"); err != ErrNotDriven {
+		t.Fatalf("missing session: %v", err)
+	}
+}
+
 func TestDefaultSocketPath(t *testing.T) {
 	home, err := os.UserHomeDir()
 	if err != nil {
