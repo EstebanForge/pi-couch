@@ -86,6 +86,7 @@ One Go binary as a systemd user service, beside herdr's. Stack decision in ADR-0
 - Git service. Repo discovery via pruned scan (rg/fdfind semantics), diffs via exec git.
 - State. Comments and UI prefs in a plain JSON file per session. No database.
 - Web client. Mobile-first PWA. Server-rendered HTML, Datastar SSE patches, one vanilla TS island (composer, terminal) built with esbuild.
+- Native door. Views stay separate from streams so a Kotlin client can plug in later with no server rework: commands are JSON POSTs, SSE streams accept a raw-JSON format alongside Datastar patches, the terminal WebSocket is raw bytes plus JSON resize frames.
 
 ## Milestones
 
