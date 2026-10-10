@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -38,8 +39,10 @@ func (m SessionMeta) DisplayName() string {
 }
 
 // Index walks the sessions root and caches list metadata per file.
+// Safe for concurrent use: SSE streams and page handlers share one Index.
 type Index struct {
 	root  string
+	mu    sync.Mutex
 	cache map[string]metaCache
 }
 
@@ -73,7 +76,7 @@ func (ix *Index) List() ([]SessionMeta, error) {
 				continue
 			}
 			path := filepath.Join(ix.root, d.Name(), f.Name())
-			meta, ok := ix.meta(path)
+			meta, ok := ix.cachedMeta(path)
 			if ok {
 				out = append(out, meta)
 			}
@@ -87,7 +90,7 @@ func (ix *Index) List() ([]SessionMeta, error) {
 func (ix *Index) Meta(key string) (SessionMeta, bool) {
 	for _, d := range ix.subdirs() {
 		path := filepath.Join(ix.root, d, key+".jsonl")
-		if meta, ok := ix.meta(path); ok {
+		if meta, ok := ix.cachedMeta(path); ok {
 			return meta, true
 		}
 	}
@@ -106,6 +109,14 @@ func (ix *Index) subdirs() []string {
 		}
 	}
 	return out
+}
+
+// cachedMeta reads the cache under lock; a miss parses under lock.
+// Parsing under one lock keeps concurrent streams from stampeding one file.
+func (ix *Index) cachedMeta(path string) (SessionMeta, bool) {
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	return ix.meta(path)
 }
 
 func (ix *Index) meta(path string) (SessionMeta, bool) {

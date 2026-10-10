@@ -26,7 +26,7 @@ templ Transcript(meta pi.SessionMeta, items []pi.ViewItem) {
 						<span>{ meta.Model }</span>
 					}
 					if meta.TotalTokens > 0 {
-						<span>{ fmt.Sprintf("%dk tok", meta.TotalTokens/1000) }</span>
+						<span>{ tok(meta.TotalTokens) }</span>
 					}
 					if meta.TotalCost > 0 {
 						<span>{ fmt.Sprintf("$%.2f", meta.TotalCost) }</span>

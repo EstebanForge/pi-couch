@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -105,6 +106,24 @@ func TestTranscriptLimit(t *testing.T) {
 	if len(items) != 1 || items[0].Kind != "text" {
 		t.Fatalf("limit tail: %+v", items)
 	}
+}
+
+func TestIndexConcurrent(t *testing.T) {
+	// Regression: SSE streams and page handlers share one Index. Run with
+	// -race; a data race here crashed the server under live streams.
+	ix := testIndex(t)
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 20; j++ {
+				_, _ = ix.List()
+				_, _ = ix.Meta("20261010_fixture")
+			}
+		}()
+	}
+	wg.Wait()
 }
 
 func TestTranscriptMissing(t *testing.T) {

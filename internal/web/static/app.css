@@ -83,6 +83,41 @@ header .sub {
 	color: #9ca3af;
 }
 
+.badge {
+	display: inline-block;
+	margin-left: 8px;
+	padding: 1px 8px;
+	border-radius: 999px;
+	font-size: 11px;
+	vertical-align: middle;
+	background: #2a2f39;
+}
+
+.badge.b-working {
+	background: #1d3a5f;
+	color: #93c5fd;
+}
+
+.badge.b-blocked {
+	background: #5f4a1d;
+	color: #fde68a;
+}
+
+.badge.b-done {
+	background: #1d3a2a;
+	color: #86efac;
+}
+
+.badge.b-idle {
+	background: #1d3a2a;
+	color: #86efac;
+}
+
+.badge.b-unknown {
+	background: #5f1d1d;
+	color: #fca5a5;
+}
+
 .chat {
 	display: grid;
 	gap: 10px;

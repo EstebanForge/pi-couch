@@ -33,7 +33,7 @@ Verified (M0):
 - herdr probes: `herdr api schema --json`, `herdr api snapshot`, `herdr agent --help`.
 - Service install is manual (user unit): copy `systemd/piremote.service` to `~/.config/systemd/user/`, then `systemctl --user daemon-reload && systemctl --user enable --now piremote`.
 
-Pins: templ v0.3.1070 and esbuild v0.28.2 as Go `tool` directives in go.mod. Datastar Go SDK gets its exact pin at first SSE use (M1).
+Pins: templ v0.3.1070 and esbuild v0.28.2 as Go `tool` directives; datastar-go v1.2.2 with the vendored browser bundle `static/js/datastar.js` (core v1.0.4); fsnotify v1.10.1. herdr socket framing is NDJSON: `{"id","method","params"}` in, one compact JSON line out.
 
 ## Architecture (planned, per PLAN.md)
 
