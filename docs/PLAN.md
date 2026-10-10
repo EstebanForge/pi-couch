@@ -1,111 +1,113 @@
-# PiRemote plan, draft v0.1
+# PiRemote plan, v0.2
 
-Feature-complete first draft. Sources: my requirements, the seven screenshots of Mario's private UI, his public posts (videos not watchable; topology taken from them), and the Pi Durable announcement. Every feature gets an ID so milestones and issues can reference them.
+Rewritten after the grilling session. Decisions are in `docs/adr/`, terms in `CONTEXT.md`. Sources: my requirements, the seven reference screenshots, pi's local docs, and herdr's live API on this machine.
 
 ## Product shape
 
-One web page, phone-first, that shows every pi session on this server and drives the ones it started. Chat view is the default surface. Terminal, files, diffs, and comments are tabs. ssh at the desk stays the power channel; the UI is a client, not a cage.
+One Android-first PWA that shows every pi session on this server, drives them through herdr, reviews git changes per repo, and pushes when an agent needs me. Chat view is the default surface. Terminal, files, changes, search, and comments are tabs. ssh and herdr at the desk stay the power channels; the UI is a client, not a cage.
 
-Topology note from Mario's setup: his agents run on his phone and his tablet connects to it. Same software shape inverted: our agents run on the server and any device connects. The consequence is the same: multi-client by design, viewport-agnostic.
+## Decisions locked
+
+- Plain pi sessions only. No pi-durable, no RPC children. Sessions resume anywhere pi runs (ADR-0001).
+- herdr is the only driver. Everything PiRemote submits goes through herdr's socket API.
+- Steer any session, hers or mine. Hard requirement, met by herdr tracking every live agent.
+- pi sessions only. No guests. Working name PiRemote.
+- Changes are repo-level git diffs; repos found by a pruned full scan of the session workdir.
+- Android-first PWA. Web push on status transitions. iOS gaps accepted.
 
 ## Feature inventory
 
 ### View
 
-- V1. Unified session list. Every pi session on the machine: classic TUI sessions from `~/.pi/agent/sessions/**/*.jsonl` and UI-started durable sessions. Sort by last activity, group by project folder. Badges: running or idle, source (classic or durable), model.
-- V2. Live tail. Open transcripts update by push over WebSocket, no refresh needed. Refresh stays as a manual fallback.
-- V3. Chat transcript. Owner messages right-aligned, assistant prose left, name and role above messages (guests show display name plus role, as in the screenshots).
-- V4. Tool-call rows. One collapsed line with a command preview, success check, expandable output. Detail view for long output.
-- V5. Inline error and refusal cards. Red full-width card with the provider message, as in the Codex refusal screenshot.
-- V6. Subagent drill-in. A subagent block shows model, parent session link, and tool list, and navigates to the child transcript with a parent breadcrumb.
-- V7. Copy buttons on assistant messages and tool output.
-- V8. Session header. Title from the first prompt, project folder, participants icon with attached-client count, per-session menu, terminal toggle.
-- V9. Footer strip. Model and thinking level, running cost, context percent. Cost needs durable sessions or usage data in the jsonl (checked in M0).
-- V10. Search tab. Full text over the open transcript in M2, across all sessions in M4.
-- V11. Files tab. Browse the session working tree, open raw file, download.
-- V12. Presence. Attached clients per session: count in the header, display names for guests.
+- V1. Unified session list. Every session under `~/.pi/agent/sessions/**/*.jsonl`, joined live with herdr's agent snapshot (Status, workdir, pane). Sort by last activity, group by workdir. Badges: Status, named or not, driver present.
+- V2. Live tail. Transcripts update by push. The scanner watches jsonl files; herdr subscriptions drive Status.
+- V3. Chat transcript. Owner messages right, assistant left, tool and thinking blocks rendered from jsonl entries. Handles branches: show the active branch; branch picker later.
+- V4. Tool-call rows. Collapsed one-liner, success check, expandable output.
+- V5. Inline error cards. Provider refusals and connection errors as full-width cards.
+- V6. Subagent drill-in. Subagent blocks link to their own session files with a parent breadcrumb.
+- V7. Copy buttons on messages and tool output.
+- V8. Session header. Session name (pi `--name` or first prompt), workdir, Status, terminal toggle, menu.
+- V9. Footer strip. Model, thinking level, cost, context percent. All present in jsonl usage and cost fields for every session, driven or not.
+- V10. Search. Over the open transcript in M4, across all sessions later.
+- V11. Files tab. Browse a Repo's tree, open raw file, download.
+- V12. Status badge only. Presence beyond Status is cut with guests.
 
 ### Drive
 
-- D1. Home composer. "What should Pi do?" input, folder picker with recent projects, model chip.
-- D2. Model and thinking level picker per session, editable later.
-- D3. Steer a running session. Message joins the current work (pi-durable `whenBusy: "steer"`).
-- D4. Queue a follow-up while busy. Distinct from steer, chosen per message.
-- D5. Stop button while streaming (abort).
-- D6. Attachments. Images into the prompt from the phone (camera roll, file picker).
-- D7. Close a session. Durable: abort plus archive. Classic: stop its tmux session. Confirmation required.
-- D8. Resume a classic session in the background from the UI. Spawns `pi --resume` in tmux, then views and tails it.
-- D9. Drive from any client. Steer, queue, and stop work from the phone, the tablet, and the desktop alike.
+- D1. Home composer. Prompt input, folder picker, herdr target picker: existing workspace and tab, or create new ones from the phone (herdr workspace and tab create commands).
+- D2. Model and thinking picker per session via the pi TUI being started with flags; changes mid-session stay a TUI action for now.
+- D3. Steer any session through herdr `agent prompt`. Works on sessions started anywhere, including herdr itself.
+- D4. Queue a follow-up: same mechanism; pi's own queue mode governs steer versus follow-up. Documented limit, not a UI toggle (ADR-0001).
+- D5. Stop button: Ctrl-C through herdr `send-keys`.
+- D6. Attachments: images into the prompt, base64 through herdr prompt where supported, else a dropped file path note.
+- D7. Stop a Session: herdr tab or workspace close. Confirmation required. Close (hide) stays separate.
+- D8. Resume from the phone: new herdr tab, agent start with `pi --session <id>`.
+- D9. Drive from any client. Phone, tablet, desktop: same server, same herdr.
 
 ### Review
 
-- R1. Changes tab per session. Changed-file count badge, per-file diff list.
-- R2. Diff rendering. Line numbers, add and remove colors, wrap toggle, jump prev and next change with position indicator.
-- R3. Line comments. Draft on any line, edit and delete before sending.
-- R4. Pending tray. Comment count, Discard all, Send all.
-- R5. Send all posts the tray as one steer message with file and line references. Durable sessions only; classic sessions get view and note only.
-- R6. Comments tab. All comments for the session with state (pending, sent) and jump to line.
-- R7. Raw file view plus download from the diff header.
-- R8. Refresh re-runs `git diff` in the session cwd.
+- R1. Changes tab per Session: the Repos found in its workdir, then per-Repo diff.
+- R2. Repo discovery: full scan of the workdir for `.git`, pruned by ignore rules (rg/fd semantics) plus a denylist: node_modules, dist, build, target, vendor, .venv, caches, hidden dirs. Fast search via rg or fdfind, never raw find.
+- R3. Repo picker when a workdir contains more than one Repo. Last choice remembered per Session.
+- R4. Diff rendering. Line numbers, add and remove colors, wrap toggle, jump prev and next change.
+- R5. Line comments: draft, edit, delete before sending. Bound to Repo, file, line.
+- R6. Pending tray: count, Discard all, Send all.
+- R7. Send all: one formatted prompt through the driver, listing file, line, and text per Comment. Marks Comments sent.
+- R8. Comments tab: all Comments for the Session with state and jump to line.
+- R9. Raw file view and download from the diff header.
 
 ### Terminal
 
-Optional, late, and never the default surface.
-
-- T1. Terminal tab per session. Classic: attach its tmux. Durable: a shell in the session cwd.
-- T2. Mobile key row: esc, ctrl, tab, arrows, and a toggleable modifier latch.
-- T3. Multiple terminal tabs per session.
-- T4. Read-only viewer as the safe default, writable on explicit toggle.
+- T1. Terminal tab: interactive attach to the session's herdr pane. herdr runs its own multiplexer (no tmux), so the server spawns `herdr agent attach <target>` under a PTY and bridges bytes to xterm.js over WebSocket.
+- T2. Mobile key row: esc, ctrl, tab, arrows, modifier latch.
+- T3. One attach client per pane at a time is herdr's rule; PiRemote uses `--takeover` only on explicit user action.
+- T4. Read-only peek mode before attach, one tap to take the wheel.
 
 ### Platform
 
-- P1. Server binds 127.0.0.1, exposed with `tailscale serve`. No auth layer; the tailnet is the boundary.
-- P2. Phone-first layout in portrait. The same DOM widens for tablet and desktop.
-- P3. Dark and light themes. Dark is the default.
-- P4. PWA. Installs to the home screen, runs standalone.
-- P5. Notifications. Push or ntfy when a session needs input or finishes. My addition to the original list; without it, phone-first means babysitting.
-- P6. Guests. A second person attaches with a display name and role. Owner and guest permission levels come later (Mario's UI shows a guest mode knob).
-- P7. No lock-in. Every session stays fully usable over ssh at any moment.
+- P1. Server binds 127.0.0.1, fronted by `tailscale serve`. The tailnet is the boundary; no extra auth.
+- P2. Android-first layout in portrait, one-hand reach. Same DOM widens for desktop.
+- P3. Dark default, light theme included.
+- P4. Installable PWA, standalone.
+- P5. Web push (VAPID) on Status transitions: working to idle, blocked, or done. Events from herdr socket subscriptions, not polling.
+- P6. No lock-in. Every session stays fully usable over ssh and herdr at any moment.
 
-### Out of scope for this draft
+### Out of scope
 
-Writing into classic TUI sessions, auth beyond the tailnet, multi-server, sandboxing, anything resembling the AITC workspace product.
+Guests, other agents' sessions, writing into session files, deleting sessions, sandboxing, iOS parity where Android leads.
 
 ## Architecture
 
-One Bun + TypeScript process, run as a systemd user unit on the server. Binds 127.0.0.1. `tailscale serve` fronts it.
+One Bun + TypeScript process as a systemd user service, beside herdr's.
 
-Two session sources behind one gateway interface:
-
-- Classic scanner. Walks `~/.pi/agent/sessions/<project>/*.jsonl`, parses entries tolerantly (unknown shapes never crash), serves list and transcript over a per-session WebSocket, tails with fs.watch.
-- Durable bridge. Owns one `@earendil-works/pi-durable` harness with SQLite storage under `~/.local/share/piremote/`. Creates conversations, steers, aborts, and streams commit ops to clients. Version pinned; isolated behind this module so API churn stays contained.
-
-Web client: mobile-first SPA, one WebSocket per open session, tabs for Chat, Terminal, Files, Changes, Search, Comments.
+- Scanner. Walks `~/.pi/agent/sessions/`, parses jsonl tolerantly (unknown entries never crash), tails with fs.watch, serves list and transcript.
+- herdr client. Socket at `~/.config/herdr/herdr.sock`, protocol 22, schema via `herdr api schema`. Actions (prompt, keys, start, close) and subscriptions (Status events). CLI fallback where the socket is fiddly.
+- Terminal bridge. PTY-spawned `herdr agent attach` piped to xterm.js clients.
+- Git service. Repo discovery and diffs per workdir, executed server-side.
+- Web client. Mobile-first PWA, one WebSocket per open view.
 
 ## Milestones
 
-- M0 read (2-3d). V1-V9 for classic sessions, P1. Useful the day it ships: all existing sessions on the phone.
-- M1 drive (3-5d). Durable harness live: D1-D6, D9, V9 cost, V12 basic presence.
-- M2 review (2-3d). R1-R8, V10 transcript search, V11 files tab.
-- M3 terminal (1-2d). T1-T4.
-- M4 hygiene (1-2d). D7, D8, V10 across all sessions, P2 and P3 polish.
-- M5 reach (2-3d). P4, P5, P6.
+- M0 read (2-3d). Scanner, V1-V9, P1. All existing sessions on the phone, live.
+- M1 drive (3-4d). D1, D3-D5, D8, D9. Start in a herdr tab, steer, stop, resume.
+- M2 review (2-3d). R1-R9, V11.
+- M3 terminal (2-3d). T1-T4.
+- M4 polish (1-2d). V10 in-transcript search, D7 close, P2-P4.
+- M5 push (1-2d). P5.
 
-Core (M0-M3) is about two weeks of focused work. M4 and M5 pad it to three.
-
-Build order rule: PiRemote gets built with pi sessions driven through PiRemote from M0 onward. Dogfood from the first commit.
+About three weeks end to end. Dogfood rule: from M0 on, PiRemote is built with pi sessions driven through PiRemote where possible.
 
 ## Risks and open questions
 
-- pi-durable is experimental. Pin the version, isolate the bridge, upgrade on purpose.
-- The classic jsonl schema is pi-internal. Tolerant parser, test against my real session history. Worst case is a degraded view, never lost work.
-- Cost and context data for classic sessions depends on what pi writes to the jsonl. Decide in M0; degrade to showing nothing.
-- iOS keyboard behavior: enter-to-send versus newline. Decide in M1.
-- Guest identity over tailscale: `tailscale whoami` headers or a shared-secret fallback. Decide in M5.
-- Title generation for durable sessions: first prompt is the v1 answer; a generated title can come later.
+- herdr protocol churn. Pin protocol 22, adapt on change; the CLI subcommands are the stable skin.
+- Prompt fidelity. Steer versus follow-up rides on pi's queue mode; revisit only if it bites.
+- Attach contention. herdr allows one attach client per pane; read-only peek avoids surprise takeovers.
+- Big workdirs. Repo scan leans on ignore rules; measure on the Wicket stack before trusting it.
+- jsonl tree branches. M0 shows the active branch; branch picker is unscheduled.
+- Ephemeral sessions (`--no-session`) are invisible by design.
 
 ## References
 
-- Pi Durable announcement: https://earendil.com/posts/pi-durable/
-- Mario's public posts on phone-first agent work: agents run on his phone, tablet connects to it, diffs read on the phone.
-- Local pi docs for session storage and the SDK.
+- ADR-0001 for the herdr-only decision.
+- herdr agent guide: https://herdr.dev/agent-guide.md
+- Pi Durable announcement (context for the rejected option): https://earendil.com/posts/pi-durable/
