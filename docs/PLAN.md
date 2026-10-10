@@ -20,14 +20,14 @@ One Android-first PWA that shows every pi session on this server, drives them th
 ### View
 
 - V1. Unified session list. Every session under `~/.pi/agent/sessions/**/*.jsonl`, joined live with herdr's agent snapshot (Status, workdir, pane). Sort by last activity, group by workdir. Badges: Status, named or not, driver present.
-- V2. Live tail. Transcripts update by push. The scanner watches jsonl files; herdr subscriptions drive Status.
+- V2. Live tail. Transcripts update by push. The scanner watches jsonl files; herdr subscriptions drive Status. Android backgrounds kill SSE: reconnect with last-entry resumption on tab wake is part of this feature, not a follow-up.
 - V3. Chat transcript. Owner messages right, assistant left, tool and thinking blocks rendered from jsonl entries. Handles branches: show the active branch; branch picker later.
 - V4. Tool-call rows. Collapsed one-liner, success check, expandable output.
 - V5. Inline error cards. Provider refusals and connection errors as full-width cards.
 - V6. Subagent drill-in. Subagent blocks link to their own session files with a parent breadcrumb.
 - V7. Copy buttons on messages and tool output.
 - V8. Session header. Session name (pi `--name` or first prompt), workdir, Status, terminal toggle, menu.
-- V9. Footer strip. Model, thinking level, cost, context percent. All present in jsonl usage and cost fields for every session, driven or not.
+- V9. Footer strip. Model, thinking level, cost, context percent. Usage and cost live in the message usage blocks; parser shapes come from real session files at M0, not guesses. Works for every session, driven or not.
 - V10. Search. Over the open transcript in M4, across all sessions later.
 - V11. Files tab. Browse a Repo's tree, open raw file, download.
 - V12. Status badge only. Presence beyond Status is cut with guests.
@@ -65,7 +65,7 @@ One Android-first PWA that shows every pi session on this server, drives them th
 
 ### Platform
 
-- P1. Server binds 127.0.0.1, fronted by `tailscale serve`. The tailnet is the boundary; no extra auth.
+- P1. Server binds 127.0.0.1 only, fronted by `tailscale serve`. The tailnet is the boundary; no extra auth.
 - P2. Android-first layout in portrait, one-hand reach. Same DOM widens for desktop.
 - P3. Dark default, light theme included.
 - P4. Installable PWA, standalone.
@@ -81,18 +81,18 @@ Guests, other agents' sessions, writing into session files, deleting sessions, s
 
 One Go binary as a systemd user service, beside herdr's. Stack decision in ADR-0002: templ + Datastar over SSE, stdlib routing, vendored xterm.js, vanilla TS islands only. No web framework, no node_modules, no client SPA.
 
-- Scanner. Walks `~/.pi/agent/sessions/`, parses jsonl tolerantly (unknown entries never crash), tails with fsnotify, serves list and transcript.
-- herdr client. Socket at `~/.config/herdr/herdr.sock`, protocol 22, schema via `herdr api schema`. Actions (prompt, keys, start, close) and subscriptions (Status events). CLI fallback where the socket is fiddly.
-- Terminal bridge. PTY-spawned `herdr agent attach` (creack/pty) piped to xterm.js over the one WebSocket.
+- Scanner. Walks `~/.pi/agent/sessions/`, parses jsonl tolerantly (unknown entries never crash), tails with fsnotify. Buffers partial lines until the newline before parsing. Indexes the sessions dir by mtime with in-memory metadata instead of repeated linear scans.
+- herdr client. Socket at `~/.config/herdr/herdr.sock`, protocol 22. Speaks the request envelope from `herdr api schema` (request, response, event, subscription_event). Actions (prompt, keys, start, close) and subscriptions (Status events). CLI fallback where the socket is fiddly.
+- Terminal bridge. PTY-spawned `herdr agent attach` (creack/pty) piped to xterm.js over the one WebSocket. Single attach client per pane is herdr's rule: read-only peek by default, takeover only on explicit action (T3, T4).
 - Git service. Repo discovery via pruned scan (rg/fdfind semantics), diffs via exec git.
-- State. Comments and UI prefs in a plain JSON file per session. No database.
-- Web client. Mobile-first PWA. Server-rendered HTML, Datastar SSE patches, one vanilla TS island (composer, terminal) built with esbuild.
+- State. Comments and UI prefs in a plain JSON file per session. No database. Sent comments persist server-side; the pending tray is per-device UI state.
+- Web client. Mobile-first PWA. Server-rendered HTML, Datastar SSE patches (SDK pinned to one exact version; 0.x churns), one vanilla TS island (composer, terminal) built with esbuild.
 - Native door. Views stay separate from streams so a Kotlin client can plug in later with no server rework: commands are JSON POSTs, SSE streams accept a raw-JSON format alongside Datastar patches, the terminal WebSocket is raw bytes plus JSON resize frames.
 
 ## Milestones
 
 - M0 read (2-3d). Go skeleton (templ, Datastar, SSE), scanner, V1-V9, P1. All existing sessions on the phone, live.
-- M0.5 shell (1d). P8, the icon on the phone. WebView APK pointing at the tailscale serve URL.
+- M0.5 shell (1-2d). P8, the icon on the phone. WebView APK pointing at the tailscale serve URL. Includes keystore, icon assets, back-button history wiring, IME and viewport handling for the composer.
 - M1 drive (3-4d). D1, D3-D5, D8, D9. Start in a herdr tab, steer, stop, resume.
 - M2 review (2-3d). R1-R9, V11.
 - M3 terminal (2-3d). T1-T4.
