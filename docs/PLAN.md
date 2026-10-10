@@ -78,22 +78,23 @@ Guests, other agents' sessions, writing into session files, deleting sessions, s
 
 ## Architecture
 
-One Bun + TypeScript process as a systemd user service, beside herdr's.
+One Go binary as a systemd user service, beside herdr's. Stack decision in ADR-0002: templ + Datastar over SSE, stdlib routing, vendored xterm.js, vanilla TS islands only. No web framework, no node_modules, no client SPA.
 
-- Scanner. Walks `~/.pi/agent/sessions/`, parses jsonl tolerantly (unknown entries never crash), tails with fs.watch, serves list and transcript.
+- Scanner. Walks `~/.pi/agent/sessions/`, parses jsonl tolerantly (unknown entries never crash), tails with fsnotify, serves list and transcript.
 - herdr client. Socket at `~/.config/herdr/herdr.sock`, protocol 22, schema via `herdr api schema`. Actions (prompt, keys, start, close) and subscriptions (Status events). CLI fallback where the socket is fiddly.
-- Terminal bridge. PTY-spawned `herdr agent attach` piped to xterm.js clients.
-- Git service. Repo discovery and diffs per workdir, executed server-side.
-- Web client. Mobile-first PWA, one WebSocket per open view.
+- Terminal bridge. PTY-spawned `herdr agent attach` (creack/pty) piped to xterm.js over the one WebSocket.
+- Git service. Repo discovery via pruned scan (rg/fdfind semantics), diffs via exec git.
+- State. Comments and UI prefs in a plain JSON file per session. No database.
+- Web client. Mobile-first PWA. Server-rendered HTML, Datastar SSE patches, one vanilla TS island (composer, terminal) built with esbuild.
 
 ## Milestones
 
-- M0 read (2-3d). Scanner, V1-V9, P1. All existing sessions on the phone, live.
+- M0 read (2-3d). Go skeleton (templ, Datastar, SSE), scanner, V1-V9, P1. All existing sessions on the phone, live.
 - M1 drive (3-4d). D1, D3-D5, D8, D9. Start in a herdr tab, steer, stop, resume.
 - M2 review (2-3d). R1-R9, V11.
 - M3 terminal (2-3d). T1-T4.
 - M4 polish (1-2d). V10 in-transcript search, D7 close, P2-P4.
-- M5 push (1-2d). P5.
+- M5 push (1-2d). P5, webpush-go.
 
 About three weeks end to end. Dogfood rule: from M0 on, PiRemote is built with pi sessions driven through PiRemote where possible.
 
