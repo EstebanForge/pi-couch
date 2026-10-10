@@ -1,21 +1,14 @@
-// Package web holds templ pages and embedded static assets.
+// Package web serves embedded static assets. Pages render in package server.
 package web
 
 import (
 	"embed"
 	"io/fs"
 	"net/http"
-
-	"github.com/EstebanForge/piremote/internal/web/pages"
-	"github.com/a-h/templ"
 )
 
 //go:embed static
 var staticFS embed.FS
-
-func Home() http.Handler {
-	return templ.Handler(pages.Home())
-}
 
 func Static() http.Handler {
 	sub, err := fs.Sub(staticFS, "static")

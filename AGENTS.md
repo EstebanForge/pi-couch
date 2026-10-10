@@ -28,6 +28,7 @@ Verified (M0):
 - `./scripts/build.sh`: templ generate, esbuild bundle, then `go build` to `bin/piremote`.
 - `go tool templ generate ./...` and the esbuild line inside build.sh run standalone when needed.
 - `go vet ./...` and `gofmt -l .` must both be clean before a commit.
+- `go test ./...`: parser and index tests; the real-sessions integration test skips itself when the dir is absent.
 - Run: `bin/piremote --addr 127.0.0.1:8090` (loopback only). `curl localhost:8090/healthz` expects `ok`.
 - herdr probes: `herdr api schema --json`, `herdr api snapshot`, `herdr agent --help`.
 - Service install is manual (user unit): copy `systemd/piremote.service` to `~/.config/systemd/user/`, then `systemctl --user daemon-reload && systemctl --user enable --now piremote`.

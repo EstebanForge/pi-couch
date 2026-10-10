@@ -21,3 +21,157 @@ body {
 main {
 	padding: 24px 16px;
 }
+
+header {
+	padding: 20px 16px 8px;
+}
+
+header h1 {
+	font-size: 20px;
+	margin: 0;
+}
+
+header .sub {
+	margin: 4px 0 0;
+	font-size: 13px;
+	color: #9ca3af;
+	display: flex;
+	gap: 12px;
+	flex-wrap: wrap;
+}
+
+.back {
+	font-size: 14px;
+	text-decoration: none;
+	color: #60a5fa;
+}
+
+.sessions {
+	list-style: none;
+	margin: 0;
+	padding: 8px;
+	display: grid;
+	gap: 8px;
+}
+
+.sessions a {
+	display: block;
+	padding: 12px;
+	border-radius: 10px;
+	background: #1a1d24;
+	text-decoration: none;
+	color: inherit;
+}
+
+@media (prefers-color-scheme: light) {
+	.sessions a {
+		background: #f3f4f6;
+	}
+}
+
+.sessions .name {
+	display: block;
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+
+.sessions .meta {
+	display: flex;
+	gap: 12px;
+	margin-top: 4px;
+	font-size: 12px;
+	color: #9ca3af;
+}
+
+.chat {
+	display: grid;
+	gap: 10px;
+	max-width: 44rem;
+}
+
+.msg {
+	padding: 10px 12px;
+	border-radius: 10px;
+}
+
+.msg p,
+.thinking p {
+	margin: 0;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+.msg.user {
+	background: #1d3a5f;
+	margin-left: 2rem;
+}
+
+.msg.assistant {
+	background: #1a1d24;
+	margin-right: 2rem;
+}
+
+@media (prefers-color-scheme: light) {
+	.msg.user {
+		background: #dbeafe;
+	}
+	.msg.assistant {
+		background: #f3f4f6;
+	}
+}
+
+.thinking {
+	color: #9ca3af;
+	font-size: 13px;
+}
+
+.thinking.redacted summary {
+	font-style: italic;
+}
+
+.tool {
+	font-size: 13px;
+	color: #c7cbd1;
+}
+
+.tool .chip,
+.chip {
+	display: inline-block;
+	padding: 1px 8px;
+	border-radius: 999px;
+	background: #2a2f39;
+	font-size: 12px;
+}
+
+.tool pre {
+	margin: 6px 0 0;
+	padding: 8px;
+	background: #14161b;
+	border-radius: 8px;
+	overflow-x: auto;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+.tool.result.error .chip {
+	background: #5f1d1d;
+	color: #fca5a5;
+}
+
+.marker {
+	font-size: 12px;
+	color: #9ca3af;
+	text-align: center;
+	padding: 4px 0;
+	border-top: 1px solid #262b33;
+}
+
+@media (prefers-color-scheme: light) {
+	.tool pre {
+		background: #e5e7eb;
+	}
+	.marker {
+		border-top-color: #e5e7eb;
+	}
+}
+

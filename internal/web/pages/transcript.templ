@@ -1,0 +1,69 @@
+package pages
+
+import (
+	"fmt"
+
+	"github.com/EstebanForge/piremote/internal/pi"
+)
+
+templ Transcript(meta pi.SessionMeta, items []pi.ViewItem) {
+	<!doctype html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<meta name="color-scheme" content="dark light"/>
+			<title>{ meta.DisplayName() }</title>
+			<link rel="stylesheet" href="/static/app.css"/>
+		</head>
+		<body>
+			<header>
+				<a class="back" href="/">&larr; Sessions</a>
+				<h1>{ meta.DisplayName() }</h1>
+				<p class="sub">{ meta.Cwd }</p>
+				<p class="sub">
+					if meta.Model != "" {
+						<span>{ meta.Model }</span>
+					}
+					if meta.TotalTokens > 0 {
+						<span>{ fmt.Sprintf("%dk tok", meta.TotalTokens/1000) }</span>
+					}
+					if meta.TotalCost > 0 {
+						<span>{ fmt.Sprintf("$%.2f", meta.TotalCost) }</span>
+					}
+				</p>
+			</header>
+			<main class="chat">
+				for _, it := range items {
+					switch it.Kind {
+					case "user":
+						<div class="msg user">
+							<p>{ it.Text }</p>
+							if it.Images > 0 {
+								<span class="chip">{ fmt.Sprintf("%d image(s)", it.Images) }</span>
+							}
+						</div>
+					case "text":
+						<div class="msg assistant"><p>{ it.Text }</p></div>
+					case "thinking":
+						if it.Redacted {
+							<details class="thinking redacted"><summary>thinking (redacted)</summary></details>
+						} else {
+							<details class="thinking"><summary>thinking</summary><p>{ it.Text }</p></details>
+						}
+					case "tool_call":
+						<div class="tool call"><span class="chip">{ it.ToolName }</span><code>{ it.Text }</code></div>
+					case "tool_result":
+						if it.IsError {
+							<details class="tool result error"><summary>{ it.ToolName + " error" }</summary><pre>{ it.Text }</pre></details>
+						} else {
+							<details class="tool result"><summary>{ it.ToolName }</summary><pre>{ it.Text }</pre></details>
+						}
+					case "marker", "bash", "custom":
+						<div class="marker">{ it.Text }</div>
+					}
+				}
+			</main>
+		</body>
+	</html>
+}

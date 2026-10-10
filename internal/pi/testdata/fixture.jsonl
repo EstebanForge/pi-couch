@@ -1,0 +1,10 @@
+{"type":"session","version":3,"id":"11111111-2222-3333-4444-555555555555","timestamp":"2026-10-10T12:00:00.000Z","cwd":"/tmp/proj"}
+{"type":"message","id":"e1","parentId":null,"timestamp":"2026-10-10T12:00:01.000Z","message":{"role":"system","content":"","sections":{"preamble":"You are an expert."},"timestamp":1760000001000}}
+{"type":"message","id":"e2","parentId":"e1","timestamp":"2026-10-10T12:00:02.000Z","message":{"role":"user","content":"Hello","timestamp":1760000002000}}
+{"type":"message","id":"e3","parentId":"e2","timestamp":"2026-10-10T12:00:03.000Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"ponder"},{"type":"text","text":"Hi!"},{"type":"toolCall","id":"call_1","name":"read","arguments":{"path":"/tmp/x"}}],"api":"anthropic-messages","provider":"anthropic","model":"claude-sonnet-4-5","usage":{"input":10,"output":20,"totalTokens":30,"cost":{"total":0.01}},"stopReason":"toolUse","timestamp":1760000003000}}
+{"type":"message","id":"e4","parentId":"e3","timestamp":"2026-10-10T12:00:04.000Z","message":{"role":"toolResult","toolCallId":"call_1","toolName":"read","content":[{"type":"text","text":"file body"}],"isError":false,"durationMs":12,"timestamp":1760000004000}}
+{"type":"session_info","id":"e5","parentId":"e4","timestamp":"2026-10-10T12:00:05.000Z","name":"Fixture session"}
+{"type":"future_thing","id":"e5b","parentId":"e4","timestamp":"2026-10-10T12:00:05.500Z","payload":42}
+this is not json and must be skipped
+{"type":"message","id":"e6","parentId":"e2","timestamp":"2026-10-10T12:00:06.000Z","message":{"role":"user","content":[{"type":"text","text":"Branch msg"},{"type":"image","mimeType":"image/png","data":"AAAA"}],"timestamp":1760000006000}}
+{"type":"message","id":"e7","parentId":"e6","timestamp":"2026-10-10T12:00:07.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Branch reply"}],"usage":{"input":1,"output":2,"totalTokens":3,"cost":{"total":0.001}},"stopReason":"stop","timestamp":1760000007000}}

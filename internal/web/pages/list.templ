@@ -1,0 +1,60 @@
+package pages
+
+import (
+	"fmt"
+	"path/filepath"
+	"time"
+
+	"github.com/EstebanForge/piremote/internal/pi"
+)
+
+templ List(sessions []pi.SessionMeta) {
+	<!doctype html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<meta name="color-scheme" content="dark light"/>
+			<title>PiRemote</title>
+			<link rel="stylesheet" href="/static/app.css"/>
+		</head>
+		<body>
+			<header>
+				<h1>PiRemote</h1>
+				<p class="sub">{ fmt.Sprintf("%d sessions", len(sessions)) }</p>
+			</header>
+			<main>
+				<ul class="sessions">
+					for _, m := range sessions {
+						<li>
+							<a href={ templ.URL("/sessions/" + m.Key) }>
+								<span class="name">{ m.DisplayName() }</span>
+								<span class="meta">
+									<span>{ filepath.Base(m.Cwd) }</span>
+									<span>{ ago(m.Mtime) }</span>
+									if m.TotalTokens > 0 {
+										<span>{ fmt.Sprintf("%dk tok", m.TotalTokens/1000) }</span>
+									}
+								</span>
+							</a>
+						</li>
+					}
+				</ul>
+			</main>
+		</body>
+	</html>
+}
+
+func ago(t time.Time) string {
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return "now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+	}
+}
