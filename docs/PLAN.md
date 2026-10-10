@@ -43,6 +43,7 @@ One Android-first PWA that shows every pi session on this server, drives them th
 - D7. Stop a Session: herdr tab or workspace close. Confirmation required. Close (hide) stays separate.
 - D8. Resume from the phone: new herdr tab, agent start with `pi --session <id>`.
 - D9. Drive from any client. Phone, tablet, desktop: same server, same herdr.
+- D10. Voice input: dictate into the composer. Whistle (Apache-2.0, 16.9 MB, seven languages, CPU) compiled to WASM and run on-device in the client; 16 kHz mono capture in the TS island. Fallback: the server execs a vendored `needle` binary on an uploaded clip (ADR-0004). Model and engine pinned; keyword biasing seeded with repo and stack names.
 
 ### Review
 
@@ -109,9 +110,11 @@ About three weeks end to end. Dogfood rule: from M0 on, PiRemote is built with p
 - Big workdirs. Repo scan leans on ignore rules; measure on the Wicket stack before trusting it.
 - jsonl tree branches. M0 shows the active branch; branch picker is unscheduled.
 - Ephemeral sessions (`--no-session`) are invisible by design.
+- Whistle is days old and its WebView WASM speed is unmeasured; D10 carries a server-exec fallback.
 
 ## References
 
 - ADR-0001 for the herdr-only decision.
+- ADR-0004 for the voice-input placement.
 - herdr agent guide: https://herdr.dev/agent-guide.md
 - Pi Durable announcement (context for the rejected option): https://earendil.com/posts/pi-durable/
