@@ -69,6 +69,7 @@ One Android-first PWA that shows every pi session on this server, drives them th
 - P2. Android-first layout in portrait, one-hand reach. Same DOM widens for desktop.
 - P3. Dark default, light theme included.
 - P4. Installable PWA, standalone.
+- P8. Android shell APK (ADR-0003): one Activity, one WebView, opens the configured URL full-screen on launch, back wired to history, no browser chrome, no tabs. First-launch URL field persisted on device, default the tailscale serve URL. Same gradle and Kotlin toolchain as Baluard, sideloaded, no store.
 - P5. Web push (VAPID) on Status transitions: working to idle, blocked, or done. Events from herdr socket subscriptions, not polling.
 - P6. No lock-in. Every session stays fully usable over ssh and herdr at any moment.
 
@@ -91,6 +92,7 @@ One Go binary as a systemd user service, beside herdr's. Stack decision in ADR-0
 ## Milestones
 
 - M0 read (2-3d). Go skeleton (templ, Datastar, SSE), scanner, V1-V9, P1. All existing sessions on the phone, live.
+- M0.5 shell (1d). P8, the icon on the phone. WebView APK pointing at the tailscale serve URL.
 - M1 drive (3-4d). D1, D3-D5, D8, D9. Start in a herdr tab, steer, stop, resume.
 - M2 review (2-3d). R1-R9, V11.
 - M3 terminal (2-3d). T1-T4.
