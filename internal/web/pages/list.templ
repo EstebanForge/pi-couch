@@ -21,11 +21,15 @@ templ List(sessions []pi.SessionMeta, badges map[string]string) {
 			<link rel="stylesheet" href="/static/app.css"/>
 			<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 			<script src="/static/js/datastar.js" defer></script>
+			<script src="/static/js/main.js" defer></script>
 		</head>
 		<body class="bg-base-100 text-base-content">
-			<header class="px-4 pt-5 pb-2">
-				<h1 class="text-2xl font-bold">Couch Pi</h1>
-				<p class="sub text-sm opacity-60">{ fmt.Sprintf("%d sessions", len(sessions)) }</p>
+			<header class="px-4 pt-5 pb-2 flex items-end justify-between gap-2">
+				<div class="min-w-0">
+					<h1 class="text-2xl font-bold">Couch Pi</h1>
+					<p class="sub text-sm opacity-60">{ fmt.Sprintf("%d sessions", len(sessions)) }</p>
+				</div>
+				<button id="push-btn" type="button" class="btn btn-ghost btn-sm rounded-full shrink-0" hidden>Notifications</button>
 			</header>
 			<main>
 				<div id="session-list" data-on-load={ sseTarget() }>

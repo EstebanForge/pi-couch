@@ -1,0 +1,172 @@
+package push
+
+import (
+	"context"
+	"log/slog"
+	"sync"
+	"time"
+
+	"github.com/EstebanForge/couch-pi/internal/herdr"
+)
+
+// herdrAPI is the slice of the herdr client the watcher needs.
+type herdrAPI interface {
+	Agents(ctx context.Context) ([]herdr.Agent, error)
+	AgentWait(ctx context.Context, target string, until []string, timeout time.Duration) (herdr.Agent, error)
+}
+
+// Event is one stable Status transition worth pushing.
+type Event struct {
+	Path   string // pi session file path
+	Name   string // herdr agent name
+	Status string
+}
+
+// notifyStatuses are the transitions worth a phone buzz (P5 spec).
+var notifyStatuses = map[string]bool{"idle": true, "blocked": true, "done": true}
+
+// Watcher runs one agent.wait loop per live driven agent (ADR-0005). A slow
+// reconcile tick spawns watchers for new agents and stops stale ones.
+type Watcher struct {
+	HC        herdrAPI
+	Reconcile time.Duration
+	Stability time.Duration // bounce window: the status must hold this long
+	WaitMax   time.Duration // upper bound of one agent.wait call
+	Rearm     time.Duration // pause after a matched return; herdr re-fires on agent updates while the status holds
+	OnEvent   func(Event)
+	Log       *slog.Logger
+}
+
+// Run blocks until ctx is done; callers wrap in a goroutine.
+func (w *Watcher) Run(ctx context.Context) {
+	var mu sync.Mutex
+	stops := map[string]chan struct{}{}
+	// notified tracks the last pushed status per session path so a late
+	// herdr done->idle flip cannot double-buzz the phone.
+	notified := map[string]string{}
+
+	reconcile := func() {
+		agents, err := w.HC.Agents(ctx)
+		if err != nil {
+			return // socket down; next tick retries
+		}
+		live := map[string]bool{}
+		for _, a := range agents {
+			// Any pane with a driver gets a watcher, whatever its current
+			// status: a working agent is exactly the one about to finish.
+			if a.PaneID == "" || a.AgentStatus == "" {
+				continue
+			}
+			live[a.PaneID] = true
+			mu.Lock()
+			_, running := stops[a.PaneID]
+			if !running {
+				stop := make(chan struct{})
+				stops[a.PaneID] = stop
+				mu.Unlock()
+				go w.watch(ctx, a.PaneID, stop, &mu, notified)
+			} else {
+				mu.Unlock()
+			}
+		}
+		mu.Lock()
+		for pane, stop := range stops {
+			if !live[pane] {
+				close(stop)
+				delete(stops, pane)
+			}
+		}
+		mu.Unlock()
+	}
+
+	reconcile()
+	tick := time.NewTicker(w.Reconcile)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			reconcile()
+		}
+	}
+}
+
+// watch is the per-agent loop: block on agent.wait, debounce, notify, re-arm.
+// A herdr wait fires only on transitions into a state (verified, ADR-0005),
+// so the loop cannot spin while the status holds.
+func (w *Watcher) watch(ctx context.Context, pane string, stop <-chan struct{}, mu *sync.Mutex, notified map[string]string) {
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ctx.Done():
+			return
+		default:
+		}
+		ag, err := w.HC.AgentWait(ctx, pane, []string{"idle", "blocked", "done"}, w.WaitMax)
+		if err != nil {
+			select {
+			case <-stop:
+				return
+			case <-ctx.Done():
+				return
+			case <-time.After(500 * time.Millisecond):
+			}
+			continue
+		}
+		status := ag.AgentStatus
+		path := ""
+		if ag.Session != nil {
+			path = ag.Session.Value
+		}
+		if !notifyStatuses[status] || path == "" {
+			continue
+		}
+		// Bounce window: the status must still hold after the settle delay.
+		select {
+		case <-stop:
+			return
+		case <-ctx.Done():
+			return
+		case <-time.After(w.Stability):
+		}
+		if !w.stillSame(pane, status, path) {
+			continue
+		}
+		mu.Lock()
+		skip := notified[path] == status || (notified[path] == "done" && status == "idle")
+		if !skip {
+			notified[path] = status
+		}
+		mu.Unlock()
+		if skip {
+			// herdr re-fires the wait on every agent update while the
+			// status holds; dedupe here so the phone buzzes once.
+		} else {
+			w.OnEvent(Event{Path: path, Name: ag.Name, Status: status})
+		}
+		select {
+		case <-stop:
+			return
+		case <-ctx.Done():
+			return
+		case <-time.After(w.Rearm):
+		}
+	}
+}
+
+// stillSame re-reads the agent list to confirm the transition held.
+func (w *Watcher) stillSame(pane, status, path string) bool {
+	agents, err := w.HC.Agents(context.Background())
+	if err != nil {
+		return false
+	}
+	for _, a := range agents {
+		if a.PaneID != pane {
+			continue
+		}
+		return a.AgentStatus == status && a.Session != nil && a.Session.Value == path
+	}
+	return false
+}

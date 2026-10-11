@@ -93,6 +93,96 @@ function initTerminal(): void {
 
 initTerminal();
 initComments();
+initPush();
+
+// Push island: bell toggle on the sessions header. Registers /sw.js, mirrors
+// the subscription to POST /api/push/subscribe, unsubscribes on opt-out.
+// Permission is only asked on this explicit tap, never on page load.
+function initPush(): void {
+	const btn = document.getElementById("push-btn") as HTMLButtonElement | null;
+	if (!btn || !("serviceWorker" in navigator) || !("PushManager" in window)) {
+		return; // hidden by default; no support, no control
+	}
+	btn.hidden = false;
+	const setLabel = (on: boolean): void => {
+		btn.textContent = on ? "Notifications on" : "Notifications off";
+		btn.classList.toggle("btn-primary", on);
+	};
+	void (async () => {
+		try {
+			const reg = await navigator.serviceWorker.register("/sw.js");
+			let on = false;
+			try {
+				on = !!(await reg.pushManager.getSubscription());
+			} catch {
+				on = false; // headless/browser without a push service: control still renders
+			}
+			setLabel(on);
+			btn.addEventListener("click", () => {
+				void togglePush(reg, btn, setLabel);
+			});
+		} catch {
+			btn.hidden = true; // SW refused (rare); control is dead weight
+		}
+	})();
+}
+
+async function togglePush(reg: ServiceWorkerRegistration, btn: HTMLButtonElement, setLabel: (on: boolean) => void): Promise<void> {
+	btn.disabled = true;
+	try {
+		let cur: PushSubscription | null = null;
+		try {
+			cur = await reg.pushManager.getSubscription();
+		} catch {
+			cur = null;
+		}
+		if (cur) {
+			await fetch("/api/push/unsubscribe", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ endpoint: cur.endpoint }),
+			});
+			await cur.unsubscribe();
+			setLabel(false);
+			return;
+		}
+		const perm = await Notification.requestPermission();
+		if (perm !== "granted") {
+			alert("Notification permission was not granted, so push stays off.");
+			return;
+		}
+		const keyRes = await fetch("/api/push/key");
+		if (!keyRes.ok) {
+			throw new Error("key");
+		}
+		const { publicKey } = (await keyRes.json()) as { publicKey: string };
+		const sub = await reg.pushManager.subscribe({
+			userVisibleOnly: true,
+			applicationServerKey: urlBase64ToBytes(publicKey),
+		});
+		const res = await fetch("/api/push/subscribe", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify(sub.toJSON()),
+		});
+		setLabel(res.ok);
+	} catch {
+		alert("Could not set up notifications. Try again.");
+	} finally {
+		btn.disabled = false;
+	}
+}
+
+// applicationServerKey wants the raw 65 bytes; the server sends base64url.
+function urlBase64ToBytes(b64: string): Uint8Array {
+	const pad = "=".repeat((4 - (b64.length % 4)) % 4);
+	const raw = atob((b64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
+	const out = new Uint8Array(raw.length);
+	for (let i = 0; i < raw.length; i++) {
+		out[i] = raw.charCodeAt(i);
+	}
+	return out;
+}
 
 // Comments island: per-device pending tray in localStorage, draft sheet on
 // the diff view, and Send All through the server's herdr prompt. Pending

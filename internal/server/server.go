@@ -17,6 +17,7 @@ import (
 
 	"github.com/EstebanForge/couch-pi/internal/herdr"
 	"github.com/EstebanForge/couch-pi/internal/pi"
+	"github.com/EstebanForge/couch-pi/internal/push"
 	"github.com/EstebanForge/couch-pi/internal/store"
 	"github.com/EstebanForge/couch-pi/internal/web"
 	"github.com/EstebanForge/couch-pi/internal/web/pages"
@@ -34,15 +35,20 @@ const terminalPoll = time.Second
 const changesPoll = 3 * time.Second
 
 type app struct {
-	logger  *slog.Logger
-	idx     *pi.Index
-	herdr   *herdr.Client
-	watcher *pi.Watcher // nil: heartbeat-only updates
-	st      *store.Store
+	logger      *slog.Logger
+	idx         *pi.Index
+	herdr       *herdr.Client
+	watcher     *pi.Watcher // nil: heartbeat-only updates
+	st          *store.Store
+	pusher      *push.Sender
+	vapidPublic string
 }
 
-func Run(logger *slog.Logger, addr string, idx *pi.Index, hc *herdr.Client, w *pi.Watcher, st *store.Store) error {
-	a := &app{logger: logger, idx: idx, herdr: hc, watcher: w, st: st}
+func Run(logger *slog.Logger, addr string, idx *pi.Index, hc *herdr.Client, w *pi.Watcher, st *store.Store, pusher *push.Sender) error {
+	a := &app{logger: logger, idx: idx, herdr: hc, watcher: w, st: st, pusher: pusher}
+	if pusher != nil {
+		a.vapidPublic = pusher.Public
+	}
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           a.routes(),
@@ -79,6 +85,10 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("POST /sessions/{key}/terminal/input", a.terminalInput)
 	mux.HandleFunc("POST /sessions/{key}/prompt", a.steerPrompt)
 	mux.HandleFunc("POST /sessions/{key}/stop", a.steerStop)
+	mux.HandleFunc("GET /api/push/key", a.pushKey)
+	mux.HandleFunc("POST /api/push/subscribe", a.pushSubscribe)
+	mux.HandleFunc("POST /api/push/unsubscribe", a.pushUnsubscribe)
+	mux.HandleFunc("GET /sw.js", a.serviceWorker)
 	mux.Handle("GET /static/", web.Static())
 	return mux
 }

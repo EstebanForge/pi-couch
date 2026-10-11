@@ -97,6 +97,13 @@ func (ix *Index) Meta(key string) (SessionMeta, bool) {
 	return SessionMeta{}, false
 }
 
+// ByPath returns one session by absolute file path (herdr reports the
+// session file path; push notifications deep-link back into the UI).
+func (ix *Index) ByPath(path string) (SessionMeta, bool) {
+	meta, ok := ix.cachedMeta(path)
+	return meta, ok
+}
+
 func (ix *Index) subdirs() []string {
 	dirs, err := os.ReadDir(ix.root)
 	if err != nil {

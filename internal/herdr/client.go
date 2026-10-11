@@ -107,6 +107,29 @@ func (c *Client) TargetForPath(ctx context.Context, path string) (string, error)
 // ErrNotDriven means no herdr agent currently runs that session file.
 var ErrNotDriven = errors.New("herdr: no agent runs this session")
 
+// AgentWait blocks until the agent transitions into one of the until states
+// and returns the agent object. Verified against herdr 0.9.3: the call fires
+// on transitions into a state, not on state equality, so a re-armed watcher
+// cannot spin (ADR-0005). timeout bounds each call; a herdr timeout is an
+// error and the watcher re-arms.
+func (c *Client) AgentWait(ctx context.Context, target string, until []string, timeout time.Duration) (Agent, error) {
+	params := map[string]any{"target": target, "until": until}
+	if timeout > 0 {
+		params["timeout_ms"] = timeout.Milliseconds()
+	}
+	res, err := c.callD(ctx, "agent.wait", params, timeout+5*time.Second)
+	if err != nil {
+		return Agent{}, err
+	}
+	var out struct {
+		Agent Agent `json:"agent"`
+	}
+	if err := json.Unmarshal(res, &out); err != nil {
+		return Agent{}, fmt.Errorf("herdr: decode agent.wait: %w", err)
+	}
+	return out.Agent, nil
+}
+
 // Prompt submits text to the agent. pi queues it when working: steering
 // rides on pi's queue mode, no UI toggle (ADR-0001).
 func (c *Client) Prompt(ctx context.Context, target, text string) error {
@@ -166,6 +189,12 @@ func (c *Client) PaneSendInput(ctx context.Context, paneID, text string, keys []
 }
 
 func (c *Client) call(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	return c.callD(ctx, method, params, 0)
+}
+
+// callD issues one request; d bounds the socket beyond the context
+// (0: the client default, negative: context only, for long waits).
+func (c *Client) callD(ctx context.Context, method string, params any, d time.Duration) (json.RawMessage, error) {
 	dialer := net.Dialer{Timeout: c.timeout}
 	conn, err := dialer.DialContext(ctx, "unix", c.path)
 	if err != nil {
@@ -173,10 +202,18 @@ func (c *Client) call(ctx context.Context, method string, params any) (json.RawM
 	}
 	defer conn.Close()
 	deadline := time.Now().Add(c.timeout)
-	if dl, ok := ctx.Deadline(); ok && dl.Before(deadline) {
+	switch {
+	case d > 0:
+		deadline = time.Now().Add(d)
+	case d < 0:
+		deadline = time.Time{}
+	}
+	if dl, ok := ctx.Deadline(); ok && (deadline.IsZero() || dl.Before(deadline)) {
 		deadline = dl
 	}
-	_ = conn.SetDeadline(deadline)
+	if !deadline.IsZero() {
+		_ = conn.SetDeadline(deadline)
+	}
 
 	id := fmt.Sprintf("couch-pi-%d", c.seq.Add(1))
 	req, err := json.Marshal(map[string]any{"id": id, "method": method, "params": params})
