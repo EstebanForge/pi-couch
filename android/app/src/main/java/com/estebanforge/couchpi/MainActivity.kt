@@ -7,6 +7,7 @@ import android.graphics.Color
 import android.os.Bundle
 import android.view.View
 import android.view.WindowInsets
+import android.view.ViewGroup
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
@@ -71,9 +72,28 @@ class MainActivity : Activity() {
             webViewClient = WebViewClient() // stay in-app: no browser tabs
             setBackgroundColor(Color.parseColor("#0f1115"))
         }
+        // Edge-to-edge is enforced at targetSdk 35, so the bars draw over the
+        // app. Pad a wrapper (never the WebView itself: it ignores view
+        // padding when compositing) by the real window insets. The APK is the
+        // only client of this shell, so the safe area is always applied.
+        val root = android.widget.FrameLayout(this)
+        root.addView(
+            view,
+            ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        )
+        root.setOnApplyWindowInsetsListener { v, insets ->
+            val bars = insets.getInsets(
+                WindowInsets.Type.statusBars()
+                    or WindowInsets.Type.navigationBars()
+                    or WindowInsets.Type.displayCutout()
+            )
+            v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            WindowInsets.CONSUMED
+        }
         web = view
-        setContentView(view)
-        window.insetsController?.hide(WindowInsets.Type.systemBars())
+        setContentView(root)
+        @Suppress("DEPRECATION") // pre-35 devices; ignored on 35+
+        window.statusBarColor = Color.parseColor("#0f1115")
         view.loadUrl(url)
     }
 
