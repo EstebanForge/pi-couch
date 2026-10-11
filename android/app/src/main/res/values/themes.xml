@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- minSdk 32: the Android 12+ system splash always applies, so the
+         launch screen is the launcher glyph on the app background color.
+         windowBackground keeps the pre-WebView frames dark too. -->
+    <style name="Theme.CouchPi" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/ic_launcher_bg</item>
+        <item name="android:windowSplashScreenBackground">@color/ic_launcher_bg</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+    </style>
+</resources>

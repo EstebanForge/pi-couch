@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Pi Agent mark: three paths from the cdnlogo SVG (800x800 box), scaled
+     into the 108dp adaptive-icon canvas. The glyph (469.4 units) becomes
+     44dp, centered in the 66dp safe circle. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="0.09375"
+        android:scaleY="0.09375"
+        android:translateX="16.5"
+        android:translateY="16.5">
+        <path
+            android:fillColor="#F09082"
+            android:pathData="M165.29,165.29H517.36V400H400V282.65H165.29Z" />
+        <path
+            android:fillColor="#4D9ABF"
+            android:pathData="M165.29,282.65H282.65V400H400V517.36H282.65V634.72H165.29Z" />
+        <path
+            android:fillColor="#F1BE58"
+            android:pathData="M517.36,400H634.72V634.72H517.36Z" />
+    </group>
+</vector>
