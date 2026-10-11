@@ -1,0 +1,111 @@
+package pages
+
+import (
+	"fmt"
+	"path/filepath"
+	"strings"
+
+	"github.com/EstebanForge/piremote/internal/git"
+	"github.com/EstebanForge/piremote/internal/pi"
+)
+
+// Changes is the R tab: repo discovery, working-tree file cards, and a
+// per-file diff view (R2/R4).
+templ Changes(meta pi.SessionMeta, repo string, branch string, files []git.FileChange, selFile string, diffText string, truncated bool) {
+	<!doctype html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<meta name="color-scheme" content="dark light"/>
+			<title>{ meta.DisplayName() } - changes</title>
+			<link rel="stylesheet" href="/static/app.css"/>
+			<script src="/static/js/datastar.js" defer></script>
+		</head>
+		<body>
+			<header>
+				<a class="back" href={ templ.URL("/sessions/" + meta.Key) }>&larr; Chat</a>
+				<h1>{ meta.DisplayName() }</h1>
+				<p class="sub">
+					if repo != "" {
+						<span>{ filepath.Base(repo) }</span>
+					}
+					if branch != "" {
+						<span>{ branch }</span>
+					}
+				</p>
+			</header>
+			@TabStrip(meta.Key, "chg")
+			<main class="changes">
+				if repo == "" {
+					<div class="notice">Not a git repository.</div>
+				} else if selFile != "" {
+					<a class="back" href={ templ.URL("/sessions/" + meta.Key + "/changes") }>&larr; All changes</a>
+					<h2>{ selFile }</h2>
+					@DiffView(diffText, truncated)
+				} else {
+					<div id="file-list" data-on-load={ sseChanges(meta.Key) }>
+						@FileCards(meta.Key, files)
+					</div>
+				}
+			</main>
+		</body>
+	</html>
+}
+
+// FileCards is the live-patched working-tree list.
+templ FileCards(key string, files []git.FileChange) {
+	if len(files) == 0 {
+		<div class="clean">Working tree clean.</div>
+	}
+	for _, f := range files {
+		if f.Binary {
+			<div class="file">
+				<span class={ "chip", "l-" + f.Label() }>{ f.Label() }</span>
+				<span class="path">{ f.Path }</span>
+				<span class="stat">binary</span>
+			</div>
+		} else if f.Label() == "new" {
+			<div class="file">
+				<span class={ "chip", "l-" + f.Label() }>{ f.Label() }</span>
+				<span class="path">{ f.Path }</span>
+			</div>
+		} else {
+			<div class="file">
+				<a href={ templ.URL("/sessions/" + key + "/changes?file=" + f.Path) }>
+					<span class={ "chip", "l-" + f.Label() }>{ f.Label() }</span>
+					<span class="path">{ f.Path }</span>
+					<span class="stat">{ fmt.Sprintf("+%d -%d", f.Added, f.Deleted) }</span>
+				</a>
+			</div>
+		}
+	}
+}
+
+// DiffView renders one diff with per-line classes.
+templ DiffView(diffText string, truncated bool) {
+	if diffText == "" {
+		<div class="clean">No text diff.</div>
+	} else {
+		<pre class="diff">
+			for _, line := range strings.Split(strings.TrimRight(diffText, "\n"), "\n") {
+				if strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++") {
+					<span class="dl add">{ line }</span>
+				} else if strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---") {
+					<span class="dl del">{ line }</span>
+				} else if strings.HasPrefix(line, "@@") {
+					<span class="dl hunk">{ line }</span>
+				} else {
+					<span class="dl meta">{ line }</span>
+				}
+			}
+		</pre>
+	}
+	if truncated {
+		<div class="notice">Diff truncated at 2000 lines.</div>
+	}
+}
+
+func sseChanges(key string) string {
+	return `@get('/stream/changes/` + key + `')`
+}

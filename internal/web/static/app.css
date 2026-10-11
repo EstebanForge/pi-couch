@@ -257,6 +257,79 @@ header .sub {
 	color: #fde68a;
 }
 
+.file a {
+	display: flex;
+	gap: 8px;
+	align-items: baseline;
+	padding: 10px 16px;
+	border-bottom: 1px solid #1c2027;
+	color: inherit;
+	text-decoration: none;
+}
+
+.file .path {
+	flex: 1;
+	font-size: 13px;
+	word-break: break-all;
+}
+
+.file .stat {
+	font-size: 12px;
+	color: #9ca3af;
+}
+
+.chip.l-mod {
+	color: #fbbf24;
+}
+
+.chip.l-new {
+	color: #4ade80;
+}
+
+.chip.l-del {
+	color: #f87171;
+}
+
+.chip.l-ren {
+	color: #60a5fa;
+}
+
+.clean {
+	padding: 24px 16px;
+	text-align: center;
+	color: #9ca3af;
+}
+
+.diff {
+	padding: 8px;
+	font-size: 12px;
+	line-height: 1.5;
+	overflow-x: auto;
+}
+
+.dl {
+	display: block;
+	white-space: pre;
+}
+
+.dl.add {
+	color: #4ade80;
+	background: rgba(74, 222, 128, 0.08);
+}
+
+.dl.del {
+	color: #f87171;
+	background: rgba(248, 113, 113, 0.08);
+}
+
+.dl.hunk {
+	color: #60a5fa;
+}
+
+.dl.meta {
+	color: #9ca3af;
+}
+
 .steerbar {
 	position: sticky;
 	bottom: 0;

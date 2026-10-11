@@ -5,7 +5,7 @@ package pages
 templ TabStrip(key string, active string) {
 	<nav class="tabs">
 		<a href={ templ.URL("/sessions/" + key) } class={ "tab", templ.KV("active", active == "chat") }>Chat</a>
-		<span class="tab">Chg</span>
+		<a href={ templ.URL("/sessions/" + key + "/changes") } class={ "tab", templ.KV("active", active == "chg") }>Chg</a>
 		<a href={ templ.URL("/sessions/" + key + "/terminal") } class={ "tab", templ.KV("active", active == "term") }>Term</a>
 		<span class="tab">Files</span>
 		<span class="tab">Cmts</span>
