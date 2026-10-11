@@ -300,6 +300,108 @@ header .sub {
 	color: #9ca3af;
 }
 
+.sheet {
+	position: fixed;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	z-index: 10;
+	display: grid;
+	gap: 8px;
+	padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
+	background: #0f1115;
+	border-top: 1px solid #2a2f39;
+}
+
+.sheet[hidden] {
+	display: none;
+}
+
+.sheet-ref {
+	font-size: 13px;
+	font-weight: 600;
+	color: #60a5fa;
+}
+
+.sheet textarea {
+	resize: none;
+	padding: 10px;
+	border-radius: 10px;
+	border: 1px solid #2a2f39;
+	background: #1a1d24;
+	color: inherit;
+	font: inherit;
+}
+
+.sheet-actions {
+	display: flex;
+	gap: 8px;
+	justify-content: flex-end;
+}
+
+.tray-head {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+	justify-content: space-between;
+	padding: 10px 16px;
+	font-size: 13px;
+}
+
+.tray-head button {
+	padding: 8px 10px;
+	font-size: 12px;
+}
+
+.cmts h2 {
+	font-size: 12px;
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	color: #9ca3af;
+	padding: 12px 16px 4px;
+	border-top: 1px solid #262b33;
+}
+
+.cmt-card {
+	padding: 10px 16px;
+	border-bottom: 1px solid #1c2027;
+}
+
+.cmt-card textarea {
+	width: 100%;
+	box-sizing: border-box;
+	resize: none;
+	padding: 8px;
+	border-radius: 8px;
+	border: 1px solid #2a2f39;
+	background: #1a1d24;
+	color: inherit;
+	font: inherit;
+	font-size: 13px;
+}
+
+.cmt-meta {
+	display: flex;
+	justify-content: space-between;
+	font-size: 12px;
+	color: #60a5fa;
+	margin-bottom: 4px;
+}
+
+.cmt-card > button {
+	padding: 6px 10px;
+	font-size: 12px;
+	background: #2a2f39;
+	color: #9ca3af;
+	margin-top: 6px;
+}
+
+.empty {
+	padding: 16px;
+	font-size: 13px;
+	color: #9ca3af;
+}
+
 .diff {
 	padding: 8px;
 	font-size: 12px;
@@ -309,7 +411,24 @@ header .sub {
 
 .dl {
 	display: block;
+	width: 100%;
 	white-space: pre;
+	text-align: left;
+	font: inherit;
+	border: 0;
+	border-radius: 0;
+	background: none;
+	color: inherit;
+	padding: 0;
+}
+
+button.dl {
+	font-weight: inherit;
+	cursor: pointer;
+}
+
+button.dl:active {
+	filter: brightness(1.5);
 }
 
 .dl.add {
@@ -397,6 +516,15 @@ button.stop {
 	.notice {
 		background: #dbeafe;
 		color: #1e3a8a;
+	}
+	.sheet {
+		background: #ffffff;
+		border-top-color: #e5e7eb;
+	}
+	.sheet textarea,
+	.cmt-card textarea {
+		background: #f3f4f6;
+		border-color: #e5e7eb;
 	}
 }
 

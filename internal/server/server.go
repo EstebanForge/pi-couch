@@ -17,6 +17,7 @@ import (
 
 	"github.com/EstebanForge/piremote/internal/herdr"
 	"github.com/EstebanForge/piremote/internal/pi"
+	"github.com/EstebanForge/piremote/internal/store"
 	"github.com/EstebanForge/piremote/internal/web"
 	"github.com/EstebanForge/piremote/internal/web/pages"
 )
@@ -37,10 +38,11 @@ type app struct {
 	idx     *pi.Index
 	herdr   *herdr.Client
 	watcher *pi.Watcher // nil: heartbeat-only updates
+	st      *store.Store
 }
 
-func Run(logger *slog.Logger, addr string, idx *pi.Index, hc *herdr.Client, w *pi.Watcher) error {
-	a := &app{logger: logger, idx: idx, herdr: hc, watcher: w}
+func Run(logger *slog.Logger, addr string, idx *pi.Index, hc *herdr.Client, w *pi.Watcher, st *store.Store) error {
+	a := &app{logger: logger, idx: idx, herdr: hc, watcher: w, st: st}
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           a.routes(),
@@ -70,6 +72,8 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("GET /stream/changes/{key}", a.streamChanges)
 	mux.HandleFunc("GET /sessions/{key}/files", a.files)
 	mux.HandleFunc("GET /sessions/{key}/files/view", a.filesView)
+	mux.HandleFunc("GET /sessions/{key}/comments", a.comments)
+	mux.HandleFunc("POST /sessions/{key}/comments", a.sendAll)
 	mux.HandleFunc("GET /sessions/{key}/terminal", a.terminal)
 	mux.HandleFunc("GET /stream/terminal/{key}", a.streamTerminal)
 	mux.HandleFunc("POST /sessions/{key}/terminal/input", a.terminalInput)

@@ -1,0 +1,50 @@
+package pages
+
+import (
+	"fmt"
+	"path/filepath"
+	"time"
+
+	"github.com/EstebanForge/piremote/internal/pi"
+	"github.com/EstebanForge/piremote/internal/store"
+)
+
+// Comments is the Cmts tab. Pending comments live on the device and render
+// by the island; sent comments come from server state (R5/R6).
+templ Comments(meta pi.SessionMeta, sent []store.Comment) {
+	<!doctype html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<meta name="color-scheme" content="dark light"/>
+			<title>{ meta.DisplayName() } - comments</title>
+			<link rel="stylesheet" href="/static/app.css"/>
+			<script src="/static/js/main.js" defer></script>
+		</head>
+		<body>
+			<header>
+				<a class="back" href={ templ.URL("/sessions/" + meta.Key) }>&larr; Chat</a>
+				<h1>{ meta.DisplayName() }</h1>
+				<p class="sub"><span>{ filepath.Base(meta.Cwd) }</span></p>
+			</header>
+			@TabStrip(meta.Key, "cmts")
+			<main class="cmts" id="cmt-app" data-key={ meta.Key }>
+				<section id="cmt-pending"></section>
+				<h2>Sent</h2>
+				if len(sent) == 0 {
+					<p class="empty">No sent comments yet. Tap a diff line on the Changes tab.</p>
+				}
+				for _, c := range sent {
+					<div class="cmt-card">
+						<div class="cmt-meta">
+							<span>{ fmt.Sprintf("%s:%d", c.File, c.Line) }</span>
+							<span>{ time.Unix(c.TS, 0).Format("Jan 2 15:04") }</span>
+						</div>
+						<p>{ c.Body }</p>
+					</div>
+				}
+			</main>
+		</body>
+	</html>
+}

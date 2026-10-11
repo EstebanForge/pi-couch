@@ -11,6 +11,7 @@ import (
 	"github.com/EstebanForge/piremote/internal/herdr"
 	"github.com/EstebanForge/piremote/internal/pi"
 	"github.com/EstebanForge/piremote/internal/server"
+	"github.com/EstebanForge/piremote/internal/store"
 )
 
 func main() {
@@ -39,7 +40,13 @@ func main() {
 		watcher = nil
 	}
 
-	if err := server.Run(logger, *addr, idx, herdr.New(), watcher); err != nil {
+	st, err := store.New()
+	if err != nil {
+		logger.Error("state dir", "err", err)
+		os.Exit(1)
+	}
+
+	if err := server.Run(logger, *addr, idx, herdr.New(), watcher, st); err != nil {
 		logger.Error("server exited", "err", err)
 		os.Exit(1)
 	}
