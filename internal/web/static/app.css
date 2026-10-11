@@ -27,8 +27,8 @@
 }
 
 #wheel-btn.on {
-	background: #5f4a1d;
-	color: #fde68a;
+	background: var(--color-primary);
+	color: var(--color-primary-content);
 }
 
 .diff {
