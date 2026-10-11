@@ -1,6 +1,19 @@
 /* Custom bits daisyUI does not cover: the xterm container, the key row,
    the diff renderer, and the stop-box collapse guard. */
 
+/* The Android shell draws the app under the transparent status bar. Chromium
+   WebView leaves env(safe-area-inset-*) at 0, so the shell injects the real
+   window insets as CSS variables (--safe-top/--safe-bottom) on page load;
+   env() remains the fallback for regular browsers. */
+body {
+	padding-top: calc(var(--safe-top, env(safe-area-inset-top)) / 2);
+	padding-bottom: var(--safe-bottom, env(safe-area-inset-bottom));
+}
+
+nav.dock {
+	padding-bottom: var(--safe-bottom, env(safe-area-inset-bottom));
+}
+
 #term {
 	height: calc(100dvh - 230px);
 	padding: 4px;
@@ -12,7 +25,7 @@
 	display: flex;
 	gap: 6px;
 	overflow-x: auto;
-	padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+	padding: 8px 8px calc(8px + var(--safe-bottom, env(safe-area-inset-bottom)));
 	background: var(--color-base-100, #0f1115);
 	border-top: 1px solid var(--color-base-300, #262b33);
 }

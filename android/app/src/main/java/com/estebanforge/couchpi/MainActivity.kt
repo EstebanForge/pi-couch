@@ -7,7 +7,6 @@ import android.graphics.Color
 import android.os.Bundle
 import android.view.View
 import android.view.WindowInsets
-import android.view.ViewGroup
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
@@ -69,32 +68,37 @@ class MainActivity : Activity() {
             settings.domStorageEnabled = true
             settings.allowFileAccess = false
             settings.allowContentAccess = false
-            webViewClient = WebViewClient() // stay in-app: no browser tabs
+            webViewClient = safeAreaClient() // stay in-app; inject real insets
             setBackgroundColor(Color.parseColor("#0f1115"))
         }
-        // Edge-to-edge is enforced at targetSdk 35, so the bars draw over the
-        // app. Pad a wrapper (never the WebView itself: it ignores view
-        // padding when compositing) by the real window insets. The APK is the
-        // only client of this shell, so the safe area is always applied.
-        val root = android.widget.FrameLayout(this)
-        root.addView(
-            view,
-            ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-        )
-        root.setOnApplyWindowInsetsListener { v, insets ->
-            val bars = insets.getInsets(
-                WindowInsets.Type.statusBars()
-                    or WindowInsets.Type.navigationBars()
-                    or WindowInsets.Type.displayCutout()
-            )
-            v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-            WindowInsets.CONSUMED
-        }
+        // Edge-to-edge at targetSdk 35: the WebView stays full-bleed so the
+        // page background flows under the transparent status bar. The page
+        // offsets its own content via env(safe-area-inset-*) (viewport-fit
+        // cover), so the shell applies no padding of its own.
         web = view
-        setContentView(root)
+        setContentView(view)
         @Suppress("DEPRECATION") // pre-35 devices; ignored on 35+
-        window.statusBarColor = Color.parseColor("#0f1115")
+        window.statusBarColor = Color.TRANSPARENT
         view.loadUrl(url)
+    }
+
+    // Chromium WebView keeps env(safe-area-inset-*) at 0, so pass the real
+    // window insets (in CSS px) to the page on every load. Datastar patches
+    // keep the injected documentElement vars; navigations refire this hook.
+    private fun safeAreaClient(): WebViewClient {
+        return object : WebViewClient() {
+            override fun onPageFinished(view: WebView, url: String?) {
+                val ins = view.rootWindowInsets?.getInsets(
+                    WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars()
+                ) ?: return
+                val d = resources.displayMetrics.density
+                val js = "document.documentElement.style.setProperty" +
+                    "(\"--safe-top\",\"${ins.top / d}px\");" +
+                    "document.documentElement.style.setProperty" +
+                    "(\"--safe-bottom\",\"${ins.bottom / d}px\")"
+                view.evaluateJavascript(js, null)
+            }
+        }
     }
 
     // Back walks browser history inside the shell before leaving the app.
