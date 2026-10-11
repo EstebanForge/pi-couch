@@ -27,37 +27,38 @@ templ Changes(meta pi.SessionMeta, repo string, branch string, files []git.FileC
 			<script src="/static/js/datastar.js" defer></script>
 			<script src="/static/js/main.js" defer></script>
 		</head>
-		<body>
-			<header>
-				<a class="back" href={ templ.URL("/sessions/" + meta.Key) }>&larr; Chat</a>
-				<h1>{ meta.DisplayName() }</h1>
-				<p class="sub">
+		<body class="bg-base-100 text-base-content">
+			<header class="px-4 pt-3 pb-2">
+				<a class="link link-hover text-sm opacity-60" href={ templ.URL("/sessions/" + meta.Key) }>&larr; Chat</a>
+				<h1 class="text-xl font-bold truncate">{ meta.DisplayName() }</h1>
+				<div class="flex items-center gap-2 text-sm opacity-70">
 					if repo != "" {
-						<span>{ filepath.Base(repo) }</span>
+						<span class="font-mono">{ filepath.Base(repo) }</span>
 					}
 					if branch != "" {
-						<span>{ branch }</span>
+						<span class="badge badge-ghost badge-sm font-mono">{ branch }</span>
 					}
-				</p>
+				</div>
 			</header>
 			@TabStrip(meta.Key, "chg")
-			<main class="changes">
+			<main class="px-3 pb-24">
 				if repo == "" {
-					<div class="notice">Not a git repository.</div>
+					<div class="alert alert-warning py-2 px-3 text-sm rounded-xl"><span>Not a git repository.</span></div>
 				} else if selFile != "" {
-					<a class="back" href={ templ.URL("/sessions/" + meta.Key + "/changes") }>&larr; All changes</a>
-					<h2>{ selFile }</h2>
+					<a class="link link-hover text-sm opacity-60" href={ templ.URL("/sessions/" + meta.Key + "/changes") }>&larr; All changes</a>
+					<h2 class="font-mono text-sm font-semibold mt-1 truncate">{ selFile }</h2>
 					@DiffView(diffText, truncated)
-					<div id="cmt-sheet" class="sheet" hidden data-key={ meta.Key } data-file={ selFile }>
-						<div class="sheet-ref" id="cmt-ref"></div>
-						<textarea id="cmt-text" placeholder="Add feedback comment..." rows="3"></textarea>
-						<div class="sheet-actions">
-							<button id="cmt-cancel" type="button">Cancel</button>
-							<button id="cmt-save" type="button" class="primary">Save</button>
+					<div id="cmt-sheet" class="fixed bottom-0 inset-x-0 z-50 bg-base-200 rounded-t-2xl p-3" hidden data-key={ meta.Key } data-file={ selFile }>
+						<div class="text-sm opacity-70" id="cmt-ref"></div>
+						<textarea id="cmt-text" placeholder="Add feedback comment..." rows="3"
+							class="textarea w-full bg-base-100 rounded-xl"></textarea>
+						<div class="flex justify-end gap-2">
+							<button id="cmt-cancel" type="button" class="btn btn-ghost btn-sm">Cancel</button>
+							<button id="cmt-save" type="button" class="btn btn-primary btn-sm">Save</button>
 						</div>
 					</div>
 				} else {
-					<div id="file-list" data-on-load={ sseChanges(meta.Key) }>
+					<div id="file-list" class="flex flex-col gap-2" data-on-load={ sseChanges(meta.Key) }>
 						@FileCards(meta.Key, files)
 					</div>
 				}
@@ -69,29 +70,49 @@ templ Changes(meta pi.SessionMeta, repo string, branch string, files []git.FileC
 // FileCards is the live-patched working-tree list.
 templ FileCards(key string, files []git.FileChange) {
 	if len(files) == 0 {
-		<div class="clean">Working tree clean.</div>
+		<div class="text-sm opacity-60 text-center py-8">Working tree clean.</div>
 	}
 	for _, f := range files {
 		if f.Binary {
-			<div class="file">
-				<span class={ "chip", "l-" + f.Label() }>{ f.Label() }</span>
-				<span class="path">{ f.Path }</span>
-				<span class="stat">binary</span>
+			<div class="card bg-base-200 rounded-xl shadow-none">
+				<div class="card-body p-3 flex-row items-center gap-2">
+					<span class={ "badge badge-sm shrink-0", labelBadge(f.Label()) }>{ f.Label() }</span>
+					<span class="font-mono text-sm truncate min-w-0">{ f.Path }</span>
+					<span class="text-xs opacity-60 ml-auto shrink-0">binary</span>
+				</div>
 			</div>
 		} else if f.Label() == "new" {
-			<div class="file">
-				<span class={ "chip", "l-" + f.Label() }>{ f.Label() }</span>
-				<span class="path">{ f.Path }</span>
+			<div class="card bg-base-200 rounded-xl shadow-none">
+				<div class="card-body p-3 flex-row items-center gap-2">
+					<span class={ "badge badge-sm shrink-0", labelBadge(f.Label()) }>{ f.Label() }</span>
+					<span class="font-mono text-sm truncate min-w-0">{ f.Path }</span>
+				</div>
 			</div>
 		} else {
-			<div class="file">
-				<a href={ templ.URL("/sessions/" + key + "/changes?file=" + f.Path) }>
-					<span class={ "chip", "l-" + f.Label() }>{ f.Label() }</span>
-					<span class="path">{ f.Path }</span>
-					<span class="stat">{ fmt.Sprintf("+%d -%d", f.Added, f.Deleted) }</span>
+			<div class="card bg-base-200 rounded-xl shadow-none">
+				<a href={ templ.URL("/sessions/" + key + "/changes?file=" + f.Path) } class="card-body p-3 flex-row items-center gap-2">
+					<span class={ "badge badge-sm shrink-0", labelBadge(f.Label()) }>{ f.Label() }</span>
+					<span class="font-mono text-sm truncate min-w-0">{ f.Path }</span>
+					<span class="text-xs opacity-60 ml-auto shrink-0">{ fmt.Sprintf("+%d -%d", f.Added, f.Deleted) }</span>
 				</a>
 			</div>
 		}
+	}
+}
+
+// labelBadge maps a FileChange label to a daisyUI badge variant.
+func labelBadge(label string) string {
+	switch label {
+	case "mod":
+		return "badge-warning"
+	case "new":
+		return "badge-success"
+	case "del":
+		return "badge-error"
+	case "ren":
+		return "badge-info"
+	default:
+		return "badge-ghost"
 	}
 }
 
@@ -149,9 +170,9 @@ func hunkNewStart(line string) int {
 // its file position; the draft sheet opens from the page island.
 templ DiffView(diffText string, truncated bool) {
 	if diffText == "" {
-		<div class="clean">No text diff.</div>
+		<div class="text-sm opacity-60 text-center py-8">No text diff.</div>
 	} else {
-		<pre class="diff">
+		<pre class="diff bg-base-200 rounded-xl p-2 text-xs overflow-x-auto mt-2">
 			for _, l := range parseDiff(diffText) {
 				if l.kind == "hunk" || l.kind == "meta" {
 					<span class={ "dl", l.kind }>{ l.text }</span>
@@ -162,7 +183,7 @@ templ DiffView(diffText string, truncated bool) {
 		</pre>
 	}
 	if truncated {
-		<div class="notice">Diff truncated at 2000 lines.</div>
+		<div class="alert alert-warning py-2 px-3 text-sm rounded-xl mt-2"><span>Diff truncated at 2000 lines.</span></div>
 	}
 }
 

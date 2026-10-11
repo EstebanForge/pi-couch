@@ -20,12 +20,15 @@ templ Transcript(meta pi.SessionMeta, items []pi.ViewItem, driver string, notice
 			<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 			<script src="/static/js/datastar.js" defer></script>
 		</head>
-		<body>
-			<header>
-				<a class="back" href="/">&larr; Sessions</a>
-				<h1>{ meta.DisplayName() }</h1>
-				<p class="sub">{ meta.Cwd }</p>
-				<p class="sub">
+		<body class="bg-base-100 text-base-content">
+			<header class="px-4 pt-3 pb-2">
+				<a class="link link-hover text-sm opacity-60" href="/">&larr; Sessions</a>
+				<div class="flex items-center gap-2">
+					<h1 class="text-xl font-bold truncate min-w-0 flex-1">{ meta.DisplayName() }</h1>
+					<span id="driver-badge" class="shrink-0">@DriverBadge(driver)</span>
+				</div>
+				<p class="text-sm opacity-60 truncate">{ meta.Cwd }</p>
+				<div class="flex items-center gap-2 text-sm opacity-80 flex-wrap">
 					if meta.Model != "" {
 						<span>{ meta.Model }</span>
 					}
@@ -35,28 +38,23 @@ templ Transcript(meta pi.SessionMeta, items []pi.ViewItem, driver string, notice
 					if meta.TotalCost > 0 {
 						<span>{ fmt.Sprintf("$%.2f", meta.TotalCost) }</span>
 					}
-					<span id="driver-badge">@DriverBadge(driver)</span>
-				</p>
+				</div>
 			</header>
-	@TabStrip(meta.Key, "chat")
+			@TabStrip(meta.Key, "chat")
 			if notice != "" {
-				<div class="notice">{ notice }</div>
+				<div class="alert alert-warning py-2 px-3 text-sm mx-3 rounded-xl"><span>{ notice }</span></div>
 			}
-			<div id="stop-box" class="stopbox">@StopForm(meta.Key, driver)</div>
-			<main class="chat">
+			<div id="stop-box">@StopForm(meta.Key, driver)</div>
+			<main class="flex flex-col gap-3 px-3 pb-60">
 				<div id="chat" data-on-load={ sseTranscript(meta.Key) }>
 					@TranscriptItems(items)
 				</div>
 			</main>
-			<div class="steerbar">
-				if driver == "working" || driver == "blocked" {
-					<form method="post" action={ templ.URL("/sessions/" + meta.Key + "/stop") } class="steer">
-						<button class="stop" type="submit">Stop (Ctrl-C)</button>
-					</form>
-				}
-				<form method="post" action={ templ.URL("/sessions/" + meta.Key + "/prompt") } class="composer">
-					<textarea name="text" required placeholder="Steer the agent"></textarea>
-					<button type="submit">Send</button>
+			<div class="fixed bottom-14 inset-x-0 z-40 bg-base-100 border-t border-base-300 p-2 flex items-end gap-2">
+				<form method="post" action={ templ.URL("/sessions/" + meta.Key + "/prompt") } class="flex-1 flex items-end gap-2">
+					<textarea name="text" required placeholder="Steer the agent"
+						class="textarea w-full rounded-xl bg-base-200 min-h-11 leading-6"></textarea>
+					<button class="btn btn-primary rounded-xl" type="submit">Send</button>
 				</form>
 			</div>
 		</body>
@@ -68,30 +66,50 @@ templ TranscriptItems(items []pi.ViewItem) {
 	for _, it := range items {
 		switch it.Kind {
 		case "user":
-			<div class="msg user">
-				<p>{ it.Text }</p>
-				if it.Images > 0 {
-					<span class="chip">{ fmt.Sprintf("%d image(s)", it.Images) }</span>
-				}
+			<div class="chat chat-end">
+				<div class="chat-bubble bg-base-300 text-base-content rounded-2xl">
+					<p class="whitespace-pre-wrap">{ it.Text }</p>
+					if it.Images > 0 {
+						<span class="badge badge-sm badge-ghost">{ fmt.Sprintf("%d image(s)", it.Images) }</span>
+					}
+				</div>
 			</div>
 		case "text":
-			<div class="msg assistant"><p>{ it.Text }</p></div>
+			<div class="chat chat-start">
+				<div class="chat-bubble bg-base-200 rounded-2xl">
+					<p class="whitespace-pre-wrap">{ it.Text }</p>
+				</div>
+			</div>
 		case "thinking":
 			if it.Redacted {
-				<details class="thinking redacted"><summary>thinking (redacted)</summary></details>
+				<details class="collapse collapse-arrow bg-base-200/60 rounded-xl">
+					<summary class="collapse-title text-sm py-1 min-h-0 opacity-60">thinking (redacted)</summary>
+				</details>
 			} else {
-				<details class="thinking"><summary>thinking</summary><p>{ it.Text }</p></details>
+				<details class="collapse collapse-arrow bg-base-200/60 rounded-xl">
+					<summary class="collapse-title text-sm py-1 min-h-0 opacity-60">thinking</summary>
+					<div class="collapse-content"><p class="text-sm whitespace-pre-wrap opacity-80">{ it.Text }</p></div>
+				</details>
 			}
 		case "tool_call":
-			<div class="tool call"><span class="chip">{ it.ToolName }</span><code>{ it.Text }</code></div>
+			<div class="flex items-center gap-2 text-sm pl-1">
+				<span class="badge badge-ghost badge-sm font-mono shrink-0">{ it.ToolName }</span>
+				<code class="opacity-60 truncate min-w-0">{ it.Text }</code>
+			</div>
 		case "tool_result":
 			if it.IsError {
-				<details class="tool result error"><summary>{ it.ToolName + " error" }</summary><pre>{ it.Text }</pre></details>
+				<details class="collapse collapse-arrow bg-base-200/60 rounded-xl border border-error/40">
+					<summary class="collapse-title text-sm py-1 min-h-0 text-error">{ it.ToolName + " error" }</summary>
+					<div class="collapse-content"><pre class="text-xs whitespace-pre-wrap overflow-x-auto">{ it.Text }</pre></div>
+				</details>
 			} else {
-				<details class="tool result"><summary>{ it.ToolName }</summary><pre>{ it.Text }</pre></details>
+				<details class="collapse collapse-arrow bg-base-200/60 rounded-xl">
+					<summary class="collapse-title text-sm py-1 min-h-0 opacity-60">{ it.ToolName }</summary>
+					<div class="collapse-content"><pre class="text-xs whitespace-pre-wrap overflow-x-auto opacity-80">{ it.Text }</pre></div>
+				</details>
 			}
 		case "marker", "bash", "custom":
-			<div class="marker">{ it.Text }</div>
+			<div class="text-xs opacity-50 text-center uppercase tracking-wider">{ it.Text }</div>
 		}
 	}
 }
@@ -99,7 +117,10 @@ templ TranscriptItems(items []pi.ViewItem) {
 // DriverBadge renders inside #driver-badge; empty status clears it.
 templ DriverBadge(status string) {
 	if status != "" {
-		<span class={ "badge", "b-" + status }>{ status }</span>
+		<span class={ "badge badge-sm gap-1 shrink-0", badgeClass(status) }>
+			<span class={ "status status-xs", statusColor(status) }></span>
+			{ status }
+		</span>
 	}
 }
 
@@ -108,8 +129,8 @@ templ DriverBadge(status string) {
 // driver reports working or blocked.
 templ StopForm(key string, status string) {
 	if status == "working" || status == "blocked" {
-		<form method="post" action={ templ.URL("/sessions/" + key + "/stop") } class="steer">
-			<button class="stop" type="submit">Stop (Ctrl-C)</button>
+		<form method="post" action={ templ.URL("/sessions/" + key + "/stop") } class="px-3">
+			<button class="btn btn-error btn-sm rounded-full" type="submit">Stop (Ctrl-C)</button>
 		</form>
 	}
 }

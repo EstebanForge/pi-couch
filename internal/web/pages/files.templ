@@ -23,41 +23,42 @@ templ Files(meta pi.SessionMeta, repo string, rel string, entries []browse.Entry
 			<link rel="stylesheet" href="/static/app.css"/>
 			<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 		</head>
-		<body>
-			<header>
-				<a class="back" href={ templ.URL("/sessions/" + meta.Key) }>&larr; Chat</a>
-				<h1>{ meta.DisplayName() }</h1>
-				<p class="sub">
-					if repo != "" {
-						<span>{ path.Base(repo) }</span>
-					}
-				</p>
+		<body class="bg-base-100 text-base-content">
+			<header class="px-4 pt-3 pb-2">
+				<a class="link link-hover text-sm opacity-60" href={ templ.URL("/sessions/" + meta.Key) }>&larr; Chat</a>
+				<h1 class="text-xl font-bold truncate">{ meta.DisplayName() }</h1>
+				if repo != "" {
+					<p class="text-sm opacity-60 font-mono">{ path.Base(repo) }</p>
+				}
 			</header>
 			@TabStrip(meta.Key, "files")
-			<main class="files">
+			<main class="px-3 pb-24">
 				if repo == "" {
-					<div class="notice">Not a git repository.</div>
+					<div class="alert alert-warning py-2 px-3 text-sm rounded-xl"><span>Not a git repository.</span></div>
 				} else {
-					<nav class="crumbs">
-						<a href={ templ.URL("/sessions/" + meta.Key + "/files") }>{ path.Base(repo) }</a>
+					<nav class="flex flex-wrap items-center gap-1 text-sm opacity-70 mb-3">
+						<a class="link link-hover font-mono" href={ templ.URL("/sessions/" + meta.Key + "/files") }>{ path.Base(repo) }</a>
 						@Crumbs(meta.Key, rel)
 					</nav>
-					for _, e := range entries {
-						if e.Dir {
-							<div class="file">
-								<a href={ templ.URL("/sessions/" + meta.Key + "/files?dir=" + rel + "/" + e.Name) }>
-									<span class="dirc">d</span>
-									<span class="path">{ e.Name }/</span>
-								</a>
-							</div>
-						} else {
-							<div class="file">
-								<a href={ templ.URL("/sessions/" + meta.Key + "/files/view?file=" + rel + "/" + e.Name) }>
-									<span class="path">{ e.Name }</span>
-								</a>
-							</div>
+					<div class="flex flex-col gap-1">
+						for _, e := range entries {
+							if e.Dir {
+								<div class="card bg-base-200 rounded-xl shadow-none">
+									<a href={ templ.URL("/sessions/" + meta.Key + "/files?dir=" + rel + "/" + e.Name) } class="card-body p-2.5 flex-row items-center gap-2">
+										<span class="size-7 shrink-0 rounded-lg bg-base-300 grid place-items-center text-xs">D</span>
+										<span class="text-sm truncate">{ e.Name }/</span>
+									</a>
+								</div>
+							} else {
+								<div class="card bg-base-200/60 rounded-xl shadow-none">
+									<a href={ templ.URL("/sessions/" + meta.Key + "/files/view?file=" + rel + "/" + e.Name) } class="card-body p-2.5 flex-row items-center gap-2">
+										<span class="size-7 shrink-0"></span>
+										<span class="text-sm font-mono truncate">{ e.Name }</span>
+									</a>
+								</div>
+							}
 						}
-					}
+					</div>
 				}
 			</main>
 		</body>
@@ -67,7 +68,7 @@ templ Files(meta pi.SessionMeta, repo string, rel string, entries []browse.Entry
 templ Crumbs(key string, rel string) {
 	for i, part := range splitRel(rel) {
 		<span>/</span>
-		<a href={ templ.URL("/sessions/" + key + "/files?dir=" + joinRel(splitRel(rel)[:i+1])) }>{ part }</a>
+		<a class="link link-hover font-mono" href={ templ.URL("/sessions/" + key + "/files?dir=" + joinRel(splitRel(rel)[:i+1])) }>{ part }</a>
 	}
 }
 
@@ -85,22 +86,22 @@ templ PreviewPage(meta pi.SessionMeta, repo string, file string, content string,
 			<link rel="stylesheet" href="/static/app.css"/>
 			<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 		</head>
-		<body>
-			<header>
-				<a class="back" href={ templ.URL("/sessions/" + meta.Key + "/files?dir=" + path.Dir(file)) }>&larr; Files</a>
-				<h1>{ file }</h1>
+		<body class="bg-base-100 text-base-content">
+			<header class="px-4 pt-3 pb-2">
+				<a class="link link-hover text-sm opacity-60" href={ templ.URL("/sessions/" + meta.Key + "/files?dir=" + path.Dir(file)) }>&larr; Files</a>
+				<h1 class="text-sm font-mono font-semibold truncate">{ file }</h1>
 			</header>
 			@TabStrip(meta.Key, "files")
-			<main class="files">
+			<main class="px-3 pb-24">
 				if kind == "binary" {
-					<div class="notice">Binary file: no preview.</div>
+					<div class="alert alert-warning py-2 px-3 text-sm rounded-xl"><span>Binary file: no preview.</span></div>
 				} else if kind == "toolarge" {
-					<div class="notice">File over 2 MB: no preview.</div>
+					<div class="alert alert-warning py-2 px-3 text-sm rounded-xl"><span>File over 2 MB: no preview.</span></div>
 				} else {
 					if kind == "partial" {
-						<div class="notice">Preview cut at 256 KB.</div>
+						<div class="alert alert-warning py-2 px-3 text-sm rounded-xl mb-2"><span>Preview cut at 256 KB.</span></div>
 					}
-					<pre class="diff"><span class="dl meta">{ content }</span></pre>
+					<pre class="diff bg-base-200 rounded-xl p-2 text-xs overflow-x-auto"><span class="dl meta">{ content }</span></pre>
 				}
 			</main>
 		</body>

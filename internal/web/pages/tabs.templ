@@ -1,12 +1,22 @@
 package pages
 
-// TabStrip renders the five-tab bar. All five link out; every tab is live.
+// TabStrip renders the five-tab dock. All five link out; every tab is live.
 templ TabStrip(key string, active string) {
-	<nav class="tabs">
-		<a href={ templ.URL("/sessions/" + key) } class={ "tab", templ.KV("active", active == "chat") }>Chat</a>
-		<a href={ templ.URL("/sessions/" + key + "/changes") } class={ "tab", templ.KV("active", active == "chg") }>Chg</a>
-		<a href={ templ.URL("/sessions/" + key + "/terminal") } class={ "tab", templ.KV("active", active == "term") }>Term</a>
-		<a href={ templ.URL("/sessions/" + key + "/files") } class={ "tab", templ.KV("active", active == "files") }>Files</a>
-		<a href={ templ.URL("/sessions/" + key + "/comments") } class={ "tab", templ.KV("active", active == "cmts") }>Cmts</a>
+	<nav class="dock dock-sm fixed bottom-0 inset-x-0 z-40">
+		<a href={ templ.URL("/sessions/" + key) } class={ templ.KV("dock-active", active == "chat") }>
+			<span class="dock-label">Chat</span>
+		</a>
+		<a href={ templ.URL("/sessions/" + key + "/changes") } class={ templ.KV("dock-active", active == "chg") }>
+			<span class="dock-label">Chg</span>
+		</a>
+		<a href={ templ.URL("/sessions/" + key + "/terminal") } class={ templ.KV("dock-active", active == "term") }>
+			<span class="dock-label">Term</span>
+		</a>
+		<a href={ templ.URL("/sessions/" + key + "/files") } class={ templ.KV("dock-active", active == "files") }>
+			<span class="dock-label">Files</span>
+		</a>
+		<a href={ templ.URL("/sessions/" + key + "/comments") } class={ templ.KV("dock-active", active == "cmts") }>
+			<span class="dock-label">Cmts</span>
+		</a>
 	</nav>
 }

@@ -170,13 +170,14 @@ function initTray(app: HTMLElement): void {
 		const cs = loadTray(key);
 		pend.textContent = "";
 		const head = document.createElement("div");
-		head.className = "tray-head";
+		head.className = "flex items-center justify-between gap-2 mb-2";
 		const count = document.createElement("strong");
 		count.textContent = cs.length === 1 ? "Pending (1 comment)" : `Pending (${cs.length} comments)`;
 		head.appendChild(count);
 		if (cs.length > 0) {
 			const discard = document.createElement("button");
 			discard.type = "button";
+			discard.className = "btn btn-ghost btn-sm";
 			discard.textContent = "Discard all";
 			discard.addEventListener("click", () => {
 				if (confirm("Discard all pending comments? This cannot be undone.")) {
@@ -186,7 +187,7 @@ function initTray(app: HTMLElement): void {
 			});
 			const send = document.createElement("button");
 			send.type = "button";
-			send.className = "primary";
+			send.className = "btn btn-primary btn-sm rounded-full";
 			send.textContent = `Send all (${cs.length})`;
 			send.addEventListener("click", () => void sendAll(cs, send));
 			head.appendChild(discard);
@@ -195,12 +196,15 @@ function initTray(app: HTMLElement): void {
 		pend.appendChild(head);
 		cs.forEach((c, i) => {
 			const card = document.createElement("div");
-			card.className = "cmt-card";
+			card.className = "card bg-base-200 rounded-xl shadow-none mb-2";
+			const body = document.createElement("div");
+			body.className = "card-body p-3 gap-1";
 			const meta = document.createElement("div");
-			meta.className = "cmt-meta";
+			meta.className = "text-xs opacity-60 flex justify-between font-mono";
 			meta.textContent = `${c.file}:${c.line}`;
 			const ta = document.createElement("textarea");
 			ta.rows = 2;
+			ta.className = "textarea textarea-sm w-full bg-base-100 rounded-lg";
 			ta.value = c.text;
 			ta.addEventListener("change", () => {
 				cs[i].text = ta.value.trim();
@@ -208,15 +212,17 @@ function initTray(app: HTMLElement): void {
 			});
 			const del = document.createElement("button");
 			del.type = "button";
+			del.className = "btn btn-ghost btn-sm text-error self-end";
 			del.textContent = "Delete";
 			del.addEventListener("click", () => {
 				cs.splice(i, 1);
 				saveTray(key, cs);
 				render();
 			});
-			card.appendChild(meta);
-			card.appendChild(ta);
-			card.appendChild(del);
+			card.appendChild(body);
+			body.appendChild(meta);
+			body.appendChild(ta);
+			body.appendChild(del);
 			pend.appendChild(card);
 		});
 	};

@@ -21,11 +21,13 @@ templ Terminal(meta pi.SessionMeta, driver string) {
 			<script src="/static/js/vendor/xterm-addon-fit.js"></script>
 			<script src="/static/js/main.js" defer></script>
 		</head>
-		<body>
-			<header>
-				<a class="back" href={ templ.URL("/sessions/" + meta.Key) }>&larr; Chat</a>
-				<h1>{ meta.DisplayName() }</h1>
-				<span id="driver-badge">@DriverBadge(driver)</span>
+		<body class="bg-base-100 text-base-content overflow-x-hidden">
+			<header class="px-4 pt-3 pb-2">
+				<a class="link link-hover text-sm opacity-60" href={ templ.URL("/sessions/" + meta.Key) }>&larr; Chat</a>
+				<div class="flex items-center gap-2">
+					<h1 class="text-xl font-bold truncate min-w-0 flex-1">{ meta.DisplayName() }</h1>
+					<span id="driver-badge" class="shrink-0">@DriverBadge(driver)</span>
+				</div>
 			</header>
 			@TabStrip(meta.Key, "term")
 			<div id="term" data-key={ meta.Key }></div>

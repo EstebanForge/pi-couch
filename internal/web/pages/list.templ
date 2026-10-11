@@ -22,10 +22,10 @@ templ List(sessions []pi.SessionMeta, badges map[string]string) {
 			<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 			<script src="/static/js/datastar.js" defer></script>
 		</head>
-		<body>
-			<header>
-				<h1>Couch Pi</h1>
-				<p class="sub">{ fmt.Sprintf("%d sessions", len(sessions)) }</p>
+		<body class="bg-base-100 text-base-content">
+			<header class="px-4 pt-5 pb-2">
+				<h1 class="text-2xl font-bold">Couch Pi</h1>
+				<p class="sub text-sm opacity-60">{ fmt.Sprintf("%d sessions", len(sessions)) }</p>
 			</header>
 			<main>
 				<div id="session-list" data-on-load={ sseTarget() }>
@@ -39,25 +39,63 @@ templ List(sessions []pi.SessionMeta, badges map[string]string) {
 // SessionList is the live-patched fragment. The stream endpoint re-renders
 // it into #session-list on every watcher tick and heartbeat.
 templ SessionList(sessions []pi.SessionMeta, badges map[string]string) {
-	<ul class="sessions">
+	<ul id="session-cards" class="flex flex-col gap-2 px-3 pb-24">
 		for _, m := range sessions {
 			<li>
-				<a href={ templ.URL("/sessions/" + m.Key) }>
-					<span class="name">{ m.DisplayName() }</span>
-					if status, ok := badges[m.Path]; ok {
-						<span class={ "badge", "b-" + status }>{ status }</span>
-					}
-					<span class="meta">
-						<span>{ filepath.Base(m.Cwd) }</span>
-						<span>{ ago(m.Mtime) }</span>
-						if m.TotalTokens > 0 {
-							<span>{ tok(m.TotalTokens) }</span>
-						}
-					</span>
+				<a href={ templ.URL("/sessions/" + m.Key) } class="card bg-base-200 rounded-2xl shadow-none">
+					<div class="card-body p-3 flex-row items-center gap-3">
+						<div class="size-10 shrink-0 rounded-xl bg-base-300 grid place-items-center text-sm">&gt;_</div>
+						<div class="min-w-0 flex-1">
+							<div class="flex items-center gap-2">
+								<span class="font-semibold truncate min-w-0">{ m.DisplayName() }</span>
+								if status, ok := badges[m.Path]; ok {
+									<span class={ "badge badge-sm gap-1 shrink-0", badgeClass(status) }>
+										<span class={ "status status-xs", statusColor(status) }></span>
+										{ status }
+									</span>
+								}
+							</div>
+							<div class="text-sm opacity-60 flex gap-2">
+								<span class="truncate min-w-0">{ filepath.Base(m.Cwd) }</span>
+								<span class="whitespace-nowrap shrink-0">{ ago(m.Mtime) }</span>
+								if m.TotalTokens > 0 {
+									<span class="whitespace-nowrap shrink-0">{ tok(m.TotalTokens) }</span>
+								}
+							</div>
+						</div>
+					</div>
 				</a>
 			</li>
 		}
 	</ul>
+}
+
+// badgeClass maps a herdr driver status to a daisyUI badge variant.
+func badgeClass(status string) string {
+	switch status {
+	case "working":
+		return "badge-info"
+	case "done":
+		return "badge-success"
+	case "blocked":
+		return "badge-warning"
+	default:
+		return "badge-ghost"
+	}
+}
+
+// statusColor maps a herdr driver status to a daisyUI status dot color.
+func statusColor(status string) string {
+	switch status {
+	case "working":
+		return "status-info"
+	case "done":
+		return "status-success"
+	case "blocked":
+		return "status-warning"
+	default:
+		return ""
+	}
 }
 
 func sseTarget() string {
