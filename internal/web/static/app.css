@@ -208,6 +208,55 @@ header .sub {
 	color: #bfdbfe;
 }
 
+.tabs {
+	display: grid;
+	grid-template-columns: repeat(5, 1fr);
+	border-bottom: 1px solid #262b33;
+}
+
+.tab {
+	padding: 10px 0;
+	text-align: center;
+	font-size: 13px;
+	font-weight: 600;
+	color: #9ca3af;
+	min-height: 48px;
+}
+
+.tab.active {
+	color: #e5e7eb;
+	border-bottom: 2px solid #60a5fa;
+}
+
+#term {
+	height: calc(100dvh - 230px);
+	padding: 4px;
+}
+
+#keyrow {
+	position: sticky;
+	bottom: 0;
+	display: flex;
+	gap: 6px;
+	overflow-x: auto;
+	padding: 8px;
+	background: #0f1115;
+	border-top: 1px solid #262b33;
+}
+
+#keyrow button {
+	padding: 10px 12px;
+	background: #1a1d24;
+	color: #e5e7eb;
+	border: 1px solid #2a2f39;
+	white-space: nowrap;
+}
+
+#wheel-btn.on {
+	background: #5f4a1d;
+	color: #fde68a;
+}
+
 .steerbar {
 	position: sticky;
 	bottom: 0;

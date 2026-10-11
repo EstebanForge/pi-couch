@@ -26,6 +26,9 @@ const defaultTail = 40
 // heartbeat re-renders badges even when no session file moves.
 const heartbeat = 30 * time.Second
 
+// terminalPoll is the pane.read tick. herdr 0.9.3 has no output push.
+const terminalPoll = time.Second
+
 type app struct {
 	logger  *slog.Logger
 	idx     *pi.Index
@@ -60,6 +63,9 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("GET /stream/sessions", a.streamSessions)
 	mux.HandleFunc("GET /stream/transcript/{key}", a.streamTranscript)
 	mux.HandleFunc("GET /sessions/{key}", a.transcript)
+	mux.HandleFunc("GET /sessions/{key}/terminal", a.terminal)
+	mux.HandleFunc("GET /stream/terminal/{key}", a.streamTerminal)
+	mux.HandleFunc("POST /sessions/{key}/terminal/input", a.terminalInput)
 	mux.HandleFunc("POST /sessions/{key}/prompt", a.steerPrompt)
 	mux.HandleFunc("POST /sessions/{key}/stop", a.steerStop)
 	mux.Handle("GET /static/", web.Static())

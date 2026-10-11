@@ -121,6 +121,50 @@ func (c *Client) SendKeys(ctx context.Context, target string, keys []string) err
 	return err
 }
 
+// PaneRead is one pane.read result: ansi text plus the pane revision.
+type PaneRead struct {
+	PaneID    string `json:"pane_id"`
+	Source    string `json:"source"`
+	Format    string `json:"format"`
+	Text      string `json:"text"`
+	Revision  int64  `json:"revision"`
+	Truncated bool   `json:"truncated"`
+}
+
+// PaneRead reads pane content. herdr 0.9.3 has no output push: subscribe
+// sockets ack only and events.wait takes agent-status matches only, so the
+// terminal stream polls and gates on Revision.
+func (c *Client) PaneRead(ctx context.Context, paneID, source string, lines int) (PaneRead, error) {
+	params := map[string]any{"pane_id": paneID, "source": source, "format": "ansi"}
+	if lines > 0 {
+		params["lines"] = lines
+	}
+	res, err := c.call(ctx, "pane.read", params)
+	if err != nil {
+		return PaneRead{}, err
+	}
+	var out struct {
+		Read PaneRead `json:"read"`
+	}
+	if err := json.Unmarshal(res, &out); err != nil {
+		return PaneRead{}, err
+	}
+	return out.Read, nil
+}
+
+// PaneSendInput writes text and/or key names straight into the pane.
+func (c *Client) PaneSendInput(ctx context.Context, paneID, text string, keys []string) error {
+	params := map[string]any{"pane_id": paneID}
+	if text != "" {
+		params["text"] = text
+	}
+	if len(keys) > 0 {
+		params["keys"] = keys
+	}
+	_, err := c.call(ctx, "pane.send_input", params)
+	return err
+}
+
 func (c *Client) call(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	dialer := net.Dialer{Timeout: c.timeout}
 	conn, err := dialer.DialContext(ctx, "unix", c.path)

@@ -1,0 +1,42 @@
+package pages
+
+import "github.com/EstebanForge/piremote/internal/pi"
+
+// Terminal is the peek-by-default terminal tab (T4). Take-the-wheel and
+// the key row live in the main.js island; the stream is raw SSE.
+templ Terminal(meta pi.SessionMeta, driver string) {
+	<!doctype html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<meta name="color-scheme" content="dark light"/>
+			<title>{ meta.DisplayName() } - terminal</title>
+			<link rel="stylesheet" href="/static/app.css"/>
+			<link rel="stylesheet" href="/static/css/xterm.css"/>
+			<script src="/static/js/vendor/xterm.js"></script>
+			<script src="/static/js/vendor/xterm-addon-fit.js"></script>
+			<script src="/static/js/main.js" defer></script>
+		</head>
+		<body>
+			<header>
+				<a class="back" href={ templ.URL("/sessions/" + meta.Key) }>&larr; Chat</a>
+				<h1>{ meta.DisplayName() }</h1>
+				<span id="driver-badge">@DriverBadge(driver)</span>
+			</header>
+			@TabStrip(meta.Key, "term")
+			<div id="term" data-key={ meta.Key }></div>
+			<div id="keyrow">
+				<button data-keys="esc">Esc</button>
+				<button data-keys="ctrl+c">C-C</button>
+				<button data-keys="tab">Tab</button>
+				<button data-keys="enter">&crarr;</button>
+				<button data-keys="up">&uarr;</button>
+				<button data-keys="down">&darr;</button>
+				<button data-keys="left">&larr;</button>
+				<button data-keys="right">&rarr;</button>
+				<button id="wheel-btn">Take the wheel</button>
+			</div>
+		</body>
+	</html>
+}

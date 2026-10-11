@@ -154,6 +154,50 @@ func TestTargetForPath(t *testing.T) {
 	}
 }
 
+func TestPaneReadAndSendInput(t *testing.T) {
+	path := fakeSocket(t, func(t *testing.T, req []byte) []byte {
+		var m struct {
+			Method string `json:"method"`
+			Params struct {
+				PaneID string          `json:"pane_id"`
+				Source string          `json:"source"`
+				Lines  int             `json:"lines"`
+				Text   string          `json:"text"`
+				Keys   json.RawMessage `json:"keys"`
+			} `json:"params"`
+		}
+		if err := json.Unmarshal(bytes.TrimSuffix(req, []byte("\n")), &m); err != nil {
+			t.Errorf("bad request: %v", err)
+		}
+		switch m.Method {
+		case "pane.read":
+			if m.Params.PaneID != "wX:p1" || m.Params.Source != "recent" || m.Params.Lines != 400 {
+				t.Errorf("read params: %+v", m.Params)
+			}
+			return []byte(`{"id":"x","result":{"type":"pane_read","read":{"pane_id":"wX:p1","source":"recent","format":"ansi","text":"\\u001b[32mhi\\u001b[0m","revision":7,"truncated":false}}}` + "\n")
+		case "pane.send_input":
+			if m.Params.PaneID != "wX:p1" || m.Params.Text != "ls\r" {
+				t.Errorf("input params: %+v", m.Params)
+			}
+			return []byte("{\"id\":\"x\",\"result\":{\"type\":\"ok\"}}\n")
+		default:
+			t.Errorf("unexpected method %q", m.Method)
+			return nil
+		}
+	})
+	c := &Client{path: path, timeout: 2 * time.Second}
+	read, err := c.PaneRead(context.Background(), "wX:p1", "recent", 400)
+	if err != nil {
+		t.Fatalf("PaneRead: %v", err)
+	}
+	if read.Revision != 7 || read.Text == "" {
+		t.Fatalf("read: %+v", read)
+	}
+	if err := c.PaneSendInput(context.Background(), "wX:p1", "ls\r", nil); err != nil {
+		t.Fatalf("PaneSendInput: %v", err)
+	}
+}
+
 func TestDefaultSocketPath(t *testing.T) {
 	home, err := os.UserHomeDir()
 	if err != nil {

@@ -35,6 +35,7 @@ templ Transcript(meta pi.SessionMeta, items []pi.ViewItem, driver string, notice
 					<span id="driver-badge">@DriverBadge(driver)</span>
 				</p>
 			</header>
+	@TabStrip(meta.Key, "chat")
 			if notice != "" {
 				<div class="notice">{ notice }</div>
 			}
