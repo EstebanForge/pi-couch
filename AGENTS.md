@@ -32,6 +32,7 @@ Verified (M0):
 - Run: `bin/couch-pi --addr 127.0.0.1:8090` (loopback only). `curl localhost:8090/healthz` expects `ok`.
 - herdr probes: `herdr api schema --json`, `herdr api snapshot`, `herdr agent --help`.
 - Service install is manual (user unit): copy `systemd/couch-pi.service` to `~/.config/systemd/user/`, then `systemctl --user daemon-reload && systemctl --user enable --now couch-pi`.
+- Deploy server updates (the phone hits the service, not `bin/`): `./scripts/build.sh && install -m 755 bin/couch-pi ~/.local/bin/couch-pi && systemctl --user restart couch-pi && curl -s localhost:8090/healthz`. The unit runs `%h/.local/bin/couch-pi`, so restarting without the install step keeps serving the previous binary; verify by content (e.g. the served `/static/app.css`), not just healthz.
 - Remote front: `tailscale serve --bg 8090` puts the loopback server on `https://box.example.ts.net/` (tailnet-only). `curl https://box.example.ts.net/healthz` expects `ok`.
 - APK: `cd android && ./gradlew assembleDebug` (wrapper copied from Baluard; `android/local.properties` holds `sdk.dir`, gitignored). Install: `adb install -r android/app/build/outputs/apk/debug/app-debug.apk`. Debug-signed, system icon; no keystore yet.
 - Push slice: VAPID keys and subscriptions live under `~/.local/state/couch-pi/` (`vapid.json` 0600, `push-subs.json`). `GET /api/push/key`, `POST /api/push/subscribe|unsubscribe`, `GET /sw.js`.
