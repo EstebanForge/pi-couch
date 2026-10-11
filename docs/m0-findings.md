@@ -1,4 +1,4 @@
-# M0 probe findings, verified 2026-10-10
+# M0 probe findings, verified 2026-10-10; push-slice additions 2026-10-11
 
 All claims below were verified against the live daemons, not docs. herdr 0.9.3, pi session version 3.
 
@@ -40,3 +40,13 @@ All claims below were verified against the live daemons, not docs. herdr 0.9.3, 
 6. `herdr workspace close`: clean teardown, zero leftover agents.
 
 Probe artifacts: one junk pi session file under `~/.pi/agent/sessions/--tmp-tmp.FcPRcGk5ah--/`. Left in place; delete at will.
+
+## Push-slice probes, verified 2026-10-11
+
+- `agent.wait` (`AgentWaitParams`: `{target, until[], timeout_ms}`) fires only on transitions INTO a matched state and never on state equality: an 8 s `--until done` on an agent already `done` times out cleanly. One blocking call per agent covers all target statuses; timeouts are errors the caller re-arms on.
+- `agent.wait` re-returns on EVERY subsequent agent update while the status still matches the until set (token and cost flushes), not just on status changes. A watcher needs a re-arm pause plus same-status dedupe or it buzzes every flush.
+- CLI form: `herdr agent prompt <TARGET> "<msg>" --wait --until done --timeout <MS>`. The message text must come before the flags; `--timeout-ms` is unknown. `--wait` from a non-working state requires an observed working or blocked transition within 5000 ms else `agent_prompt_stalled`.
+- `herdr agent start` has no `--cwd`; the agent inherits the pane's cwd. Form: `herdr agent start <NAME> --kind <KIND> --pane <ID> [-- AGENT_ARGS]`.
+- `herdr api snapshot` JSON nests all state under `result.snapshot`; top-level keys are only `id` and `result`, and workspaces carry no `id` key (use `workspace_id` from creation results).
+- `herdr api` has only `snapshot` and `schema` subcommands. Raw socket probes go through a small python script over the unix socket.
+- The `pane.agent_status_changed` wait match requires both `pane_id` and `agent_status`: one call matches one pane and one target status. `agent.wait` matches one agent against repeatable statuses, which is the cheaper shape.

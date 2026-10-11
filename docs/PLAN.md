@@ -4,7 +4,7 @@ Rewritten after the grilling session. Decisions are in `docs/adr/`, terms in `CO
 
 ## Product shape
 
-One Android-first PWA that shows every pi session on this server, drives them through herdr, reviews git changes per repo, and pushes when an agent needs me. Chat view is the default surface. Terminal, files, changes, search, and comments are tabs. ssh and herdr at the desk stay the power channels; the UI is a client, not a cage.
+One Android-first client that shows every pi session on this server, drives them through herdr, reviews git changes per repo, and pushes when an agent needs me. The install surface is the thin WebView APK (ADR-0003); the PWA manifest stays for desktop browsers. Chat view is the default surface. Terminal, files, changes, search, and comments are tabs. ssh and herdr at the desk stay the power channels; the UI is a client, not a cage.
 
 ## Decisions locked
 
@@ -59,9 +59,9 @@ One Android-first PWA that shows every pi session on this server, drives them th
 
 ### Terminal
 
-- T1. Terminal tab: interactive attach to the session's herdr pane. herdr runs its own multiplexer (no tmux), so the server spawns `herdr agent attach <target>` under a PTY and bridges bytes to xterm.js over WebSocket.
+- T1. Terminal tab: read-only peek at the session's herdr pane by default, interactive on explicit tap. The server polls `pane.read` in `ansi` format on a 1 s tick and sends keystrokes via `pane.send_input`. There is no PTY bridge and no cgo: the herdr socket has no attach method (m0-findings, ADR-0001).
 - T2. Mobile key row: esc, ctrl, tab, arrows, modifier latch.
-- T3. One attach client per pane at a time is herdr's rule; Couch Pi uses `--takeover` only on explicit user action.
+- T3. One attach client per pane at a time is herdr's rule, and only the desk CLI attach is exclusive. When the desk holds attach, Couch Pi shows a coexistence banner and stays on read-only peek. No takeover flag exists on the socket.
 - T4. Read-only peek mode before attach, one tap to take the wheel.
 
 ### Platform
@@ -71,7 +71,7 @@ One Android-first PWA that shows every pi session on this server, drives them th
 - P3. Dark default, light theme included.
 - P4. Installable PWA, standalone.
 - P8. Android shell APK (ADR-0003): one Activity, one WebView, opens the configured URL full-screen on launch, back wired to history, no browser chrome, no tabs. First-launch URL field persisted on device, default the tailscale serve URL. Same gradle and Kotlin toolchain as Baluard, sideloaded, no store.
-- P5. Web push (VAPID) on Status transitions: working to idle, blocked, or done. Events from herdr socket subscriptions, not polling.
+- P5. Web push (VAPID) on Status transitions: working to idle, blocked, or done. Transitions detected by per-agent `agent.wait` watchers over the herdr socket, not by re-reading session files; herdr 0.9.3 streams no subscription events (ADR-0005).
 - P6. No lock-in. Every session stays fully usable over ssh and herdr at any moment.
 
 ### Out of scope
@@ -84,7 +84,7 @@ One Go binary as a systemd user service, beside herdr's. Stack decision in ADR-0
 
 - Scanner. Walks `~/.pi/agent/sessions/`, parses jsonl tolerantly (unknown entries never crash), tails with fsnotify. Buffers partial lines until the newline before parsing. Indexes the sessions dir by mtime with in-memory metadata instead of repeated linear scans.
 - herdr client. Socket at `~/.config/herdr/herdr.sock`, protocol 22. Speaks the request envelope from `herdr api schema` (request, response, event, subscription_event). Actions (prompt, keys, start, close) and subscriptions (Status events). CLI fallback where the socket is fiddly.
-- Terminal bridge. PTY-spawned `herdr agent attach` (creack/pty) piped to xterm.js over the one WebSocket. Single attach client per pane is herdr's rule: read-only peek by default, takeover only on explicit action (T3, T4).
+- Terminal bridge. herdr socket only: `pane.read` polling in `ansi` format on a 1 s tick into xterm.js, keystrokes out via `pane.send_input`. No PTY bridge, no cgo: the socket has no attach method (m0-findings).
 - Git service. Repo discovery via pruned scan (rg/fdfind semantics), diffs via exec git.
 - State. Comments and UI prefs in a plain JSON file per session. No database. Sent comments persist server-side; the pending tray is per-device UI state.
 - Web client. Mobile-first PWA. Server-rendered HTML, Datastar SSE patches (SDK pinned to one exact version; 0.x churns), one vanilla TS island (composer, terminal) built with esbuild.
@@ -92,13 +92,15 @@ One Go binary as a systemd user service, beside herdr's. Stack decision in ADR-0
 
 ## Milestones
 
-- M0 read (2-3d). Go skeleton (templ, Datastar, SSE), scanner, V1-V9, P1. All existing sessions on the phone, live.
-- M0.5 shell (1-2d). P8, the icon on the phone. WebView APK pointing at the tailscale serve URL. Includes keystore, icon assets, back-button history wiring, IME and viewport handling for the composer.
-- M1 drive (3-4d). D1, D3-D5, D8, D9. Start in a herdr tab, steer, stop, resume.
-- M2 review (2-3d). R1-R9, V11.
-- M3 terminal (2-3d). T1-T4.
-- M4 polish (1-2d). V10 in-transcript search, D7 close, P2-P4.
-- M5 push (1-2d). P5, webpush-go.
+Shipped through M5 as of 2026-10-11; M4 polish items are the open tail.
+
+- M0 read (2-3d). Go skeleton (templ, Datastar, SSE), scanner, V1-V9, P1. All existing sessions on the phone, live. Shipped 2026-10-10.
+- M0.5 shell (1-2d). P8, the icon on the phone. WebView APK pointing at the tailscale serve URL. Includes keystore, icon assets, back-button history wiring, IME and viewport handling for the composer. Shipped 2026-10-11 minus keystore and icon assets: debug-signed with the system icon, verified live on the the phone over WiFi adb.
+- M1 drive (3-4d). D1, D3-D5, D8, D9. Start in a herdr tab, steer, stop, resume. Shipped.
+- M2 review (2-3d). R1-R9, V11. Shipped.
+- M3 terminal (2-3d). T1-T4. Shipped, on the socket path (no PTY).
+- M4 polish (1-2d). V10 in-transcript search, D7 close, P2-P4. Open. P3 dark default shipped as the dracula theme.
+- M5 push (1-2d). P5, webpush-go. Shipped 2026-10-11 with a deviation: transitions come from per-agent `agent.wait` watchers, not socket subscription events, which herdr 0.9.3 does not stream (ADR-0005). Server-side chain E2E-verified; delivery on the phone rides the WebView service worker until FCM is demanded.
 
 About three weeks end to end. Dogfood rule: from M0 on, Couch Pi is built with pi sessions driven through Couch Pi where possible.
 
@@ -114,7 +116,9 @@ About three weeks end to end. Dogfood rule: from M0 on, Couch Pi is built with p
 
 ## References
 
-- ADR-0001 for the herdr-only decision.
+- ADR-0001 for the herdr-only decision and the terminal socket path.
+- ADR-0003 for the APK install surface.
 - ADR-0004 for the voice-input placement.
+- ADR-0005 for the push transition source.
 - herdr agent guide: https://herdr.dev/agent-guide.md
 - Pi Durable announcement (context for the rejected option): https://earendil.com/posts/pi-durable/

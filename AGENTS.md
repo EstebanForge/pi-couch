@@ -4,7 +4,7 @@ Operating guide for coding agents working on Couch Pi.
 
 ## Project overview
 
-Couch Pi: phone-first web client for the pi coding agents on this server. Shows every pi session on the machine, drives them through herdr, reviews git changes per repo, collects line comments, pushes on status changes. It is a client, not a runtime: it never forks its own agent runtime. Status: M0 in progress; scaffold compiles and serves. Plan and decisions live in docs/.
+Couch Pi: phone-first web client for the pi coding agents on this server. Shows every pi session on the machine, drives them through herdr, reviews git changes per repo, collects line comments, pushes on status changes. It is a client, not a runtime: it never forks its own agent runtime. Status: M0-M3 and M5 shipped, M0.5 APK shell shipped, M4 polish open. Plan and decisions live in docs/.
 
 ## Read first (sources of truth)
 
@@ -32,6 +32,9 @@ Verified (M0):
 - Run: `bin/couch-pi --addr 127.0.0.1:8090` (loopback only). `curl localhost:8090/healthz` expects `ok`.
 - herdr probes: `herdr api schema --json`, `herdr api snapshot`, `herdr agent --help`.
 - Service install is manual (user unit): copy `systemd/couch-pi.service` to `~/.config/systemd/user/`, then `systemctl --user daemon-reload && systemctl --user enable --now couch-pi`.
+- Remote front: `tailscale serve --bg 8090` puts the loopback server on `https://box.example.ts.net/` (tailnet-only). `curl https://box.example.ts.net/healthz` expects `ok`.
+- APK: `cd android && ./gradlew assembleDebug` (wrapper copied from Baluard; `android/local.properties` holds `sdk.dir`, gitignored). Install: `adb install -r android/app/build/outputs/apk/debug/app-debug.apk`. Debug-signed, system icon; no keystore yet.
+- Push slice: VAPID keys and subscriptions live under `~/.local/state/couch-pi/` (`vapid.json` 0600, `push-subs.json`). `GET /api/push/key`, `POST /api/push/subscribe|unsubscribe`, `GET /sw.js`.
 
 Pins: templ v0.3.1070 and esbuild v0.28.2 as Go `tool` directives; datastar-go v1.2.2 with the vendored browser bundle `static/js/datastar.js` (core v1.0.4); fsnotify v1.10.1. herdr socket framing is NDJSON: `{"id","method","params"}` in, one compact JSON line out.
 
@@ -39,9 +42,10 @@ Pins: templ v0.3.1070 and esbuild v0.28.2 as Go `tool` directives; datastar-go v
 
 - Scanner: walks `~/.pi/agent/sessions/`, parses jsonl tolerantly, tails with fsnotify. Indexes by mtime with in-memory metadata.
 - herdr client: socket at `~/.config/herdr/herdr.sock`, request envelope from `herdr api schema`; CLI fallback where the socket is fiddly.
-- Terminal bridge: herdr socket only. `pane.read` in `ansi` format plus `pane_output_changed` events into xterm.js; keystrokes out via `pane.send_input`. No PTY bridge, no cgo: the socket has no attach method (M0 findings).
+- Terminal bridge: herdr socket only. `pane.read` in `ansi` format polled on a 1 s tick into xterm.js; keystrokes out via `pane.send_input`. No PTY bridge, no cgo: the socket has no attach method and no output push (m0-findings).
 - Git service: repo discovery by pruned scan, diffs via exec git.
-- State: comments and UI prefs in a plain JSON file per session. No database.
+- State: comments and UI prefs in a plain JSON file per session. Push subscriptions and the VAPID key live in the store state dir. No database.
+- Push watcher: one `agent.wait` goroutine per live herdr agent (until idle, blocked, done), 15 s reconcile, 5 s re-arm pause, 2 s stability re-check, same-status dedupe (ADR-0005).
 - Web client: server-rendered HTML, Datastar SSE patches, one TS island. Mobile-first, dark default.
 - Native door: views stay separate from streams (JSON POST commands; SSE accepts raw JSON beside Datastar patches; terminal WS is raw bytes plus JSON resize frames) so a Kotlin client plugs in with no server rework.
 
