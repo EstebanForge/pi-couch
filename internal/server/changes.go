@@ -11,8 +11,8 @@ import (
 
 	"github.com/starfederation/datastar-go/datastar"
 
-	"github.com/EstebanForge/piremote/internal/git"
-	"github.com/EstebanForge/piremote/internal/web/pages"
+	"github.com/EstebanForge/couch-pi/internal/git"
+	"github.com/EstebanForge/couch-pi/internal/web/pages"
 )
 
 func (a *app) changes(w http.ResponseWriter, r *http.Request) {

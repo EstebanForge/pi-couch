@@ -8,10 +8,10 @@ import (
 	"os/signal"
 	"path/filepath"
 
-	"github.com/EstebanForge/piremote/internal/herdr"
-	"github.com/EstebanForge/piremote/internal/pi"
-	"github.com/EstebanForge/piremote/internal/server"
-	"github.com/EstebanForge/piremote/internal/store"
+	"github.com/EstebanForge/couch-pi/internal/herdr"
+	"github.com/EstebanForge/couch-pi/internal/pi"
+	"github.com/EstebanForge/couch-pi/internal/server"
+	"github.com/EstebanForge/couch-pi/internal/store"
 )
 
 func main() {

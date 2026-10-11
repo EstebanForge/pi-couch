@@ -6,11 +6,11 @@ Entry points: App launch, back navigation from any Session view, header brand ta
 
 ```
 +-----------------------------------+
-| PiRemote                   [Q] [+]|
+| Couch Pi                   [Q] [+]|
 +-----------------------------------+
 | [All Workdirs v]   Sort: Activity |
 +-----------------------------------+
-| v ~/Dev/EstebanForge/PiRemote     |
+| v ~/Dev/EstebanForge/couch-pi     |
 | +-------------------------------+ |
 | | fix-scanner-mtime             | |
 | | [working] [driver] [named]    | |
@@ -37,7 +37,7 @@ Entry points: App launch, back navigation from any Session view, header brand ta
 
 ## Layout and Components
 
-Top bar displays app title "PiRemote", search filter button, and top "+" shortcut button.
+Top bar displays app title "Couch Pi", search filter button, and top "+" shortcut button.
 Filter bar provides a Workdir dropdown selector to isolate a single folder, plus activity sort indicator.
 Session group header displays folder path, expand or collapse chevron, and count of contained sessions.
 Session card displays the session name (explicit `--name` flag or truncated first prompt text), age timestamp, and last message snippet.

@@ -20,7 +20,7 @@ type Header struct {
 	ParentSession string `json:"parentSession,omitempty"`
 }
 
-// Entry is one JSONL line. Fields cover the entry types PiRemote renders;
+// Entry is one JSONL line. Fields cover the entry types Couch Pi renders;
 // unknown types decode with whatever fields they carry and are skipped.
 type Entry struct {
 	Type      string  `json:"type"`

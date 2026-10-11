@@ -1,10 +1,10 @@
 # AGENTS.md
 
-Operating guide for coding agents working on PiRemote.
+Operating guide for coding agents working on Couch Pi.
 
 ## Project overview
 
-PiRemote: phone-first web client for the pi coding agents on this server. Shows every pi session on the machine, drives them through herdr, reviews git changes per repo, collects line comments, pushes on status changes. It is a client, not a runtime: it never forks its own agent runtime. Status: M0 in progress; scaffold compiles and serves. Plan and decisions live in docs/.
+Couch Pi: phone-first web client for the pi coding agents on this server. Shows every pi session on the machine, drives them through herdr, reviews git changes per repo, collects line comments, pushes on status changes. It is a client, not a runtime: it never forks its own agent runtime. Status: M0 in progress; scaffold compiles and serves. Plan and decisions live in docs/.
 
 ## Read first (sources of truth)
 
@@ -25,13 +25,13 @@ PiRemote: phone-first web client for the pi coding agents on this server. Shows 
 
 Verified (M0):
 
-- `./scripts/build.sh`: templ generate, esbuild bundle, then `go build` to `bin/piremote`.
+- `./scripts/build.sh`: templ generate, esbuild bundle, then `go build` to `bin/couch-pi`.
 - `go tool templ generate ./...` and the esbuild line inside build.sh run standalone when needed.
 - `go vet ./...` and `gofmt -l .` must both be clean before a commit.
 - `go test ./...`: parser and index tests; the real-sessions integration test skips itself when the dir is absent.
-- Run: `bin/piremote --addr 127.0.0.1:8090` (loopback only). `curl localhost:8090/healthz` expects `ok`.
+- Run: `bin/couch-pi --addr 127.0.0.1:8090` (loopback only). `curl localhost:8090/healthz` expects `ok`.
 - herdr probes: `herdr api schema --json`, `herdr api snapshot`, `herdr agent --help`.
-- Service install is manual (user unit): copy `systemd/piremote.service` to `~/.config/systemd/user/`, then `systemctl --user daemon-reload && systemctl --user enable --now piremote`.
+- Service install is manual (user unit): copy `systemd/couch-pi.service` to `~/.config/systemd/user/`, then `systemctl --user daemon-reload && systemctl --user enable --now couch-pi`.
 
 Pins: templ v0.3.1070 and esbuild v0.28.2 as Go `tool` directives; datastar-go v1.2.2 with the vendored browser bundle `static/js/datastar.js` (core v1.0.4); fsnotify v1.10.1. herdr socket framing is NDJSON: `{"id","method","params"}` in, one compact JSON line out.
 
@@ -47,7 +47,7 @@ Pins: templ v0.3.1070 and esbuild v0.28.2 as Go `tool` directives; datastar-go v
 
 Boundaries:
 
-- Session files are read-only to PiRemote. Never write into jsonl.
+- Session files are read-only to Couch Pi. Never write into jsonl.
 - herdr's own words (workspace, tab, pane, agent) stay at the integration boundary. They never enter the glossary or the UI copy.
 
 ## Conventions and gotchas

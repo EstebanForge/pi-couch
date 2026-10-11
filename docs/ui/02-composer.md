@@ -9,7 +9,7 @@ Entry points: "New Session" button from Session list screen.
 | [Cancel]   New Session    [Start] |
 +-----------------------------------+
 | Workdir:                          |
-| [ ~/Dev/EstebanForge/PiRemote  v] |
+| [ ~/Dev/EstebanForge/couch-pi  v] |
 +-----------------------------------+
 | Driver Target:                    |
 | (o) Create new target             |

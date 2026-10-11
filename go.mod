@@ -1,4 +1,4 @@
-module github.com/EstebanForge/piremote
+module github.com/EstebanForge/couch-pi
 
 go 1.27.1
 

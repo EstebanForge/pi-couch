@@ -104,7 +104,7 @@ interface PendingCmt {
 }
 
 function trayKey(key: string): string {
-	return `piremote-cmts:${key}`;
+	return `couch-pi-cmts:${key}`;
 }
 
 function loadTray(key: string): PendingCmt[] {

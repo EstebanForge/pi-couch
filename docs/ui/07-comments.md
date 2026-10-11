@@ -15,11 +15,11 @@ Entry points: Tapping "Comments" tab in Session view; tapping "Add Comment" on a
 +-----------------------------------+
 | PENDING COMMENTS                  |
 | +-------------------------------+ |
-| | tail.go:42 (Repo: PiRemote)   | |
+| | tail.go:42 (Repo: Couch Pi)   | |
 | | "t.mu.Lock() before Add()"    | |
 | | [Edit] [Delete] [Jump to Line]| |
 | +-------------------------------+ |
-| | main.go:18 (Repo: PiRemote)   | |
+| | main.go:18 (Repo: Couch Pi)   | |
 | | "Check init error return"     | |
 | | [Edit] [Delete] [Jump to Line]| |
 | +-------------------------------+ |
@@ -60,7 +60,7 @@ Confirm "Send All": Format all pending comments into a structured prompt, submit
 
 ## Format of Sent Prompt
 
-When "Send All" executes, PiRemote formats comments into a clear review prompt submitted to herdr:
+When "Send All" executes, Couch Pi formats comments into a clear review prompt submitted to herdr:
 ```
 Review comments on changes:
 - internal/scanner/tail.go:42: t.mu.Lock() before Add()

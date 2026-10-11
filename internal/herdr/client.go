@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-// Agent mirrors the herdr agent object fields PiRemote consumes.
+// Agent mirrors the herdr agent object fields Couch Pi consumes.
 type Agent struct {
 	Name        string           `json:"name"`
 	Agent       string           `json:"agent"`
@@ -178,7 +178,7 @@ func (c *Client) call(ctx context.Context, method string, params any) (json.RawM
 	}
 	_ = conn.SetDeadline(deadline)
 
-	id := fmt.Sprintf("piremote-%d", c.seq.Add(1))
+	id := fmt.Sprintf("couch-pi-%d", c.seq.Add(1))
 	req, err := json.Marshal(map[string]any{"id": id, "method": method, "params": params})
 	if err != nil {
 		return nil, err

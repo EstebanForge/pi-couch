@@ -10,7 +10,7 @@ Entry points: Tapping the "Files" tab in Session view.
 +-----------------------------------+
 |[Chat][Changes][Term][Files*][Cmts]|
 +-----------------------------------+
-| Repo: [ PiRemote (main)        v] |
+| Repo: [ Couch Pi (main)        v] |
 | Path: /internal/scanner           |
 +-----------------------------------+
 | [..] (Parent directory)           |

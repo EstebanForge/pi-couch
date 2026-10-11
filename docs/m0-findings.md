@@ -32,8 +32,8 @@ All claims below were verified against the live daemons, not docs. herdr 0.9.3, 
 
 ## Lifecycle probe (all green)
 
-1. `herdr workspace create --cwd <tmp> --label piremote-probe --no-focus` returned workspace, tab, and root pane in one call.
-2. `herdr agent start piremote-probe --kind pi --pane <id>`: pi interactive in 4 s, `interactive_ready: true`.
+1. `herdr workspace create --cwd <tmp> --label couch-pi-probe --no-focus` returned workspace, tab, and root pane in one call.
+2. `herdr agent start couch-pi-probe --kind pi --pane <id>`: pi interactive in 4 s, `interactive_ready: true`.
 3. `herdr agent prompt ... "Reply with exactly: PIREMOTE-OK"`: reply rendered in the pane, session file created and linked.
 4. `herdr agent read --lines N`: pane tail readable (text format).
 5. `herdr agent send-keys ctrl+c`: stopped a running turn, `working -> done`.

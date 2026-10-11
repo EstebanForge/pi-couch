@@ -10,7 +10,7 @@ Entry points: Tapping the "Changes" tab within any Session view.
 +-----------------------------------+
 |[Chat][Changes*][Term][Files][Cmts]|
 +-----------------------------------+
-| Repo: [ PiRemote (main)        v] |
+| Repo: [ Couch Pi (main)        v] |
 | Files modified: 2   (+14 -3)      |
 +-----------------------------------+
 | [Prev Chg] [Next Chg] [Wrap: ON ] |

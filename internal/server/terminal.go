@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/EstebanForge/piremote/internal/web/pages"
+	"github.com/EstebanForge/couch-pi/internal/web/pages"
 )
 
 func (a *app) terminal(w http.ResponseWriter, r *http.Request) {

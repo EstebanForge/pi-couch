@@ -55,7 +55,7 @@ func TestAgentsAndBadges(t *testing.T) {
 		if m["method"] != "agent.list" || m["id"] == nil {
 			t.Errorf("bad request framing: %s", req)
 		}
-		return []byte("{\"id\":\"piremote-1\",\"result\":" + agentsResult + "}\n")
+		return []byte("{\"id\":\"couch-pi-1\",\"result\":" + agentsResult + "}\n")
 	})
 	c := &Client{path: path, timeout: 2 * time.Second}
 	agents, err := c.Agents(context.Background())

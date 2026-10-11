@@ -6,9 +6,9 @@ import (
 	"path"
 	"time"
 
-	"github.com/EstebanForge/piremote/internal/browse"
-	"github.com/EstebanForge/piremote/internal/git"
-	"github.com/EstebanForge/piremote/internal/web/pages"
+	"github.com/EstebanForge/couch-pi/internal/browse"
+	"github.com/EstebanForge/couch-pi/internal/git"
+	"github.com/EstebanForge/couch-pi/internal/web/pages"
 )
 
 // files lists one directory of the session's repo (lazy tree by

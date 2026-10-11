@@ -15,11 +15,11 @@ import (
 	"github.com/a-h/templ"
 	"github.com/starfederation/datastar-go/datastar"
 
-	"github.com/EstebanForge/piremote/internal/herdr"
-	"github.com/EstebanForge/piremote/internal/pi"
-	"github.com/EstebanForge/piremote/internal/store"
-	"github.com/EstebanForge/piremote/internal/web"
-	"github.com/EstebanForge/piremote/internal/web/pages"
+	"github.com/EstebanForge/couch-pi/internal/herdr"
+	"github.com/EstebanForge/couch-pi/internal/pi"
+	"github.com/EstebanForge/couch-pi/internal/store"
+	"github.com/EstebanForge/couch-pi/internal/web"
+	"github.com/EstebanForge/couch-pi/internal/web/pages"
 )
 
 const defaultTail = 40
@@ -48,7 +48,7 @@ func Run(logger *slog.Logger, addr string, idx *pi.Index, hc *herdr.Client, w *p
 		Handler:           a.routes(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
-	logger.Info("piremote listening", "addr", addr)
+	logger.Info("couch-pi listening", "addr", addr)
 	err := srv.ListenAndServe()
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil

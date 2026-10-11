@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/EstebanForge/piremote/internal/herdr"
-	"github.com/EstebanForge/piremote/internal/store"
-	"github.com/EstebanForge/piremote/internal/web/pages"
+	"github.com/EstebanForge/couch-pi/internal/herdr"
+	"github.com/EstebanForge/couch-pi/internal/store"
+	"github.com/EstebanForge/couch-pi/internal/web/pages"
 )
 
 const maxBatchComments = 50

@@ -1,12 +1,12 @@
 # System Overview
 
-Purpose: Define navigation, design tokens, interaction rules, and system states across PiRemote.
+Purpose: Define navigation, design tokens, interaction rules, and system states across Couch Pi.
 Feature ids covered: P1, P2, P3, P4, P6, P8.
 Entry points: App launch via Android WebView APK shell (P8) or mobile browser PWA.
 
 ```
 +-----------------------------------+
-| PiRemote              [Status] [:]|
+| Couch Pi              [Status] [:]|
 +-----------------------------------+
 |[Chat*][Changes][Term][Files][Cmts]|
 +-----------------------------------+
@@ -28,7 +28,7 @@ Entry points: App launch via Android WebView APK shell (P8) or mobile browser PW
 
 ## Layout and Components
 
-PiRemote uses a flat two-tier hierarchy: the Session list at root, and an active Session view.
+Couch Pi uses a flat two-tier hierarchy: the Session list at root, and an active Session view.
 Selecting a Session opens its dedicated container.
 Inside a Session, five tabs organize tools: Chat (default), Changes, Terminal, Files, Comments.
 All five show at once as equal 72 px cells on a 360 px viewport, with no scrolling strip. Labels are short: Chat, Changes, Term, Files, Cmts. Each cell keeps a 48 px minimum touch area; the 8 px margin rule is met by cell padding.

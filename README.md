@@ -1,4 +1,4 @@
-# PiRemote
+# Couch Pi
 
 A phone-first web client for the pi coding agents running on my server.
 

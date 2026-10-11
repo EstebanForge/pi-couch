@@ -6,9 +6,9 @@ Entry points: First launch of the sideloaded Android WebView APK shell; Settings
 
 ```
 +-----------------------------------+
-| PiRemote Setup                    |
+| Couch Pi Setup                    |
 +-----------------------------------+
-| Welcome to PiRemote.              |
+| Welcome to Couch Pi.              |
 | Connect to your server tailnet:   |
 |                                   |
 | Server URL:                       |
@@ -28,7 +28,7 @@ Entry points: First launch of the sideloaded Android WebView APK shell; Settings
 +-----------------------------------+
 | ANDROID NOTIFICATION PREVIEW      |
 | +-------------------------------+ |
-| | [PiRemote] fix-scanner-mtime  | |
+| | [Couch Pi] fix-scanner-mtime  | |
 | | Agent blocked: Need input     | |
 | +-------------------------------+ |
 +-----------------------------------+
@@ -38,11 +38,11 @@ Entry points: First launch of the sideloaded Android WebView APK shell; Settings
 
 First-launch APK setup card: Displays brief welcome text, server URL text input field (pre-filled with configured default tailscale serve address), helper caption, and "Connect & Save" primary button.
 Notification configuration card (inside settings): Contains master toggle checkbox "Enable Web Push Notifications" and descriptive list of trigger conditions based on Status transitions.
-Android system notification structure: Shows app icon, notification title formatted as `PiRemote: <Session Name>`, body text describing event (example: `Agent blocked: Need input` or `Task complete: Done`), and direct deep-link action.
+Android system notification structure: Shows app icon, notification title formatted as `Couch Pi: <Session Name>`, body text describing event (example: `Agent blocked: Need input` or `Task complete: Done`), and direct deep-link action.
 
 ## Web Push Timing and Content
 
-Permission ask timing: The browser or WebView does not prompt for notification permission on initial page load. Instead, PiRemote asks only when the user submits their first Steering prompt or explicitly toggles the notification setting.
+Permission ask timing: The browser or WebView does not prompt for notification permission on initial page load. Instead, Couch Pi asks only when the user submits their first Steering prompt or explicitly toggles the notification setting.
 Notification delivery triggers: Web push sends using VAPID keys upon specific herdr Status transitions:
 - Transition `working` to `done`: "Agent completed task execution." This is the normal completion transition for pi; a finished turn reports `done`, not `idle` (M0 findings).
 - Transition `working` to `blocked`: "Agent is blocked and requires clarification or input."
@@ -55,7 +55,7 @@ Tap-through target: Tapping the system notification opens the Android WebView AP
 Type in Server URL field: Edit target host and port address for Tailscale server connection.
 Tap "Connect & Save": Validate URL format, persist value in Android app local SharedPreferences, load web application full screen, and dismiss setup card forever (P8).
 Toggle "Enable Web Push Notifications": Invoke browser Notification API `Notification.requestPermission()`. If approved, send VAPID subscription JSON payload to server endpoint `/api/push/subscribe`.
-Tap system notification: Wake phone display, bring PiRemote to foreground, navigate directly to Session Chat view of the notifying session.
+Tap system notification: Wake phone display, bring Couch Pi to foreground, navigate directly to Session Chat view of the notifying session.
 Dismiss system notification: Remove alert without affecting background agent state.
 
 ## States

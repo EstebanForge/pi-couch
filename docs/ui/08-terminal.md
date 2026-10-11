@@ -13,7 +13,7 @@ Entry points: Tapping the "Terminal" tab in Session view; tapping quick terminal
 | Peek Mode (Read-only)             |
 | [ Take the wheel (Attach)       ] |
 +-----------------------------------+
-| pi@server:~/Dev/PiRemote$ git st  |
+| pi@server:~/Dev/Couch Pi$ git st  |
 | On branch main                    |
 | Changes not staged for commit:    |
 |   modified:   scanner/tail.go     |
@@ -70,7 +70,7 @@ State JSON: Stores preferred terminal font size.
 
 ## Edge Cases
 
-Backgrounding and SSE death: Mobile browser backgrounds drop WebSocket connections immediately. Upon return to foreground, PiRemote reconnects in peek mode to avoid stealing focus if another client connected in the meantime.
+Backgrounding and SSE death: Mobile browser backgrounds drop WebSocket connections immediately. Upon return to foreground, Couch Pi reconnects in peek mode to avoid stealing focus if another client connected in the meantime.
 herdr attach contention: The socket has no attach lock, so phone and desk can share the pane; the banner keeps the user aware. Peek mode remains the default so a phone visit never types into the desk session (T3, T4).
 Unknown jsonl entries: Not applicable; terminal bridge operates on raw byte streams from herdr PTY, completely independent of jsonl parsing.
 Missing Workdir or Repo: Terminal opens in whichever directory herdr target is located; missing repo does not prevent terminal access.

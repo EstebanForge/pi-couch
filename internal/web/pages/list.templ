@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/EstebanForge/piremote/internal/pi"
+	"github.com/EstebanForge/couch-pi/internal/pi"
 )
 
 templ List(sessions []pi.SessionMeta, badges map[string]string) {
@@ -15,7 +15,7 @@ templ List(sessions []pi.SessionMeta, badges map[string]string) {
 			<meta charset="utf-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1"/>
 			<meta name="color-scheme" content="dark light"/>
-			<title>PiRemote</title>
+			<title>Couch Pi</title>
 			<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5/daisyui.css"/>
 			<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5/theme/coffee.css"/>
 			<link rel="stylesheet" href="/static/app.css"/>
@@ -24,7 +24,7 @@ templ List(sessions []pi.SessionMeta, badges map[string]string) {
 		</head>
 		<body>
 			<header>
-				<h1>PiRemote</h1>
+				<h1>Couch Pi</h1>
 				<p class="sub">{ fmt.Sprintf("%d sessions", len(sessions)) }</p>
 			</header>
 			<main>

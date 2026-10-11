@@ -1,5 +1,5 @@
 // Package git reads working-tree state for the changes tab. Read-only:
-// status, branch, and diffs only; PiRemote never writes to a repo.
+// status, branch, and diffs only; Couch Pi never writes to a repo.
 package git
 
 import (

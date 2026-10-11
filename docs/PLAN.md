@@ -1,4 +1,4 @@
-# PiRemote plan, v0.2
+# Couch Pi plan, v0.2
 
 Rewritten after the grilling session. Decisions are in `docs/adr/`, terms in `CONTEXT.md`. Sources: my requirements, the seven reference screenshots, pi's local docs, and herdr's live API on this machine.
 
@@ -9,9 +9,9 @@ One Android-first PWA that shows every pi session on this server, drives them th
 ## Decisions locked
 
 - Plain pi sessions only. No pi-durable, no RPC children. Sessions resume anywhere pi runs (ADR-0001).
-- herdr is the only driver. Everything PiRemote submits goes through herdr's socket API.
+- herdr is the only driver. Everything Couch Pi submits goes through herdr's socket API.
 - Steer any session, hers or mine. Hard requirement, met by herdr tracking every live agent.
-- pi sessions only. No guests. Working name PiRemote.
+- pi sessions only. No guests. Working name Couch Pi.
 - Changes are repo-level git diffs; repos found by a pruned full scan of the session workdir.
 - Android-first PWA. Web push on status transitions. iOS gaps accepted.
 
@@ -61,7 +61,7 @@ One Android-first PWA that shows every pi session on this server, drives them th
 
 - T1. Terminal tab: interactive attach to the session's herdr pane. herdr runs its own multiplexer (no tmux), so the server spawns `herdr agent attach <target>` under a PTY and bridges bytes to xterm.js over WebSocket.
 - T2. Mobile key row: esc, ctrl, tab, arrows, modifier latch.
-- T3. One attach client per pane at a time is herdr's rule; PiRemote uses `--takeover` only on explicit user action.
+- T3. One attach client per pane at a time is herdr's rule; Couch Pi uses `--takeover` only on explicit user action.
 - T4. Read-only peek mode before attach, one tap to take the wheel.
 
 ### Platform
@@ -100,7 +100,7 @@ One Go binary as a systemd user service, beside herdr's. Stack decision in ADR-0
 - M4 polish (1-2d). V10 in-transcript search, D7 close, P2-P4.
 - M5 push (1-2d). P5, webpush-go.
 
-About three weeks end to end. Dogfood rule: from M0 on, PiRemote is built with pi sessions driven through PiRemote where possible.
+About three weeks end to end. Dogfood rule: from M0 on, Couch Pi is built with pi sessions driven through Couch Pi where possible.
 
 ## Risks and open questions
 
