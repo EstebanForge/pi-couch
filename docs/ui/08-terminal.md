@@ -33,7 +33,7 @@ Entry points: Tapping the "Terminal" tab in Session view; tapping quick terminal
 
 Top header maintains persistent session navigation and status indicators.
 Mode banner: Indicates current attachment state. In "Peek Mode (Read-only)" (T4), it presents a prominent "Take the wheel (Attach)" button (T3). When attached interactively, it displays "Attached (Interactive)" with a "Detach" button.
-Terminal viewport: Embeds vendored xterm.js canvas rendering the pane's ANSI stream fetched over the herdr socket with `pane.read` format `ansi`; `pane_output_changed` events plus buffer revisions drive incremental redraws (T1). Verified in M0 findings: the socket has no attach method and no PTY bridge exists.
+Terminal viewport: Embeds vendored xterm.js canvas rendering the pane's ANSI stream fetched over the herdr socket with `pane.read` format `ansi`. herdr 0.9.3 has no output push, so the server polls and gates on the pane `revision`; the client repaints each `term` event (T1). Verified in M0 findings: the socket has no attach method and no PTY bridge exists.
 Mobile key bar: Sits fixed directly above the on-screen keyboard in the thumb zone. Includes buttons: `[ESC]`, `[TAB]`, `[CTRL]`, `[ALT]`, `[^]` (up), `[v]` (down), `[<]` (left), `[>]` (right) (T2).
 Key latch indicators: Modifier keys (`CTRL` and `ALT`) toggle an active latch highlight when pressed once, applying to the next typed character before resetting. Double-tapping locks modifier.
 Terminal toolbar: Bottom edge holds font size reset button and copy selection button.
@@ -63,7 +63,7 @@ Backgrounded: WebSocket disconnects automatically when browser or WebView enters
 ## Data Needs
 
 Scanner fields: Workdir path for context.
-herdr actions: `pane.read` (format `ansi`, revision tracked) on connect and on `pane_output_changed` events; `pane.send_input` for keystrokes and `pane.send_keys` for the key row. No PTY process, no cgo (M0 findings).
+herdr actions: `pane.read` (format `ansi`, revision-gated 1 s poll) on connect and on change; `pane.send_input` for keystrokes and the key row. No PTY process, no cgo (M0 findings).
 SSE events: Secondary to WebSocket; transmits Status badge changes in header.
 Git service: Not used directly by terminal.
 State JSON: Stores preferred terminal font size.

@@ -10,8 +10,8 @@ All claims below were verified against the live daemons, not docs. herdr 0.9.3, 
 - `AgentStartParams`: `{name, kind, pane_id, args[], timeout_ms 3000..300000}`. `pi` is a supported kind. Start needs an existing pane at a shell prompt; `workspace.create` returns the root pane in one call.
 - `AgentPromptParams`: `{target, text, wait{timeout_ms, until[]}}`. **Text only, no images.** The composer path-note fallback is the only image path (D6).
 - `agent.read` / `pane.read`: `{target, source, format, lines, strip_ansi}`. `ReadFormat` enum is `text` and `ansi`. Revisions on `PaneReadResult` support incremental fetch.
-- `events.subscribe` delivers `pane_output_changed`, `pane_agent_status_changed`, workspace/tab/pane lifecycle events. This is the live-update channel for Status badges and the terminal.
-- There is **no attach method in the socket**. `herdr agent attach` is a CLI thin client only. The terminal tab drives the socket: `pane.read` in `ansi` format plus `pane_output_changed` events into xterm.js, keystrokes out via `pane.send_input`. No PTY bridge, no cgo.
+- `events.subscribe` accepts workspace/tab/pane lifecycle events (dotted variant names such as `pane.updated`) and returns only a `subscription_started` ack on its socket; nothing streams on it afterwards. `events.wait` accepts only pane agent-status matches in herdr 0.9.3 (`unsupported_event_wait_match` for anything else). There is **no output push**: the terminal polls `pane.read` and gates on the `PaneReadResult` revision. Status badges ride session-file ticks and the 30 s heartbeat.
+- There is **no attach method in the socket**. `herdr agent attach` is a CLI thin client only. The terminal tab drives the socket: `pane.read` in `ansi` format polled on a 1 s tick, keystrokes out via `pane.send_input`. No PTY bridge, no cgo.
 - Panes expose `agent_session.value`: the full pi session file path, updated live (null until the first prompt creates the file). This is the Driver-to-session mapping for the session list.
 
 ## pi session files
