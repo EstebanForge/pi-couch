@@ -1,6 +1,7 @@
 package pages
 
 import (
+	"github.com/EstebanForge/couch-pi/internal/web"
 	"fmt"
 
 	"github.com/EstebanForge/couch-pi/internal/pi"
@@ -11,12 +12,12 @@ templ Transcript(meta pi.SessionMeta, items []pi.ViewItem, driver string, notice
 	<html lang="en" data-theme="dracula">
 		<head>
 			<meta charset="utf-8"/>
-			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
 			<meta name="color-scheme" content="dark light"/>
 			<title>{ meta.DisplayName() }</title>
 			<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5/daisyui.css"/>
 			<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5/theme/dracula.css"/>
-			<link rel="stylesheet" href="/static/app.css"/>
+			<link rel="stylesheet" href={ web.AssetPath("/static/app.css") }/>
 			<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 			<script src="/static/js/datastar.js" defer></script>
 		</head>

@@ -2,13 +2,40 @@
 package web
 
 import (
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"io/fs"
 	"net/http"
+	"strings"
 )
 
 //go:embed static
 var staticFS embed.FS
+
+// assetVer holds a short content hash per embedded asset. It versions asset
+// URLs in page heads so a deploy busts client caches (the WebView included).
+var assetVer = map[string]string{}
+
+func init() {
+	for _, p := range []string{"app.css", "js/main.js"} {
+		b, err := staticFS.ReadFile("static/" + p)
+		if err != nil {
+			panic(err) // embed layout is compile-time fixed
+		}
+		sum := sha256.Sum256(b)
+		assetVer[p] = hex.EncodeToString(sum[:4])
+	}
+}
+
+// AssetPath versions a build-artifact asset URL (/static/app.css,
+// /static/js/main.js); vendored assets pass through untouched.
+func AssetPath(p string) string {
+	if v, ok := assetVer[strings.TrimPrefix(p, "/static/")]; ok {
+		return p + "?v=" + v
+	}
+	return p
+}
 
 // Static serves embedded assets. no-cache keeps dev loops honest: the
 // browser revalidates every load instead of heuristically caching.

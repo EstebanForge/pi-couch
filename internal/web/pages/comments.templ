@@ -1,6 +1,7 @@
 package pages
 
 import (
+	"github.com/EstebanForge/couch-pi/internal/web"
 	"fmt"
 	"path/filepath"
 	"time"
@@ -16,14 +17,14 @@ templ Comments(meta pi.SessionMeta, sent []store.Comment) {
 	<html lang="en" data-theme="dracula">
 		<head>
 			<meta charset="utf-8"/>
-			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
 			<meta name="color-scheme" content="dark light"/>
 			<title>{ meta.DisplayName() } - comments</title>
 			<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5/daisyui.css"/>
 			<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5/theme/dracula.css"/>
-			<link rel="stylesheet" href="/static/app.css"/>
+			<link rel="stylesheet" href={ web.AssetPath("/static/app.css") }/>
 			<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-			<script src="/static/js/main.js" defer></script>
+			<script src={ web.AssetPath("/static/js/main.js") } defer></script>
 		</head>
 		<body class="bg-base-100 text-base-content">
 			<header class="px-4 pt-3 pb-2">
