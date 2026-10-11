@@ -6,13 +6,16 @@ import "github.com/EstebanForge/piremote/internal/pi"
 // the key row live in the main.js island; the stream is raw SSE.
 templ Terminal(meta pi.SessionMeta, driver string) {
 	<!doctype html>
-	<html lang="en">
+	<html lang="en" data-theme="coffee">
 		<head>
 			<meta charset="utf-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1"/>
 			<meta name="color-scheme" content="dark light"/>
 			<title>{ meta.DisplayName() } - terminal</title>
+			<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5/daisyui.css"/>
+			<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5/theme/coffee.css"/>
 			<link rel="stylesheet" href="/static/app.css"/>
+			<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 			<link rel="stylesheet" href="/static/css/xterm.css"/>
 			<script src="/static/js/vendor/xterm.js"></script>
 			<script src="/static/js/vendor/xterm-addon-fit.js"></script>
