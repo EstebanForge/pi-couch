@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="connect">Connect</string>
+    <string name="bad_url">Enter the https URL shown by tailscale serve</string>
+</resources>
