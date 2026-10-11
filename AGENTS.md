@@ -34,7 +34,7 @@ Verified (M0):
 - Service install is manual (user unit): copy `systemd/couch-pi.service` to `~/.config/systemd/user/`, then `systemctl --user daemon-reload && systemctl --user enable --now couch-pi`.
 - Deploy server updates (the phone hits the service, not `bin/`): `./scripts/build.sh && install -m 755 bin/couch-pi ~/.local/bin/couch-pi && systemctl --user restart couch-pi && curl -s localhost:8090/healthz`. The unit runs `%h/.local/bin/couch-pi`, so restarting without the install step keeps serving the previous binary; verify by content (e.g. the served `/static/app.css`), not just healthz.
 - Remote front: `tailscale serve --bg 8090` puts the loopback server on `https://box.example.ts.net/` (tailnet-only). `curl https://box.example.ts.net/healthz` expects `ok`.
-- APK: `cd android && ./gradlew assembleDebug` (wrapper copied from Baluard; `android/local.properties` holds `sdk.dir`, gitignored). Install: `adb install -r android/app/build/outputs/apk/debug/app-debug.apk`. Debug-signed, system icon; no keystore yet.
+- APK: `cd android && ./gradlew assembleDebug` (wrapper copied from Baluard; `android/local.properties` holds `sdk.dir`, gitignored). Install: `adb install -r android/app/build/outputs/apk/debug/app-debug.apk`. Debug-signed, Pi Agent adaptive icon and dark splash; no keystore yet.
 - Push slice: VAPID keys and subscriptions live under `~/.local/state/couch-pi/` (`vapid.json` 0600, `push-subs.json`). `GET /api/push/key`, `POST /api/push/subscribe|unsubscribe`, `GET /sw.js`.
 
 Pins: templ v0.3.1070 and esbuild v0.28.2 as Go `tool` directives; datastar-go v1.2.2 with the vendored browser bundle `static/js/datastar.js` (core v1.0.4); fsnotify v1.10.1. herdr socket framing is NDJSON: `{"id","method","params"}` in, one compact JSON line out.

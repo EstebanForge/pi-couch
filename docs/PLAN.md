@@ -95,7 +95,7 @@ One Go binary as a systemd user service, beside herdr's. Stack decision in ADR-0
 Shipped through M5 as of 2026-10-11; M4 polish items are the open tail.
 
 - M0 read (2-3d). Go skeleton (templ, Datastar, SSE), scanner, V1-V9, P1. All existing sessions on the phone, live. Shipped 2026-10-10.
-- M0.5 shell (1-2d). P8, the icon on the phone. WebView APK pointing at the tailscale serve URL. Includes keystore, icon assets, back-button history wiring, IME and viewport handling for the composer. Shipped 2026-10-11 minus keystore and icon assets: debug-signed with the system icon, verified live on the the phone over WiFi adb.
+- M0.5 shell (1-2d). P8, the icon on the phone. WebView APK pointing at the tailscale serve URL. Includes keystore, icon assets, back-button history wiring, IME and viewport handling for the composer. Shipped 2026-10-11 minus keystore: debug-signed with the Pi Agent adaptive icon and dark splash, page draws under the transparent status bar with injected safe-area insets (ADR-0003), verified live on the the phone over WiFi adb.
 - M1 drive (3-4d). D1, D3-D5, D8, D9. Start in a herdr tab, steer, stop, resume. Shipped.
 - M2 review (2-3d). R1-R9, V11. Shipped.
 - M3 terminal (2-3d). T1-T4. Shipped, on the socket path (no PTY).
