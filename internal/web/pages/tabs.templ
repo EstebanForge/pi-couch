@@ -1,13 +1,13 @@
 package pages
 
-// TabStrip renders the five-tab bar. Chat and Term link out; the rest are
-// built in later slices and render disabled, not dead links.
+// TabStrip renders the five-tab bar. Chat, Chg, Term, and Files link
+// out; Cmts is still a later slice and renders disabled, not a dead link.
 templ TabStrip(key string, active string) {
 	<nav class="tabs">
 		<a href={ templ.URL("/sessions/" + key) } class={ "tab", templ.KV("active", active == "chat") }>Chat</a>
 		<a href={ templ.URL("/sessions/" + key + "/changes") } class={ "tab", templ.KV("active", active == "chg") }>Chg</a>
 		<a href={ templ.URL("/sessions/" + key + "/terminal") } class={ "tab", templ.KV("active", active == "term") }>Term</a>
-		<span class="tab">Files</span>
+		<a href={ templ.URL("/sessions/" + key + "/files") } class={ "tab", templ.KV("active", active == "files") }>Files</a>
 		<span class="tab">Cmts</span>
 	</nav>
 }

@@ -68,6 +68,8 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("GET /sessions/{key}", a.transcript)
 	mux.HandleFunc("GET /sessions/{key}/changes", a.changes)
 	mux.HandleFunc("GET /stream/changes/{key}", a.streamChanges)
+	mux.HandleFunc("GET /sessions/{key}/files", a.files)
+	mux.HandleFunc("GET /sessions/{key}/files/view", a.filesView)
 	mux.HandleFunc("GET /sessions/{key}/terminal", a.terminal)
 	mux.HandleFunc("GET /stream/terminal/{key}", a.streamTerminal)
 	mux.HandleFunc("POST /sessions/{key}/terminal/input", a.terminalInput)

@@ -1,0 +1,114 @@
+package pages
+
+import (
+	"path"
+	"strings"
+
+	"github.com/EstebanForge/piremote/internal/browse"
+	"github.com/EstebanForge/piremote/internal/pi"
+)
+
+// Files is the lazy file tree (09): one directory level per page,
+// navigation IS the lazy load. Preview cuts off per the spec.
+templ Files(meta pi.SessionMeta, repo string, rel string, entries []browse.Entry) {
+	<!doctype html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<meta name="color-scheme" content="dark light"/>
+			<title>{ meta.DisplayName() } - files</title>
+			<link rel="stylesheet" href="/static/app.css"/>
+		</head>
+		<body>
+			<header>
+				<a class="back" href={ templ.URL("/sessions/" + meta.Key) }>&larr; Chat</a>
+				<h1>{ meta.DisplayName() }</h1>
+				<p class="sub">
+					if repo != "" {
+						<span>{ path.Base(repo) }</span>
+					}
+				</p>
+			</header>
+			@TabStrip(meta.Key, "files")
+			<main class="files">
+				if repo == "" {
+					<div class="notice">Not a git repository.</div>
+				} else {
+					<nav class="crumbs">
+						<a href={ templ.URL("/sessions/" + meta.Key + "/files") }>{ path.Base(repo) }</a>
+						@Crumbs(meta.Key, rel)
+					</nav>
+					for _, e := range entries {
+						if e.Dir {
+							<div class="file">
+								<a href={ templ.URL("/sessions/" + meta.Key + "/files?dir=" + rel + "/" + e.Name) }>
+									<span class="dirc">d</span>
+									<span class="path">{ e.Name }/</span>
+								</a>
+							</div>
+						} else {
+							<div class="file">
+								<a href={ templ.URL("/sessions/" + meta.Key + "/files/view?file=" + rel + "/" + e.Name) }>
+									<span class="path">{ e.Name }</span>
+								</a>
+							</div>
+						}
+					}
+				}
+			</main>
+		</body>
+	</html>
+}
+
+templ Crumbs(key string, rel string) {
+	for i, part := range splitRel(rel) {
+		<span>/</span>
+		<a href={ templ.URL("/sessions/" + key + "/files?dir=" + joinRel(splitRel(rel)[:i+1])) }>{ part }</a>
+	}
+}
+
+// PreviewPage renders one file's text content.
+templ PreviewPage(meta pi.SessionMeta, repo string, file string, content string, kind string) {
+	<!doctype html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<meta name="color-scheme" content="dark light"/>
+			<title>{ file }</title>
+			<link rel="stylesheet" href="/static/app.css"/>
+		</head>
+		<body>
+			<header>
+				<a class="back" href={ templ.URL("/sessions/" + meta.Key + "/files?dir=" + path.Dir(file)) }>&larr; Files</a>
+				<h1>{ file }</h1>
+			</header>
+			@TabStrip(meta.Key, "files")
+			<main class="files">
+				if kind == "binary" {
+					<div class="notice">Binary file: no preview.</div>
+				} else if kind == "toolarge" {
+					<div class="notice">File over 2 MB: no preview.</div>
+				} else {
+					if kind == "partial" {
+						<div class="notice">Preview cut at 256 KB.</div>
+					}
+					<pre class="diff"><span class="dl meta">{ content }</span></pre>
+				}
+			</main>
+		</body>
+	</html>
+}
+
+func splitRel(rel string) []string {
+	rel = path.Clean(rel)
+	if rel == "." || rel == "/" {
+		return nil
+	}
+	return strings.Split(strings.Trim(rel, "/"), "/")
+}
+
+func joinRel(parts []string) string {
+	return path.Join(parts...)
+}
