@@ -22,6 +22,7 @@ templ Transcript(meta pi.SessionMeta, items []pi.ViewItem, driver string, notice
 			<link rel="stylesheet" href={ web.AssetPath("/static/app.css") }/>
 			<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.3" integrity="sha384-aJ9rL4k6lF+91guGvUFVSkpIcge7Zd9EiI4TQDLoK9kFaFJgKHgjEXVvG/qA5COj" crossorigin="anonymous"></script>
 			<script src="/static/js/datastar.js" defer></script>
+			<script src={ web.AssetPath("/static/js/main.js") } defer></script>
 		</head>
 		<body class="bg-base-100 text-base-content">
 			<header class="px-4 pt-3 pb-2">
@@ -48,6 +49,7 @@ templ Transcript(meta pi.SessionMeta, items []pi.ViewItem, driver string, notice
 				<div class="alert alert-warning py-2 px-3 text-sm mx-3 rounded-xl"><span>{ notice }</span></div>
 			}
 			<div id="stop-box">@StopForm(meta.Key, driver)</div>
+			@SearchBox()
 			<main class="flex flex-col gap-3 px-3 pb-60">
 				<div id="chat" data-on-load={ sseTranscript(meta.Key) }>
 					@TranscriptItems(items)
@@ -127,14 +129,38 @@ templ DriverBadge(status string) {
 	}
 }
 
+// SearchBox is the in-transcript search row (V10). The island in main.ts
+// counts matches in #chat and cycles them with the browser's own find, so
+// multi-MB transcripts stay scroll-smooth.
+templ SearchBox() {
+	<details class="px-3">
+		<summary class="text-sm opacity-60 select-none">Search</summary>
+		<div class="flex items-center gap-2 pt-2">
+			<input id="ts-input" type="search" placeholder="Find in transcript"
+				class="input input-sm w-full rounded-xl bg-base-200"/>
+			<span id="ts-count" class="text-xs opacity-60 tabular-nums whitespace-nowrap"></span>
+			<button id="ts-prev" class="btn btn-sm btn-ghost rounded-full" type="button" aria-label="Previous match">&uarr;</button>
+			<button id="ts-next" class="btn btn-sm btn-ghost rounded-full" type="button" aria-label="Next match">&darr;</button>
+		</div>
+	</details>
+}
+
 // StopForm renders inside #stop-box. Ctrl-C on an idle pi prompt is
-// destructive (it can exit pi), so the button exists only while the
-// driver reports working or blocked.
+// destructive (it can exit pi), so the stop button exists only while the
+// driver reports working or blocked. Close (D7) tears down the herdr
+// workspace behind the session; the transcript file stays readable.
 templ StopForm(key string, status string) {
-	if status == "working" || status == "blocked" {
-		<form method="post" action={ templ.URL("/sessions/" + key + "/stop") } class="px-3">
-			<button class="btn btn-error btn-sm rounded-full" type="submit">Stop (Ctrl-C)</button>
-		</form>
+	if status != "" {
+		<div class="px-3 flex items-center gap-2">
+			if status == "working" || status == "blocked" {
+				<form method="post" action={ templ.URL("/sessions/" + key + "/stop") }>
+					<button class="btn btn-error btn-sm rounded-full" type="submit">Stop (Ctrl-C)</button>
+				</form>
+			}
+			<form method="post" action={ templ.URL("/sessions/" + key + "/close") } onsubmit="return confirm('Close this session in herdr? The pi agent exits.')">
+				<button class="btn btn-outline btn-error btn-sm rounded-full" type="submit">Close session</button>
+			</form>
+		</div>
 	}
 }
 

@@ -105,6 +105,56 @@ function initTerminal(): void {
 initTerminal();
 initComments();
 initPush();
+initTranscriptSearch();
+
+// In-transcript search (V10): count matches in #chat and cycle them with
+// the browser's find, so a multi-MB DOM never gets walked node by node.
+function initTranscriptSearch(): void {
+	const input = document.getElementById("ts-input") as HTMLInputElement | null;
+	if (!input) {
+		return; // not the transcript page
+	}
+	const count = document.getElementById("ts-count")!;
+	const matches = (q: string): number => {
+		const hay = (document.getElementById("chat")?.innerText || "").toLowerCase();
+		return q ? hay.split(q.toLowerCase()).length - 1 : 0;
+	};
+	// window.find is nonstandard but universal; it moves the selection, so
+	// the browser scrolls the match into view for free. A miss resets to
+	// the top once so the next press wraps around.
+	const findFrom = (q: string, backwards: boolean): boolean => {
+		if ((window as any).find?.(q, false, backwards, true, false, false, false)) {
+			return true;
+		}
+		const sel = window.getSelection();
+		sel?.removeAllRanges();
+		if (backwards) {
+			const end = document.getElementById("chat");
+			end?.scrollIntoView(false);
+		} else {
+			window.scrollTo({ top: 0 });
+		}
+		return (window as any).find?.(q, false, backwards, true, false, false, false) ?? false;
+	};
+	const seek = (backwards: boolean): void => {
+		const q = input.value.trim();
+		count.textContent = q ? `${matches(q)} matches` : "";
+		if (q) {
+			findFrom(q, backwards);
+		}
+	};
+	input.addEventListener("keydown", (e: KeyboardEvent) => {
+		if (e.key === "Enter") {
+			e.preventDefault();
+			seek(e.shiftKey);
+		}
+	});
+	document.getElementById("ts-next")?.addEventListener("click", () => seek(false));
+	document.getElementById("ts-prev")?.addEventListener("click", () => seek(true));
+	input.addEventListener("input", () => {
+		count.textContent = input.value.trim() ? `${matches(input.value.trim())} matches` : "";
+	});
+}
 
 // Push island: bell toggle on the sessions header. Registers /sw.js, mirrors
 // the subscription to POST /api/push/subscribe, unsubscribes on opt-out.
