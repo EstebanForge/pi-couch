@@ -231,6 +231,7 @@ func (a *app) streamSessions(w http.ResponseWriter, r *http.Request) {
 	sse := datastar.NewSSE(w, r)
 	ticks, unsub := a.subscribeTicks()
 	defer unsub()
+	var pace pacer
 	for {
 		sessions, badges := a.snapshot(r)
 		window, size, total := listWindow(r, sessions, badges)
@@ -247,7 +248,7 @@ func (a *app) streamSessions(w http.ResponseWriter, r *http.Request) {
 			return
 		default:
 		}
-		if !a.waitTick(r, ticks) {
+		if !pace.wait(r.Context(), ticks) {
 			return
 		}
 	}
@@ -397,6 +398,7 @@ func (a *app) streamTranscript(w http.ResponseWriter, r *http.Request) {
 	sse := datastar.NewSSE(w, r)
 	ticks, unsub := a.subscribeTicks()
 	defer unsub()
+	var pace pacer
 	for {
 		meta, ok := a.idx.Meta(key)
 		if !ok {
@@ -420,7 +422,7 @@ func (a *app) streamTranscript(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		if !a.waitTick(r, ticks) {
+		if !pace.wait(r.Context(), ticks) {
 			return
 		}
 	}
@@ -435,21 +437,38 @@ func (a *app) subscribeTicks() (<-chan struct{}, func()) {
 	return a.watcher.Subscribe()
 }
 
-// waitTick blocks for the next update trigger; false means the client left.
-func (a *app) waitTick(r *http.Request, ticks <-chan struct{}) bool {
-	ctx := r.Context()
-	if ticks != nil {
+// streamMinInterval spaces a stream's full-tail re-renders. Active
+// sessions emit watcher ticks per token batch, and patching per tick
+// flooded clients with back-to-back DOM replacements until they froze.
+const streamMinInterval = time.Second
+
+// pacer rate-limits one stream's patch loop.
+type pacer struct {
+	last time.Time
+}
+
+// wait blocks until the next patch is due: immediately on the first
+// call, then at most once per streamMinInterval (coalescing the tick
+// firehose), or on the heartbeat when nothing changes. False means the
+// client left.
+func (p *pacer) wait(ctx context.Context, ticks <-chan struct{}) bool {
+	if p.last.IsZero() {
+		p.last = time.Now()
+		return true
+	}
+	if d := streamMinInterval - time.Since(p.last); d > 0 {
 		select {
-		case <-ticks:
-			return true
-		case <-time.After(heartbeat):
-			return true
 		case <-ctx.Done():
 			return false
+		case <-time.After(d):
 		}
 	}
 	select {
+	case <-ticks:
+		p.last = time.Now()
+		return true
 	case <-time.After(heartbeat):
+		p.last = time.Now()
 		return true
 	case <-ctx.Done():
 		return false

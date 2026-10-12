@@ -1,8 +1,10 @@
 package pi
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -44,6 +46,18 @@ type Index struct {
 	root  string
 	mu    sync.Mutex
 	cache map[string]metaCache
+	tail  *tailCache
+}
+
+// tailCache holds the parsed entries of the session currently being
+// viewed so transcript streams parse only appended bytes. One session
+// at a time; a full parse of a large active session per watcher tick
+// starved both the server and its clients.
+type tailCache struct {
+	key     string
+	path    string
+	offset  int64 // bytes consumed so far, always at a newline boundary
+	entries []Entry
 }
 
 type metaCache struct {
@@ -229,12 +243,14 @@ func (ix *Index) Transcript(key string, limit int) (SessionMeta, []ViewItem, err
 	if !ok {
 		return meta, nil, fmt.Errorf("session %q not found", key)
 	}
-	f, err := os.Open(meta.Path)
+	st, err := os.Stat(meta.Path)
 	if err != nil {
 		return meta, nil, err
 	}
-	defer f.Close()
-	entries := ParseEntries(f)
+	entries, err := ix.tailEntries(key, meta.Path, st.Size())
+	if err != nil {
+		return meta, nil, err
+	}
 	path := ActivePath(entries)
 	if limit > 0 && len(path) > limit {
 		path = path[len(path)-limit:]
@@ -255,6 +271,61 @@ func (ix *Index) Transcript(key string, limit int) (SessionMeta, []ViewItem, err
 		}
 	}
 	return meta, items, nil
+}
+
+// tailEntries returns the session's entries, parsing only the bytes
+// appended since the previous call for this session. The offset always
+// sits on a newline boundary, so a line the writer has not finished is
+// picked up once it is complete, never duplicated.
+func (ix *Index) tailEntries(key, path string, size int64) ([]Entry, error) {
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	tc := ix.tail
+	if tc != nil && tc.key == key && tc.path == path {
+		if tc.offset == size {
+			return tc.entries, nil
+		}
+		if tc.offset < size {
+			f, err := os.Open(path)
+			if err != nil {
+				return nil, err
+			}
+			defer f.Close()
+			buf := make([]byte, size-tc.offset)
+			n, rerr := f.ReadAt(buf, tc.offset)
+			if rerr != nil && rerr != io.EOF {
+				return nil, rerr
+			}
+			buf = buf[:n]
+			if i := bytes.LastIndexByte(buf, '\n'); i >= 0 {
+				fresh := ParseEntries(bytes.NewReader(buf[:i+1]))
+				entries := make([]Entry, 0, len(tc.entries)+len(fresh))
+				entries = append(entries, tc.entries...)
+				entries = append(entries, fresh...)
+				ix.tail = &tailCache{key: key, path: path, offset: tc.offset + int64(i+1), entries: entries}
+				return ix.tail.entries, nil
+			}
+			// Nothing complete in the delta yet.
+			return tc.entries, nil
+		}
+	}
+	// First view, a different session, or a shrunk file: full parse.
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return nil, err
+	}
+	consumed := int64(len(data))
+	if i := bytes.LastIndexByte(data, '\n'); i >= 0 && i != len(data)-1 {
+		consumed = int64(i + 1) // a torn trailing line waits for its newline
+	}
+	entries := ParseEntries(bytes.NewReader(data[:consumed]))
+	ix.tail = &tailCache{key: key, path: path, offset: consumed, entries: entries}
+	return entries, nil
 }
 
 func messageItems(e Entry) []ViewItem {
