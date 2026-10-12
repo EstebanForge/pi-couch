@@ -23,7 +23,7 @@ templ Transcript(meta pi.SessionMeta, items []pi.ViewItem, driver string, notice
 			<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5.7.47/theme/dracula.css" integrity="sha384-5wuHXUrEEjdxHCFM30I9idvob9Li9ycYna0ziWfDPkAHDFijPEdeecw3xNvf4dzA" crossorigin="anonymous"/>
 			<link rel="stylesheet" href={ web.AssetPath("/static/app.css") }/>
 			<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.3" integrity="sha384-aJ9rL4k6lF+91guGvUFVSkpIcge7Zd9EiI4TQDLoK9kFaFJgKHgjEXVvG/qA5COj" crossorigin="anonymous"></script>
-			<script src="/static/js/datastar.js" defer></script>
+			<script type="module" src="/static/js/datastar.js"></script>
 			<script src={ web.AssetPath("/static/js/main.js") } defer></script>
 		</head>
 		<body class="bg-base-100 text-base-content">
@@ -53,7 +53,7 @@ templ Transcript(meta pi.SessionMeta, items []pi.ViewItem, driver string, notice
 			<div id="stop-box">@StopForm(meta.Key, driver)</div>
 			@SearchBox()
 			<main class="flex flex-col gap-3 px-3 pb-60">
-				<div id="chat" data-on-load={ sseTranscript(meta.Key) }>
+				<div id="chat" data-init={ sseTranscript(meta.Key) }>
 					@TranscriptItems(items)
 				</div>
 			</main>
