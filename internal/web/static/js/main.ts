@@ -216,24 +216,28 @@ function initSteerSend(): void {
 		}
 		const body = new FormData(form);
 		ta.value = "";
+		// Loading indicator, not an optimistic claim: the bubble shows at
+		// once so the send never waits on the POST round-trip; the fetch
+		// only decides whether it stays.
+		removePending();
+		const row = document.createElement("div");
+		row.className = "chat chat-start opacity-60";
+		const bubble = document.createElement("div");
+		bubble.className = "chat-bubble bg-base-200 rounded-2xl";
+		bubble.textContent = text;
+		row.appendChild(bubble);
+		chat.appendChild(row);
+		pending = row;
+		pendingSeed = norm(text).slice(0, 60);
+		window.scrollTo({ top: document.body.scrollHeight });
 		fetch(form.action, { method: "POST", body, redirect: "manual" })
 			.then((res) => {
 				if (!res.ok && res.type !== "opaqueredirect") {
 					throw new Error("steer failed");
 				}
-				removePending();
-				const row = document.createElement("div");
-				row.className = "chat chat-start opacity-60";
-				const bubble = document.createElement("div");
-				bubble.className = "chat-bubble bg-base-200 rounded-2xl";
-				bubble.textContent = text;
-				row.appendChild(bubble);
-				chat.appendChild(row);
-				pending = row;
-				pendingSeed = norm(text).slice(0, 60);
-				window.scrollTo({ top: document.body.scrollHeight });
 			})
 			.catch(() => {
+				removePending();
 				ta.value = text; // restore the draft; next submit retries
 			});
 	});
