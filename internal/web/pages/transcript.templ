@@ -68,7 +68,7 @@ templ Transcript(meta pi.SessionMeta, items []pi.ViewItem, driver string, notice
 							class="textarea w-full rounded-xl bg-base-200 min-h-11 leading-6"></textarea>
 					</div>
 					<div class="flex flex-col gap-1 items-stretch">
-						<label for="attach-file" class="btn btn-ghost btn-sm rounded-xl" title="Attach an image">📎</label>
+						<label for="attach-file" class="btn btn-ghost rounded-xl" title="Attach an image">📎</label>
 						<input type="file" id="attach-file" accept="image/png,image/jpeg,image/webp,image/gif" class="hidden"/>
 						<button class="btn btn-primary rounded-xl" type="submit">Send</button>
 					</div>
@@ -152,10 +152,10 @@ templ SearchBox() {
 		<summary class="text-sm opacity-60 select-none">Search</summary>
 		<div class="flex items-center gap-2 pt-2">
 			<input id="ts-input" type="search" placeholder="Find in transcript"
-				class="input input-sm w-full rounded-xl bg-base-200"/>
+				class="input w-full rounded-xl bg-base-200"/>
 			<span id="ts-count" class="text-xs opacity-60 tabular-nums whitespace-nowrap"></span>
-			<button id="ts-prev" class="btn btn-sm btn-ghost rounded-full" type="button" aria-label="Previous match">&uarr;</button>
-			<button id="ts-next" class="btn btn-sm btn-ghost rounded-full" type="button" aria-label="Next match">&darr;</button>
+			<button id="ts-prev" class="btn btn-ghost rounded-full" type="button" aria-label="Previous match">&uarr;</button>
+			<button id="ts-next" class="btn btn-ghost rounded-full" type="button" aria-label="Next match">&darr;</button>
 		</div>
 	</details>
 }
@@ -172,12 +172,12 @@ templ ModelPicker(key string, current string) {
 		<div class="collapse-content flex flex-col gap-2">
 			<form method="post" action={ templ.URL("/sessions/" + key + "/model") } class="flex items-center gap-2">
 				<input name="pattern" list="dl-models" required placeholder="provider/model[:thinking]" autocomplete="off"
-					class="input input-sm w-full rounded-xl bg-base-200 font-mono"/>
+					class="input w-full rounded-xl bg-base-200 font-mono"/>
 				<datalist id="dl-models"></datalist>
-				<button class="btn btn-sm rounded-xl" type="submit">Set</button>
+				<button class="btn rounded-xl" type="submit">Set</button>
 			</form>
 			<form method="post" action={ templ.URL("/sessions/" + key + "/thinking") } class="flex items-center gap-2">
-				<select name="level" class="select select-sm w-full rounded-xl bg-base-200">
+				<select name="level" class="select w-full rounded-xl bg-base-200">
 					<option value="off">thinking: off</option>
 					<option value="minimal">minimal</option>
 					<option value="low">low</option>
@@ -186,7 +186,7 @@ templ ModelPicker(key string, current string) {
 					<option value="xhigh">xhigh</option>
 					<option value="max">max</option>
 				</select>
-				<button class="btn btn-sm rounded-xl" type="submit">Set</button>
+				<button class="btn rounded-xl" type="submit">Set</button>
 			</form>
 		</div>
 	</details>
@@ -201,11 +201,11 @@ templ StopForm(key string, status string) {
 		<div class="px-3 flex items-center gap-2">
 			if status == "working" || status == "blocked" {
 				<form method="post" action={ templ.URL("/sessions/" + key + "/stop") }>
-					<button class="btn btn-error btn-sm rounded-full" type="submit">Stop (Ctrl-C)</button>
+					<button class="btn btn-error rounded-full" type="submit">Stop (Ctrl-C)</button>
 				</form>
 			}
 			<form method="post" action={ templ.URL("/sessions/" + key + "/close") } onsubmit="return confirm('Close this session in herdr? The pi agent exits.')">
-				<button class="btn btn-outline btn-error btn-sm rounded-full" type="submit">Close session</button>
+				<button class="btn btn-outline btn-error rounded-full" type="submit">Close session</button>
 			</form>
 		</div>
 	}

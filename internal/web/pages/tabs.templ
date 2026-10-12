@@ -2,7 +2,7 @@ package pages
 
 // TabStrip renders the five-tab dock. All five link out; every tab is live.
 templ TabStrip(key string, active string) {
-	<nav class="dock dock-sm fixed bottom-0 inset-x-0 z-40">
+	<nav class="dock fixed bottom-0 inset-x-0 z-40">
 		<a href={ templ.URL("/sessions/" + key) } class={ templ.KV("dock-active", active == "chat") }>
 			<span class="dock-label">Chat</span>
 		</a>
