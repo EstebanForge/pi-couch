@@ -1,0 +1,105 @@
+import { describe, expect, it } from "vitest";
+import type { StreamItem } from "../api";
+import {
+	type DriverState,
+	emptyDriver,
+	groupWorkBlocks,
+	reduceAppend,
+	reduceReset,
+	reduceStatus,
+} from "./transcript";
+
+const item = (seq: number, kind: StreamItem["kind"], text = ""): StreamItem => ({
+	seq,
+	kind,
+	text,
+});
+
+describe("reduceReset", () => {
+	it("replaces items and the status triple", () => {
+		const s = reduceReset(emptyDriver, {
+			items: [item(1, "user", "hi"), item(0, "text", "hello")],
+			status: "working",
+			model: "p/m",
+			thinking: "high",
+		});
+		expect(s.items.map((i) => i.seq)).toEqual([0, 1]);
+		expect(s.status).toBe("working");
+		expect(s.model).toBe("p/m");
+		expect(s.thinking).toBe("high");
+	});
+});
+
+describe("reduceAppend", () => {
+	it("appends and keeps seq order", () => {
+		let s = reduceReset(emptyDriver, {
+			items: [item(0, "user", "hi")],
+			status: "working",
+			model: "",
+			thinking: "",
+		});
+		s = reduceAppend(s, { items: [item(2, "text", "done"), item(1, "thinking", "hmm")] });
+		expect(s.items.map((i) => i.seq)).toEqual([0, 1, 2]);
+	});
+
+	it("ignores duplicate seqs (reconnect replay)", () => {
+		const s = reduceReset(emptyDriver, {
+			items: [item(0, "user", "hi")],
+			status: "",
+			model: "",
+			thinking: "",
+		});
+		const once = reduceAppend(s, { items: [item(1, "text", "x")] });
+		const twice = reduceAppend(once, { items: [item(1, "text", "x")] });
+		expect(twice).toBe(once);
+	});
+});
+
+describe("reduceStatus", () => {
+	it("updates only the triple", () => {
+		const s: DriverState = reduceReset(emptyDriver, {
+			items: [item(0, "text", "x")],
+			status: "working",
+			model: "a/b",
+			thinking: "low",
+		});
+		const next = reduceStatus(s, { status: "done", model: "a/b", thinking: "low" });
+		expect(next.status).toBe("done");
+		expect(next.items).toBe(s.items);
+	});
+});
+
+describe("groupWorkBlocks", () => {
+	it("folds consecutive foldables and keeps speech solo", () => {
+		const items = [
+			item(0, "user", "q"),
+			item(1, "thinking", "h"),
+			item(2, "tool_call", "run"),
+			item(3, "tool_result", "out"),
+			item(4, "text", "answer"),
+		];
+		const blocks = groupWorkBlocks(items, false);
+		expect(blocks).toHaveLength(3);
+		expect(blocks[0]).toEqual({ type: "item", item: items[0] });
+		expect(blocks[1]).toMatchObject({ type: "block", open: false });
+		if (blocks[1].type === "block") {
+			expect(blocks[1].items.map((i) => i.seq)).toEqual([1, 2, 3]);
+		}
+		expect(blocks[2]).toEqual({ type: "item", item: items[4] });
+	});
+
+	it("opens blocks while the agent works", () => {
+		const blocks = groupWorkBlocks([item(0, "thinking", "h")], true);
+		expect(blocks[0]).toMatchObject({ type: "block", open: true });
+	});
+
+	it("never folds markers between runs", () => {
+		const items = [
+			item(0, "thinking", "a"),
+			item(1, "marker", "Model -> x"),
+			item(2, "bash", "ls"),
+		];
+		const blocks = groupWorkBlocks(items, false);
+		expect(blocks).toHaveLength(3);
+	});
+});

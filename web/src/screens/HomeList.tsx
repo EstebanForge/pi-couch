@@ -1,7 +1,9 @@
 import { useEffect } from "react";
+import type { SessionsSnapshot } from "../api";
 import { relTime, short } from "../fmt";
 import { navigate } from "../nav";
 import { useSessions } from "../state/sessions";
+import { connectStream } from "../stream";
 
 const STATUS_COLOR: Record<string, string> = {
 	working: "bg-warning",
@@ -12,11 +14,22 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 export default function HomeList() {
-	const { sessions, badges, status, error, load } = useSessions();
+	const { sessions, badges, status, error, load, apply } = useSessions();
 
 	useEffect(() => {
 		if (status === "idle") void load();
 	}, [status, load]);
+
+	// Live updates: the sessions stream resets on every connect and on
+	// change; the snapshot lands straight in the store.
+	useEffect(() => {
+		const stream = connectStream("/api/stream/sessions", {
+			onEvent: (name, data) => {
+				if (name === "reset") apply(JSON.parse(data) as SessionsSnapshot);
+			},
+		});
+		return () => stream.close();
+	}, [apply]);
 
 	return (
 		<div className="mx-auto flex min-h-dvh max-w-3xl flex-col">
