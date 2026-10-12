@@ -62,6 +62,11 @@ func ServiceWorker() ([]byte, error) {
 	return staticFS.ReadFile("static/js/sw.js")
 }
 
+// Manifest returns the PWA manifest.
+func Manifest() ([]byte, error) {
+	return staticFS.ReadFile("static/manifest.webmanifest")
+}
+
 func noCache(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-cache")

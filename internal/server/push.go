@@ -132,3 +132,15 @@ func (a *app) serviceWorker(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	_, _ = w.Write(b)
 }
+
+// manifest serves the PWA manifest (P4, desktop install; the APK owns
+// Android). Icons ship under /static/.
+func (a *app) manifest(w http.ResponseWriter, r *http.Request) {
+	b, err := web.Manifest()
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "application/manifest+json")
+	_, _ = w.Write(b)
+}

@@ -38,6 +38,17 @@ self.addEventListener("notificationclick", (event) => {
 	);
 });
 
+// Desktop installability (P4): Chrome wants a fetch handler. Pure
+// passthrough - the APK owns the install surface on Android, so no
+// offline shell, and streams (SSE) are left to the browser.
+self.addEventListener("fetch", (event) => {
+	const url = new URL(event.request.url);
+	if (event.request.method !== "GET" || url.pathname.startsWith("/stream/")) {
+		return;
+	}
+	event.respondWith(fetch(event.request));
+});
+
 // Rotate the subscription when the push service invalidates it: resubscribe
 // against the same VAPID key and mirror it to the server, best effort.
 self.addEventListener("pushsubscriptionchange", (event) => {

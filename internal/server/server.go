@@ -172,6 +172,7 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("POST /api/push/subscribe", a.pushSubscribe)
 	mux.HandleFunc("POST /api/push/unsubscribe", a.pushUnsubscribe)
 	mux.HandleFunc("GET /sw.js", a.serviceWorker)
+	mux.HandleFunc("GET /manifest.webmanifest", a.manifest)
 	mux.Handle("GET /static/", web.Static())
 	return mux
 }
