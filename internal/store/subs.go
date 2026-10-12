@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -31,35 +32,51 @@ func (s *Store) Subs() ([]Sub, error) {
 	return s.readSubs()
 }
 
-// SetSubs replaces all push subscriptions (subscribe and 410 cleanup both
-// rewrite the list).
-func (s *Store) SetSubs(subs []Sub) error {
+// UpdateSubs applies fn to the stored list under one lock, so read-modify-write
+// callers (subscribe, unsubscribe, 410 pruning) never lose concurrent updates.
+func (s *Store) UpdateSubs(fn func([]Sub) []Sub) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	b, err := json.Marshal(subs)
+	subs, err := s.readSubs()
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.subsPath(), b, 0o644)
+	b, err := json.Marshal(fn(subs))
+	if err != nil {
+		return err
+	}
+	return writeFileAtomic(s.subsPath(), b, 0o600)
+}
+
+// SetSubs replaces the whole list.
+func (s *Store) SetSubs(subs []Sub) error {
+	return s.UpdateSubs(func([]Sub) []Sub { return subs })
 }
 
 // VAPID returns the push identity, generating and persisting it on first
 // use. Keys are base64url in the web-push convention: the 65-byte
 // uncompressed P-256 public point and the 32-byte private scalar, the exact
 // formats webpush-go and the browser applicationServerKey both expect.
-// The private key file is 0600.
+// The private key file is 0600. A corrupt key file is an error, never a
+// silent regeneration: new keys would invalidate every existing subscription.
 func (s *Store) VAPID() (VAPID, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	b, err := os.ReadFile(s.vapidPath())
-	if err == nil {
-		var v VAPID
-		if err := json.Unmarshal(b, &v); err == nil && v.Public != "" && v.Private != "" {
-			return v, nil
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
+	if errors.Is(err, os.ErrNotExist) {
+		return s.generateVAPID()
+	}
+	if err != nil {
 		return VAPID{}, err
 	}
+	var v VAPID
+	if err := json.Unmarshal(b, &v); err != nil || v.Public == "" || v.Private == "" {
+		return VAPID{}, fmt.Errorf("corrupt %s: fix or remove it by hand; keys must not regenerate", s.vapidPath())
+	}
+	return v, nil
+}
+
+func (s *Store) generateVAPID() (VAPID, error) {
 	d := make([]byte, 32)
 	if _, err := rand.Read(d); err != nil {
 		return VAPID{}, err
@@ -72,11 +89,11 @@ func (s *Store) VAPID() (VAPID, error) {
 		Public:  base64.RawURLEncoding.EncodeToString(priv.PublicKey().Bytes()),
 		Private: base64.RawURLEncoding.EncodeToString(d),
 	}
-	b, err = json.Marshal(v)
+	b, err := json.Marshal(v)
 	if err != nil {
 		return VAPID{}, err
 	}
-	if err := os.WriteFile(s.vapidPath(), b, 0o600); err != nil {
+	if err := writeFileAtomic(s.vapidPath(), b, 0o600); err != nil {
 		return VAPID{}, err
 	}
 	return v, nil

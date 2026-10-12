@@ -7,6 +7,85 @@ import (
 	"testing"
 )
 
+func TestVAPIDCorruptErrors(t *testing.T) {
+	st, err := NewDir(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	vapid := st.vapidPath()
+	if err := os.WriteFile(vapid, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.VAPID(); err == nil {
+		t.Fatal("corrupt vapid.json: want error, got nil (would regenerate keys)")
+	}
+	b, err := os.ReadFile(vapid)
+	if err != nil || string(b) != "{not json" {
+		t.Fatalf("corrupt file was overwritten: %q, %v", b, err)
+	}
+}
+
+func TestUpdateSubsConcurrent(t *testing.T) {
+	st, err := NewDir(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	for i := range 8 {
+		go func(i int) {
+			defer func() { done <- struct{}{} }()
+			for j := range 10 {
+				err := st.UpdateSubs(func(subs []Sub) []Sub {
+					return append(subs, Sub{Endpoint: "e", P256dh: string(rune('a' + i)), Auth: string(rune('0' + j%10))})
+				})
+				if err != nil {
+					t.Errorf("update: %v", err)
+				}
+			}
+		}(i)
+	}
+	for range 8 {
+		<-done
+	}
+	subs, err := st.Subs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(subs) != 80 {
+		t.Fatalf("lost updates: want 80, got %d", len(subs))
+	}
+}
+
+func TestStateFileModes(t *testing.T) {
+	dir := t.TempDir()
+	st, err := NewDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSubs([]Sub{{Endpoint: "e"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Append("k1", []Comment{{Body: "x"}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"push-subs.json", "k1.json"} {
+		fi, err := os.Stat(filepath.Join(dir, f))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fi.Mode().Perm() != 0o600 {
+			t.Errorf("%s: mode %v, want 0600", f, fi.Mode().Perm())
+		}
+	}
+	di, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if di.Mode().Perm() != 0o700 {
+		t.Errorf("state dir: mode %v, want 0700", di.Mode().Perm())
+	}
+}
+
 func TestAppendAndSent(t *testing.T) {
 	s, err := NewDir(t.TempDir())
 	if err != nil {

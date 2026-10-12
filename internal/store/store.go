@@ -41,7 +41,11 @@ func New() (*Store, error) {
 		dir = filepath.Join(home, ".local", "state")
 	}
 	dir = filepath.Join(dir, "couch-pi")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+	// MkdirAll does not tighten an existing dir.
+	if err := os.Chmod(dir, 0o700); err != nil {
 		return nil, err
 	}
 	return &Store{dir: dir}, nil
@@ -49,10 +53,40 @@ func New() (*Store, error) {
 
 // NewDir returns a store under an explicit dir (tests).
 func NewDir(dir string) (*Store, error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
 		return nil, err
 	}
 	return &Store{dir: dir}, nil
+}
+
+// writeFileAtomic replaces path via temp-file-and-rename so a crash mid-write
+// never truncates the previous contents. The mode applies to the final file.
+func writeFileAtomic(path string, b []byte, mode os.FileMode) error {
+	f, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	cleanup := func() {
+		f.Close()
+		os.Remove(tmp)
+	}
+	if err := f.Chmod(mode); err != nil {
+		cleanup()
+		return err
+	}
+	if _, err := f.Write(b); err != nil {
+		cleanup()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // Sent lists submitted comments for a session; none means empty, not error.
@@ -90,7 +124,7 @@ func (s *Store) Append(key string, cs []Comment) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.path(key), b, 0o644)
+	return writeFileAtomic(s.path(key), b, 0o600)
 }
 
 func (s *Store) read(key string) ([]Comment, error) {
