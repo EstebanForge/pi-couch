@@ -108,6 +108,8 @@ initPush();
 initTranscriptSearch();
 initModelPicker();
 initAttach();
+initSteerSend();
+initChatPin();
 
 // Image attachment (D6): pick a file, it uploads at once, and on send the
 // server-side path rides in the prompt text - pi picks up an image when its
@@ -166,6 +168,94 @@ function initAttach(): void {
 		}
 		clear();
 	});
+}
+
+// Send island: submit the steer with fetch (no navigation) and show an
+// optimistic pending bubble at once. The stream's real user item replaces
+// the bubble when the session file gains it - which is instant for an idle
+// agent, and only at the turn boundary when pi queues the prompt.
+function initSteerSend(): void {
+	const form = document.querySelector<HTMLFormElement>('form[action$="/prompt"]');
+	const ta = form?.querySelector<HTMLTextAreaElement>("textarea[name=text]");
+	const chat = document.getElementById("chat");
+	if (!form || !ta || !chat) {
+		return; // not the transcript page
+	}
+	let pending: HTMLDivElement | null = null;
+	let pendingSeed = "";
+	const removePending = (): void => {
+		pending?.remove();
+		pending = null;
+		pendingSeed = "";
+	};
+	const norm = (s: string): string => s.replace(/\s+/g, " ").trim();
+	// Reconcile: a full stream re-render wipes the bubble (real items are in
+	// place); an appended child matching the sent text supersedes it. A
+	// generous cap guards the pi-queued case where no item ever matches.
+	new MutationObserver(() => {
+		if (!pending) {
+			return;
+		}
+		if (!chat.contains(pending)) {
+			removePending();
+			return;
+		}
+		if (pendingSeed) {
+			const last = chat.lastElementChild;
+			if (last && last !== pending && norm(last.textContent || "").startsWith(pendingSeed)) {
+				removePending();
+			}
+		}
+	}).observe(chat, { childList: true });
+	setTimeout(removePending, 10 * 60 * 1000);
+	form.addEventListener("submit", (e) => {
+		e.preventDefault();
+		const text = ta.value.trim();
+		if (!text) {
+			return;
+		}
+		const body = new FormData(form);
+		ta.value = "";
+		fetch(form.action, { method: "POST", body, redirect: "manual" })
+			.then((res) => {
+				if (!res.ok && res.type !== "opaqueredirect") {
+					throw new Error("steer failed");
+				}
+				removePending();
+				const row = document.createElement("div");
+				row.className = "chat chat-start opacity-60";
+				const bubble = document.createElement("div");
+				bubble.className = "chat-bubble bg-base-200 rounded-2xl";
+				bubble.textContent = text;
+				row.appendChild(bubble);
+				chat.appendChild(row);
+				pending = row;
+				pendingSeed = norm(text).slice(0, 60);
+				window.scrollTo({ top: document.body.scrollHeight });
+			})
+			.catch(() => {
+				ta.value = text; // restore the draft; next submit retries
+			});
+	});
+}
+
+// Chat pin: a transcript opens at the latest entry and follows new stream
+// content, but never fights a reader who scrolled up - it only pins while
+// the viewport already sits at the bottom.
+function initChatPin(): void {
+	const chat = document.getElementById("chat");
+	if (!chat) {
+		return;
+	}
+	const atBottom = (): boolean =>
+		window.innerHeight + window.scrollY >= document.body.scrollHeight - 90;
+	const follow = (): void => {
+		if (atBottom()) {
+			window.scrollTo({ top: document.body.scrollHeight });
+		}
+	};
+	new MutationObserver(follow).observe(chat, { childList: true });
+	window.scrollTo({ top: document.body.scrollHeight });
 }
 
 // Model picker datalist (D2): debounced server-side search over the pi
