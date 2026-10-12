@@ -2,6 +2,7 @@ package pages
 
 import (
 	"github.com/EstebanForge/couch-pi/internal/web"
+	"net/url"
 	"path"
 	"strings"
 
@@ -19,10 +20,10 @@ templ Files(meta pi.SessionMeta, repo string, rel string, entries []browse.Entry
 			<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
 			<meta name="color-scheme" content="dark light"/>
 			<title>{ meta.DisplayName() } - files</title>
-			<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5/daisyui.css"/>
-			<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5/theme/dracula.css"/>
+			<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5.7.47/daisyui.css" integrity="sha384-7aEtEHaaQlvolkHZ6DyoGlsNOFe/zuR0er02iYikX9npKr+C4ANk7t3C7wzeItRf" crossorigin="anonymous"/>
+			<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5.7.47/theme/dracula.css" integrity="sha384-5wuHXUrEEjdxHCFM30I9idvob9Li9ycYna0ziWfDPkAHDFijPEdeecw3xNvf4dzA" crossorigin="anonymous"/>
 			<link rel="stylesheet" href={ web.AssetPath("/static/app.css") }/>
-			<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+			<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.3" integrity="sha384-aJ9rL4k6lF+91guGvUFVSkpIcge7Zd9EiI4TQDLoK9kFaFJgKHgjEXVvG/qA5COj" crossorigin="anonymous"></script>
 		</head>
 		<body class="bg-base-100 text-base-content">
 			<header class="px-4 pt-3 pb-2">
@@ -45,14 +46,14 @@ templ Files(meta pi.SessionMeta, repo string, rel string, entries []browse.Entry
 						for _, e := range entries {
 							if e.Dir {
 								<div class="card bg-base-200 rounded-xl shadow-none">
-									<a href={ templ.URL("/sessions/" + meta.Key + "/files?dir=" + rel + "/" + e.Name) } class="card-body p-2.5 flex-row items-center gap-2">
+									<a href={ templ.URL("/sessions/" + url.PathEscape(meta.Key) + "/files?dir=" + url.QueryEscape(rel+"/"+e.Name)) } class="card-body p-2.5 flex-row items-center gap-2">
 										<span class="size-7 shrink-0 rounded-lg bg-base-300 grid place-items-center text-xs">D</span>
 										<span class="text-sm truncate">{ e.Name }/</span>
 									</a>
 								</div>
 							} else {
 								<div class="card bg-base-200/60 rounded-xl shadow-none">
-									<a href={ templ.URL("/sessions/" + meta.Key + "/files/view?file=" + rel + "/" + e.Name) } class="card-body p-2.5 flex-row items-center gap-2">
+									<a href={ templ.URL("/sessions/" + url.PathEscape(meta.Key) + "/files/view?file=" + url.QueryEscape(rel+"/"+e.Name)) } class="card-body p-2.5 flex-row items-center gap-2">
 										<span class="size-7 shrink-0"></span>
 										<span class="text-sm font-mono truncate">{ e.Name }</span>
 									</a>
@@ -69,7 +70,7 @@ templ Files(meta pi.SessionMeta, repo string, rel string, entries []browse.Entry
 templ Crumbs(key string, rel string) {
 	for i, part := range splitRel(rel) {
 		<span>/</span>
-		<a class="link link-hover font-mono" href={ templ.URL("/sessions/" + key + "/files?dir=" + joinRel(splitRel(rel)[:i+1])) }>{ part }</a>
+		<a class="link link-hover font-mono" href={ templ.URL("/sessions/" + url.PathEscape(key) + "/files?dir=" + url.QueryEscape(joinRel(splitRel(rel)[:i+1]))) }>{ part }</a>
 	}
 }
 
@@ -82,14 +83,14 @@ templ PreviewPage(meta pi.SessionMeta, repo string, file string, content string,
 			<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
 			<meta name="color-scheme" content="dark light"/>
 			<title>{ file }</title>
-			<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5/daisyui.css"/>
-			<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5/theme/dracula.css"/>
+			<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5.7.47/daisyui.css" integrity="sha384-7aEtEHaaQlvolkHZ6DyoGlsNOFe/zuR0er02iYikX9npKr+C4ANk7t3C7wzeItRf" crossorigin="anonymous"/>
+			<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5.7.47/theme/dracula.css" integrity="sha384-5wuHXUrEEjdxHCFM30I9idvob9Li9ycYna0ziWfDPkAHDFijPEdeecw3xNvf4dzA" crossorigin="anonymous"/>
 			<link rel="stylesheet" href={ web.AssetPath("/static/app.css") }/>
-			<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+			<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.3" integrity="sha384-aJ9rL4k6lF+91guGvUFVSkpIcge7Zd9EiI4TQDLoK9kFaFJgKHgjEXVvG/qA5COj" crossorigin="anonymous"></script>
 		</head>
 		<body class="bg-base-100 text-base-content">
 			<header class="px-4 pt-3 pb-2">
-				<a class="link link-hover text-sm opacity-60" href={ templ.URL("/sessions/" + meta.Key + "/files?dir=" + path.Dir(file)) }>&larr; Files</a>
+				<a class="link link-hover text-sm opacity-60" href={ templ.URL("/sessions/" + url.PathEscape(meta.Key) + "/files?dir=" + url.QueryEscape(path.Dir(file))) }>&larr; Files</a>
 				<h1 class="text-sm font-mono font-semibold truncate">{ file }</h1>
 			</header>
 			@TabStrip(meta.Key, "files")

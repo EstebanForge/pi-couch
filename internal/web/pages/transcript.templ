@@ -3,6 +3,8 @@ package pages
 import (
 	"github.com/EstebanForge/couch-pi/internal/web"
 	"fmt"
+	"net/url"
+	"strconv"
 
 	"github.com/EstebanForge/couch-pi/internal/pi"
 )
@@ -15,10 +17,10 @@ templ Transcript(meta pi.SessionMeta, items []pi.ViewItem, driver string, notice
 			<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
 			<meta name="color-scheme" content="dark light"/>
 			<title>{ meta.DisplayName() }</title>
-			<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5/daisyui.css"/>
-			<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5/theme/dracula.css"/>
+			<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5.7.47/daisyui.css" integrity="sha384-7aEtEHaaQlvolkHZ6DyoGlsNOFe/zuR0er02iYikX9npKr+C4ANk7t3C7wzeItRf" crossorigin="anonymous"/>
+			<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5.7.47/theme/dracula.css" integrity="sha384-5wuHXUrEEjdxHCFM30I9idvob9Li9ycYna0ziWfDPkAHDFijPEdeecw3xNvf4dzA" crossorigin="anonymous"/>
 			<link rel="stylesheet" href={ web.AssetPath("/static/app.css") }/>
-			<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+			<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.3" integrity="sha384-aJ9rL4k6lF+91guGvUFVSkpIcge7Zd9EiI4TQDLoK9kFaFJgKHgjEXVvG/qA5COj" crossorigin="anonymous"></script>
 			<script src="/static/js/datastar.js" defer></script>
 		</head>
 		<body class="bg-base-100 text-base-content">
@@ -137,5 +139,7 @@ templ StopForm(key string, status string) {
 }
 
 func sseTranscript(key string) string {
-	return `@get('/stream/transcript/` + key + `')`
+	// The key lands inside a JS expression; strconv.Quote keeps a filename
+	// with quotes or backslashes from breaking out.
+	return "@get(" + strconv.Quote("/stream/transcript/"+url.PathEscape(key)) + ")"
 }

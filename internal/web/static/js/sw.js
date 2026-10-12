@@ -37,3 +37,20 @@ self.addEventListener("notificationclick", (event) => {
 		}),
 	);
 });
+
+// Rotate the subscription when the push service invalidates it: resubscribe
+// against the same VAPID key and mirror it to the server, best effort.
+self.addEventListener("pushsubscriptionchange", (event) => {
+	event.waitUntil(
+		self.registration.pushManager
+			.subscribe(event.oldSubscription ? event.oldSubscription.options : undefined)
+			.then((sub) =>
+				fetch("/api/push/subscribe", {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify(sub.toJSON()),
+				}),
+			)
+			.catch(() => {}),
+	);
+});

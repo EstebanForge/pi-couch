@@ -39,12 +39,21 @@ func AssetPath(p string) string {
 
 // Static serves embedded assets. no-cache keeps dev loops honest: the
 // browser revalidates every load instead of heuristically caching.
+// Directories 404: no listings, the asset set is fixed.
 func Static() http.Handler {
 	sub, err := fs.Sub(staticFS, "static")
 	if err != nil {
 		panic(err) // embed layout is compile-time fixed
 	}
-	return http.StripPrefix("/static/", noCache(http.FileServer(http.FS(sub))))
+	files := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// StripPrefix leaves "" for /static/ itself; no listings either way.
+		if r.URL.Path == "" || strings.HasSuffix(r.URL.Path, "/") {
+			http.NotFound(w, r)
+			return
+		}
+		http.FileServerFS(sub).ServeHTTP(w, r)
+	})
+	return http.StripPrefix("/static/", noCache(files))
 }
 
 // ServiceWorker returns the root-scoped push service worker source. Push

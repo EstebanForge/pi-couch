@@ -7,6 +7,8 @@ import android.graphics.Color
 import android.os.Bundle
 import android.view.View
 import android.view.WindowInsets
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
@@ -98,7 +100,31 @@ class MainActivity : Activity() {
                     "(\"--safe-bottom\",\"${ins.bottom / d}px\")"
                 view.evaluateJavascript(js, null)
             }
+
+            // A failed load (tailnet down, server stopped) must not leave a
+            // bare dark page: say what happened and offer a reload.
+            override fun onReceivedError(
+                view: WebView,
+                req: WebResourceRequest,
+                err: WebResourceError,
+            ) {
+                if (req.isForMainFrame) {
+                    view.loadData(loadErrorHtml(req.url.toString()), "text/html", "utf-8")
+                }
+            }
         }
+    }
+
+    private fun loadErrorHtml(failedUrl: String): String {
+        val body = "<html><body style='background:#0f1115;color:#e5e7eb;" +
+            "font-family:sans-serif;display:flex;align-items:center;" +
+            "justify-content:center;height:100%;margin:0'>" +
+            "<div style='text-align:center'><p>Couch Pi is unreachable.</p>" +
+            "<p style='opacity:0.6;font-size:0.9em'>Check the tailnet, then reload.</p>" +
+            "<p><button onclick=\"location.href='$failedUrl'\" " +
+            "style='margin-top:16px;padding:10px 24px;border-radius:8px;border:0;" +
+            "background:#4d9abf;color:#0f1115'>Reload</button></p></div></body></html>"
+        return body
     }
 
     // Back walks browser history inside the shell before leaving the app.

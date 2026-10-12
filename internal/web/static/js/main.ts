@@ -51,11 +51,22 @@ function initTerminal(): void {
 		btn.textContent = wheel ? "Wheel: ON" : "Take the wheel";
 	});
 
-	const send = async (body: Record<string, unknown>): Promise<void> => {
-		await fetch(`/sessions/${key}/terminal/input`, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify(body),
+	// Keystrokes must reach herdr in typing order: serialize every send on a
+	// promise chain so a burst of keydowns cannot race, and flag failures so
+	// the wheel does not silently lose input.
+	let chain: Promise<void> = Promise.resolve();
+	const send = (body: Record<string, unknown>): void => {
+		chain = chain.then(async () => {
+			const res = await fetch(`/sessions/${encodeURIComponent(key)}/terminal/input`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify(body),
+			});
+			if (!res.ok) {
+				term.write("\r\n\x1b[31m[input failed]\x1b[0m\r\n");
+			}
+		}).catch(() => {
+			term.write("\r\n\x1b[31m[input failed]\x1b[0m\r\n");
 		});
 	};
 
