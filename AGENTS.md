@@ -12,6 +12,7 @@ Couch Pi: phone-first web client for the pi coding agents on this server. Shows 
 - `CONTEXT.md`: binding domain glossary. Use these exact words in code, UI, and docs. Avoid the synonyms listed under each term (Session, Workdir, Repo, Changes, Comment, Steering, Driver, Status, Stop, Resume, Close).
 - `docs/adr/NNNN-slug.md`: decision records. New architectural decisions go in a new ADR, not as edits to the plan.
 - `docs/m0-findings.md`: verified herdr and pi facts from the M0 probes. Trust these over assumptions.
+- `docs/herdr-web-ui-learnings.md`: verified facts and porting patterns extracted from the herdr-web-ui codebase (2026-10-12), including the `terminal session observe` correction to m0-findings.
 
 ## Locked decisions (do not relitigate)
 
