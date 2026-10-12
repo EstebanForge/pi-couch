@@ -4,7 +4,9 @@ package server
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
+	"hash/fnv"
 	"log/slog"
 	"net"
 	"net/http"
@@ -399,33 +401,124 @@ func (a *app) streamTranscript(w http.ResponseWriter, r *http.Request) {
 	ticks, unsub := a.subscribeTicks()
 	defer unsub()
 	var pace pacer
+	// prev holds fingerprints of the items the client currently shows, so
+	// ticks can append just the new tail. Re-rendering the whole tail every
+	// second made the client's main thread parse, rescan and lay out the
+	// full transcript nonstop, which froze pages exactly like a dead stream.
+	var prev []uint32
+	status := ""
+	var lastSent time.Time
 	for {
 		meta, ok := a.idx.Meta(key)
 		if !ok {
 			return
 		}
-		_, items, err := a.idx.Transcript(key, limit)
+		_, items, err := a.idx.Transcript(key, 0)
 		if err != nil {
 			return
 		}
-		badges := a.herdr.Badges(r.Context())
-		status := badges[meta.Path]
-		for _, patch := range []struct {
-			sel string
-			c   templ.Component
-		}{
-			{"#chat", pages.TranscriptItems(items)},
-			{"#driver-badge", pages.DriverBadge(status)},
-			{"#stop-box", pages.StopForm(key, status)},
-		} {
-			if err := sse.PatchElementTempl(patch.c, datastar.WithSelector(patch.sel), datastar.WithModeInner()); err != nil {
+		cur := itemFps(items)
+		sent := false
+		if delta, ok := chatAppend(prev, items, cur); ok {
+			if len(delta) > 0 {
+				if err := sse.PatchElementTempl(pages.TranscriptItems(delta), datastar.WithSelector("#chat"), datastar.WithModeAppend()); err != nil {
+					return
+				}
+				if kids := len(prev) + len(delta); kids > limit {
+					if err := sse.RemoveElementf("#chat > :nth-child(-n+%d)", kids-limit); err != nil {
+						return
+					}
+					prev = cur[len(cur)-limit:]
+				} else {
+					prev = cur
+				}
+				sent = true
+			}
+		} else {
+			show := items
+			if len(show) > limit {
+				show = show[len(show)-limit:]
+			}
+			if err := sse.PatchElementTempl(pages.TranscriptItems(show), datastar.WithSelector("#chat"), datastar.WithModeInner()); err != nil {
 				return
 			}
+			prev = cur[len(cur)-len(show):]
+			sent = true
+		}
+		badges := a.herdr.Badges(r.Context())
+		st := badges[meta.Path]
+		if st != status {
+			status = st
+			for _, patch := range []struct {
+				sel string
+				c   templ.Component
+			}{
+				{"#driver-badge", pages.DriverBadge(status)},
+				{"#stop-box", pages.StopForm(key, status)},
+			} {
+				if err := sse.PatchElementTempl(patch.c, datastar.WithSelector(patch.sel), datastar.WithModeInner()); err != nil {
+					return
+				}
+			}
+			sent = true
+		}
+		if !sent && !lastSent.IsZero() && time.Since(lastSent) >= keepaliveEvery {
+			// Idle keepalive: re-send the tiny badge so the connection sees
+			// traffic between content changes.
+			if err := sse.PatchElementTempl(pages.DriverBadge(status), datastar.WithSelector("#driver-badge"), datastar.WithModeInner()); err != nil {
+				return
+			}
+			sent = true
+		}
+		if sent {
+			lastSent = time.Now()
 		}
 		if !pace.wait(r.Context(), ticks) {
 			return
 		}
 	}
+}
+
+// itemFps fingerprints rendered items so a stream can tell "appended
+// content" from "the view changed".
+func itemFps(items []pi.ViewItem) []uint32 {
+	out := make([]uint32, len(items))
+	for i := range items {
+		it := &items[i]
+		h := fnv.New32a()
+		h.Write([]byte(it.Kind))
+		h.Write([]byte{0})
+		h.Write([]byte(it.Text))
+		h.Write([]byte{0})
+		h.Write([]byte(it.ToolName))
+		var b [11]byte
+		if it.IsError {
+			b[0] = 1
+		}
+		if it.Redacted {
+			b[1] = 1
+		}
+		binary.LittleEndian.PutUint64(b[2:], uint64(it.DurationMs))
+		b[10] = byte(it.Images)
+		h.Write(b[:])
+		out[i] = h.Sum32()
+	}
+	return out
+}
+
+// chatAppend reports the items to append when what the client shows is an
+// unchanged prefix of the fresh list; ok is false when a full re-render is
+// needed instead (branch switch, edit, shrink).
+func chatAppend(prev []uint32, items []pi.ViewItem, cur []uint32) (delta []pi.ViewItem, ok bool) {
+	if len(prev) == 0 || len(items) < len(prev) || len(cur) != len(items) {
+		return nil, false
+	}
+	for i, f := range prev {
+		if cur[i] != f {
+			return nil, false
+		}
+	}
+	return items[len(prev):], true
 }
 
 // subscribeTicks registers one fan-out slot; nil watcher degrades to
@@ -441,6 +534,10 @@ func (a *app) subscribeTicks() (<-chan struct{}, func()) {
 // sessions emit watcher ticks per token batch, and patching per tick
 // flooded clients with back-to-back DOM replacements until they froze.
 const streamMinInterval = time.Second
+
+// keepaliveEvery re-sends the tiny badge patch on an otherwise idle
+// stream so proxies and tailscale see traffic between content changes.
+const keepaliveEvery = 15 * time.Second
 
 // pacer rate-limits one stream's patch loop.
 type pacer struct {
@@ -476,5 +573,9 @@ func (p *pacer) wait(ctx context.Context, ticks <-chan struct{}) bool {
 }
 
 func serveTempl(w http.ResponseWriter, r *http.Request, c templ.Component) {
+	// Pages carry per-request state (badges, notices, fresh transcripts);
+	// a WebView or browser may otherwise serve them from cache, freezing
+	// the UI on stale content even across app restarts.
+	w.Header().Set("Cache-Control", "no-cache")
 	_ = c.Render(r.Context(), w) // headers may already be gone on error
 }
