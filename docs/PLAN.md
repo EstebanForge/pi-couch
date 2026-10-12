@@ -35,12 +35,12 @@ One Android-first client that shows every pi session on this server, drives them
 ### Drive
 
 - D1. Home composer. Prompt input, folder picker, herdr target picker: existing workspace and tab, or create new ones from the phone (herdr workspace and tab create commands).
-- D2. Model and thinking picker per session via the pi TUI being started with flags; changes mid-session stay a TUI action for now.
+- D2. Model and thinking picker per session: the composer sends pi's own "/model <pattern>" and "/thinking <level>" editor commands through herdr prompts; queued while working, applied at the turn boundary. Catalog search is best-effort (provider env is not in the server unit); the pattern input is free-text. Shipped.
 - D3. Steer any session through herdr `agent prompt`. Works on sessions started anywhere, including herdr itself.
 - D4. Queue a follow-up: same mechanism; pi's own queue mode governs steer versus follow-up. Documented limit, not a UI toggle (ADR-0001).
 - D5. Stop button: Ctrl-C through herdr `send-keys`.
-- D6. Attachments: images into the prompt, base64 through herdr prompt where supported, else a dropped file path note.
-- D7. Stop a Session: herdr tab or workspace close. Confirmation required. Close (hide) stays separate.
+- D6. Attachments: the composer uploads the image (POST /api/upload, sniffed type, 10MB cap) and Send appends the stored /tmp path to the prompt text; pi reads the file and the model sees it, the same flow as herdr's clipboard paste. Shipped.
+- D7. Stop a Session: herdr tab or workspace close. Confirmation required. Close (hide) stays separate. The composer stop box carries Close for the session's whole workspace (D7 shipped).
 - D8. Resume from the phone: new herdr tab, agent start with `pi --session <id>`.
 - D9. Drive from any client. Phone, tablet, desktop: same server, same herdr.
 - D10. Voice input: dictate into the composer. Whistle (Apache-2.0, 16.9 MB, seven languages, CPU) compiled to WASM and run on-device in the client; 16 kHz mono capture in the TS island. Fallback: the server execs a vendored `needle` binary on an uploaded clip (ADR-0004). Model and engine pinned; keyword biasing seeded with repo and stack names.
@@ -92,14 +92,14 @@ One Go binary as a systemd user service, beside herdr's. Stack decision in ADR-0
 
 ## Milestones
 
-Shipped through M5 as of 2026-10-11; M4 polish items are the open tail.
+Shipped through M4 as of 2026-10-12; nothing on the milestone list is open.
 
 - M0 read (2-3d). Go skeleton (templ, Datastar, SSE), scanner, V1-V9, P1. All existing sessions on the phone, live. Shipped 2026-10-10.
 - M0.5 shell (1-2d). P8, the icon on the phone. WebView APK pointing at the tailscale serve URL. Includes keystore, icon assets, back-button history wiring, IME and viewport handling for the composer. Shipped 2026-10-11 minus keystore: debug-signed with the Pi Agent adaptive icon and dark splash, page draws under the transparent status bar with injected safe-area insets (ADR-0003), verified live on the the phone over WiFi adb.
 - M1 drive (3-4d). D1, D3-D5, D8, D9. Start in a herdr tab, steer, stop, resume. Shipped.
 - M2 review (2-3d). R1-R9, V11. Shipped.
 - M3 terminal (2-3d). T1-T4. Shipped, on the socket path (no PTY).
-- M4 polish (1-2d). V10 in-transcript search, D7 close, P2-P4. Open. P3 dark default shipped as the dracula theme.
+- M4 polish (1-2d). V10 in-transcript search, D7 close, P2-P4, plus D2 and D6. Shipped 2026-10-12 (D2 rides pi's /model and /thinking editor commands through herdr prompts; D6 rides image paths in the prompt text). P3 dark default shipped as the dracula theme.
 - M5 push (1-2d). P5, webpush-go. Shipped 2026-10-11 with a deviation: transitions come from per-agent `agent.wait` watchers, not socket subscription events, which herdr 0.9.3 does not stream (ADR-0005). Server-side chain E2E-verified; delivery on the phone rides the WebView service worker until FCM is demanded.
 
 About three weeks end to end. Dogfood rule: from M0 on, Couch Pi is built with pi sessions driven through Couch Pi where possible.
