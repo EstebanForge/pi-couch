@@ -103,3 +103,86 @@ button.dl:active {
 .stopbox:empty {
 	display: none;
 }
+
+/* App feel. Everything here is progressive: engines without support or
+   users with reduced motion just get the instant behavior. */
+@media (prefers-reduced-motion: no-preference) {
+	/* Cross-fade page navigations (Chromium/WebView 126+). */
+	@view-transition {
+		navigation: auto;
+	}
+
+	/* Fallback page fade for engines without view transitions, so the
+	   swap never doubles up where both exist. */
+	@supports not (view-transition-name: none) {
+		body {
+			animation: page-in 0.18s ease-out;
+		}
+	}
+
+	@keyframes page-in {
+		from {
+			opacity: 0;
+		}
+	}
+
+	/* Collapsible panels (search, model picker, confirm) grow open. */
+	:root {
+		interpolate-size: allow-keywords;
+	}
+
+	details::details-content {
+		block-size: 0;
+		overflow: clip;
+		transition:
+			block-size 0.2s ease,
+			content-visibility 0.2s ease;
+		transition-behavior: allow-discrete;
+	}
+
+	details[open]::details-content {
+		block-size: auto;
+	}
+
+	/* A working badge breathes: the list feels alive. */
+	.status.status-info {
+		animation: status-pulse 1.6s ease-in-out infinite;
+	}
+
+	@keyframes status-pulse {
+		50% {
+			opacity: 0.35;
+		}
+	}
+
+	/* Action notices (sent, model set, closed) rise in on the redirect. */
+	.alert {
+		animation: rise-in 0.18s ease-out;
+	}
+
+	@keyframes rise-in {
+		from {
+			opacity: 0;
+			transform: translateY(4px);
+		}
+	}
+}
+
+/* Press feedback replaces the stock tap flash. */
+a,
+button {
+	-webkit-tap-highlight-color: transparent;
+}
+
+a.card,
+.btn,
+nav.dock a {
+	transition-property: transform, color, background-color, border-color, box-shadow;
+	transition-duration: 0.1s;
+}
+
+a.card:active,
+.btn:active,
+nav.dock a:active {
+	transform: scale(0.98);
+}
