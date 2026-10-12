@@ -58,8 +58,9 @@ func New() *Client {
 	return &Client{path: DefaultSocketPath(), timeout: 3 * time.Second}
 }
 
-// Agents returns the live agent list. A missing or dead socket returns an
-// empty list and no error: badges are additive UI, never a page failure.
+// Agents returns the live agent list. A missing or dead socket returns nil
+// and the dial error: callers decide the degradation (the badge path treats
+// an error as no badges, the push watcher just retries on the next tick).
 func (c *Client) Agents(ctx context.Context) ([]Agent, error) {
 	raw, err := c.call(ctx, "agent.list", map[string]any{})
 	if err != nil {
