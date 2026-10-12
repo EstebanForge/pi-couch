@@ -1,0 +1,94 @@
+@import "tailwindcss";
+@import "konsta/react/theme.css";
+
+/* Dracula palette as Tailwind 4 theme tokens; utilities read these directly. */
+@theme {
+	--color-base-100: #282a36;
+	--color-base-200: #21222c;
+	--color-base-300: #191a21;
+	--color-base-content: #f8f8f2;
+	--color-muted: #6272a4;
+	--color-primary: #bd93f9;
+	--color-primary-content: #191a21;
+	--color-secondary: #ff79c6;
+	--color-accent: #8be9fd;
+	--color-success: #50fa7b;
+	--color-warning: #f1fa8c;
+	--color-error: #ff5555;
+}
+
+@layer base {
+	html {
+		background: var(--color-base-300);
+		color: var(--color-base-content);
+		color-scheme: dark;
+	}
+	body {
+		margin: 0;
+		background: var(--color-base-100);
+		min-height: 100dvh;
+		padding-top: var(--safe-top, 0px);
+		padding-bottom: var(--safe-bottom, 0px);
+		overscroll-behavior-y: none;
+		-webkit-tap-highlight-color: transparent;
+	}
+	button {
+		touch-action: manipulation;
+	}
+}
+
+/* Screen slides: forward pushes in from the right, back reverses. */
+@media (prefers-reduced-motion: no-preference) {
+	html[data-nav="fwd"]::view-transition-old(root) {
+		animation: 200ms cubic-bezier(0.2, 0.7, 0.3, 1) both vt-out-left;
+	}
+	html[data-nav="fwd"]::view-transition-new(root) {
+		animation: 200ms cubic-bezier(0.2, 0.7, 0.3, 1) both vt-in-right;
+	}
+	html[data-nav="back"]::view-transition-old(root) {
+		animation: 200ms cubic-bezier(0.2, 0.7, 0.3, 1) both vt-out-right;
+	}
+	html[data-nav="back"]::view-transition-new(root) {
+		animation: 200ms cubic-bezier(0.2, 0.7, 0.3, 1) both vt-in-left;
+	}
+}
+@keyframes vt-in-right {
+	from {
+		opacity: 0;
+		transform: translateX(24%);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+@keyframes vt-out-left {
+	from {
+		opacity: 1;
+		transform: none;
+	}
+	to {
+		opacity: 0;
+		transform: translateX(-18%);
+	}
+}
+@keyframes vt-in-left {
+	from {
+		opacity: 0;
+		transform: translateX(-24%);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+@keyframes vt-out-right {
+	from {
+		opacity: 1;
+		transform: none;
+	}
+	to {
+		opacity: 0;
+		transform: translateX(18%);
+	}
+}

@@ -15,18 +15,18 @@ import (
 
 // SessionMeta is the list-page projection of one session file.
 type SessionMeta struct {
-	Key         string
-	Path        string
-	ID          string
-	Cwd         string
-	Name        string
-	FirstUser   string
-	Mtime       time.Time
-	Version     int
-	Entries     int
-	TotalTokens int64
-	TotalCost   float64
-	Model       string
+	Key         string    `json:"key"`
+	Path        string    `json:"path"`
+	ID          string    `json:"id"`
+	Cwd         string    `json:"cwd"`
+	Name        string    `json:"name"`
+	FirstUser   string    `json:"first_user"`
+	Mtime       time.Time `json:"mtime"`
+	Version     int       `json:"version"`
+	Entries     int       `json:"entries"`
+	TotalTokens int64     `json:"total_tokens"`
+	TotalCost   float64   `json:"total_cost"`
+	Model       string    `json:"model"`
 }
 
 // DisplayName: session_info name, else first user text, else cwd base.

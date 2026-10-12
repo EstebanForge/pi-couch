@@ -13,6 +13,9 @@ import (
 //go:embed static
 var staticFS embed.FS
 
+//go:embed all:app
+var appFS embed.FS
+
 // assetVer holds a short content hash per embedded asset. It versions asset
 // URLs in page heads so a deploy busts client caches (the WebView included).
 var assetVer = map[string]string{}
@@ -26,6 +29,53 @@ func init() {
 		sum := sha256.Sum256(b)
 		assetVer[p] = hex.EncodeToString(sum[:4])
 	}
+}
+
+// App serves the React SPA build (web/) under /app/. Hashed build assets
+// cache immutably; every other path falls back to index.html so the client
+// router owns the URL. no-cache on HTML keeps deploys honest in the WebView.
+// The SPA mounts at /app/ while the templ pages still serve /; cutover moves
+// it to / and deletes the templ pages (rewrite-plan.md).
+func App() http.Handler {
+	sub, err := fs.Sub(appFS, "app")
+	if err != nil {
+		panic(err) // embed layout is compile-time fixed
+	}
+	files := http.FileServerFS(sub)
+	return http.StripPrefix("/app/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/"), "/")
+		if p != "" {
+			d, oerr := sub.Open(p)
+			if oerr == nil {
+				info, serr := d.Stat()
+				d.Close()
+				switch {
+				case serr != nil:
+					http.NotFound(w, r)
+					return
+				case info.IsDir():
+					http.NotFound(w, r) // no listings, parity with Static
+					return
+				default:
+					w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+					files.ServeHTTP(w, r)
+					return
+				}
+			}
+			if strings.Contains(p, ".") {
+				http.NotFound(w, r) // asset-shaped path that is not in the build
+				return
+			}
+		}
+		data, rerr := fs.ReadFile(sub, "index.html")
+		if rerr != nil {
+			http.NotFound(w, r) // fresh clone without a web build
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache")
+		_, _ = w.Write(data)
+	}))
 }
 
 // AssetPath versions a build-artifact asset URL (/static/app.css,

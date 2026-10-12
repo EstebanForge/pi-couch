@@ -151,6 +151,7 @@ func (a *app) routes() http.Handler {
 	})
 
 	mux.HandleFunc("GET /", a.list)
+	mux.HandleFunc("GET /api/sessions", a.apiSessions)
 	mux.HandleFunc("GET /stream/sessions", a.streamSessions)
 	mux.HandleFunc("GET /stream/transcript/{key}", a.streamTranscript)
 	mux.HandleFunc("GET /sessions/{key}", a.transcript)
@@ -176,7 +177,26 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("GET /sw.js", a.serviceWorker)
 	mux.HandleFunc("GET /manifest.webmanifest", a.manifest)
 	mux.Handle("GET /static/", web.Static())
+	mux.Handle("GET /app/", web.App())
 	return mux
+}
+
+// sessionsWire is the JSON snapshot the React SPA boots from (rewrite-plan.md).
+// Nil slices and maps marshal as null, so both fields are always non-nil.
+type sessionsWire struct {
+	Sessions []pi.SessionMeta  `json:"sessions"`
+	Badges   map[string]string `json:"badges"`
+}
+
+func (a *app) apiSessions(w http.ResponseWriter, r *http.Request) {
+	sessions, badges := a.snapshot(r)
+	if sessions == nil {
+		sessions = []pi.SessionMeta{}
+	}
+	if badges == nil {
+		badges = map[string]string{}
+	}
+	writeJSON(w, http.StatusOK, sessionsWire{Sessions: sessions, Badges: badges})
 }
 
 func (a *app) list(w http.ResponseWriter, r *http.Request) {
