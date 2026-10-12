@@ -27,6 +27,7 @@ type SessionMeta struct {
 	TotalTokens int64     `json:"total_tokens"`
 	TotalCost   float64   `json:"total_cost"`
 	Model       string    `json:"model"`
+	Thinking    string    `json:"thinking"`
 }
 
 // DisplayName: session_info name, else first user text, else cwd base.
@@ -205,6 +206,10 @@ func (ix *Index) parse(path, key string, st os.FileInfo) (SessionMeta, bool) {
 			if e.ModelID != "" {
 				meta.Model = e.Provider + "/" + e.ModelID
 			}
+		case "thinking_level_change":
+			if e.ThinkingLevel != "" {
+				meta.Thinking = e.ThinkingLevel
+			}
 		case "message":
 			m := e.Message
 			if m == nil {
@@ -228,13 +233,16 @@ func (ix *Index) parse(path, key string, st os.FileInfo) (SessionMeta, bool) {
 
 // ViewItem is one renderable transcript row.
 type ViewItem struct {
-	Kind       string // user, text, thinking, tool_call, tool_result, marker, bash, custom
-	Text       string
-	ToolName   string
-	IsError    bool
-	Redacted   bool
-	DurationMs int64
-	Images     int
+	Kind       string `json:"kind"` // user, text, thinking, tool_call, tool_result, marker, bash, custom
+	Text       string `json:"text"`
+	ToolName   string `json:"tool_name,omitempty"`
+	IsError    bool   `json:"is_error,omitempty"`
+	Redacted   bool   `json:"redacted,omitempty"`
+	DurationMs int64  `json:"duration_ms,omitempty"`
+	Images     int    `json:"images,omitempty"`
+	// Seq is the item's position on the active branch, stable across
+	// tail cuts and cache rereads, so stream clients can key rows by it.
+	Seq int `json:"seq"`
 }
 
 // Transcript renders the tail of a session's active branch.
@@ -252,23 +260,33 @@ func (ix *Index) Transcript(key string, limit int) (SessionMeta, []ViewItem, err
 		return meta, nil, err
 	}
 	path := ActivePath(entries)
-	if limit > 0 && len(path) > limit {
-		path = path[len(path)-limit:]
-	}
+	// Seq numbers the full branch before any tail cut, so a client sees
+	// the same item identity whether it asked for everything or a tail.
 	items := make([]ViewItem, 0, len(path))
+	seq := 0
+	bump := func(vs []ViewItem) {
+		for i := range vs {
+			vs[i].Seq = seq
+			seq++
+		}
+		items = append(items, vs...)
+	}
 	for _, e := range path {
 		switch {
 		case e.Message != nil:
-			items = append(items, messageItems(e)...)
+			bump(messageItems(e))
 		case e.Type == "compaction":
-			items = append(items, ViewItem{Kind: "marker", Text: fmt.Sprintf("Context compacted (%d tokens before)", e.TokensBefore)})
+			bump([]ViewItem{{Kind: "marker", Text: fmt.Sprintf("Context compacted (%d tokens before)", e.TokensBefore)}})
 		case e.Type == "model_change":
-			items = append(items, ViewItem{Kind: "marker", Text: "Model -> " + e.Provider + "/" + e.ModelID})
+			bump([]ViewItem{{Kind: "marker", Text: "Model -> " + e.Provider + "/" + e.ModelID}})
 		case e.Type == "branch_summary":
-			items = append(items, ViewItem{Kind: "marker", Text: "Branch summary: " + truncate(e.Summary, 140)})
+			bump([]ViewItem{{Kind: "marker", Text: "Branch summary: " + truncate(e.Summary, 140)}})
 		case e.Type == "custom_message":
-			items = append(items, ViewItem{Kind: "custom", Text: "custom: " + truncate(e.CustomType, 40)})
+			bump([]ViewItem{{Kind: "custom", Text: "custom: " + truncate(e.CustomType, 40)}})
 		}
+	}
+	if limit > 0 && len(items) > limit {
+		items = items[len(items)-limit:]
 	}
 	return meta, items, nil
 }

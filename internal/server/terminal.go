@@ -62,8 +62,13 @@ func (a *app) streamTerminal(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// writeSSE emits one SSE event; false means the client is gone.
+// writeSSE emits one SSE event; false means the client is gone. Each
+// frame carries a write deadline so a stalled consumer cannot pin a
+// stream goroutine.
 func writeSSE(w http.ResponseWriter, event, data string) bool {
+	if rc := http.NewResponseController(w); rc != nil {
+		_ = rc.SetWriteDeadline(time.Now().Add(sseWriteDeadline))
+	}
 	_, err := w.Write([]byte("event: " + event + "\ndata: " + data + "\n\n"))
 	if err != nil {
 		return false

@@ -87,7 +87,15 @@ func Run(ctx context.Context, logger *slog.Logger, addr string, idx *pi.Index, h
 // and pass. The Host allowlist stops DNS rebinding against the loopback bind.
 func (a *app) guard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		// JSON reads are data exfiltration targets for a rebound host: a
+		// desk-browser page resolving the loopback name to attacker DNS can
+		// read transcripts otherwise. Page GETs stay host-open; the loopback
+		// bind and the tailnet remain the boundary.
+		sensitive := r.Method != http.MethodGet && r.Method != http.MethodHead
+		if !sensitive {
+			sensitive = strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/stream/")
+		}
+		if sensitive {
 			switch r.Header.Get("Sec-Fetch-Site") {
 			case "", "same-origin", "none":
 			default:
@@ -152,6 +160,10 @@ func (a *app) routes() http.Handler {
 
 	mux.HandleFunc("GET /", a.list)
 	mux.HandleFunc("GET /api/sessions", a.apiSessions)
+	mux.HandleFunc("GET /api/stream/sessions", a.apiStreamSessions)
+	mux.HandleFunc("GET /api/stream/transcript/{key}", a.apiStreamTranscript)
+	mux.HandleFunc("POST /api/sessions/{key}/stop", a.apiStop)
+	mux.HandleFunc("POST /api/sessions/{key}/close", a.apiClose)
 	mux.HandleFunc("GET /stream/sessions", a.streamSessions)
 	mux.HandleFunc("GET /stream/transcript/{key}", a.streamTranscript)
 	mux.HandleFunc("GET /sessions/{key}", a.transcript)
@@ -366,47 +378,33 @@ func (a *app) steerPrompt(w http.ResponseWriter, r *http.Request) {
 func (a *app) steerStop(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
 	back := "/sessions/" + url.PathEscape(key)
-	meta, ok := a.idx.Meta(key)
-	if !ok {
+	err := a.stopAgent(key)
+	switch {
+	case err == nil:
+		http.Redirect(w, r, back+"?stopped=1", http.StatusSeeOther)
+	case errors.Is(err, errNotFound):
 		http.NotFound(w, r)
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
-	target, err := a.herdr.TargetForPath(ctx, meta.Path)
-	if err != nil {
+	case errors.Is(err, herdr.ErrNotDriven):
 		http.Redirect(w, r, back+"?err=notdriven", http.StatusSeeOther)
-		return
-	}
-	if err := a.herdr.SendKeys(ctx, target, []string{"ctrl+c"}); err != nil {
-		a.logger.Error("stop", "err", err)
+	default:
 		http.Redirect(w, r, back+"?err=stopfail", http.StatusSeeOther)
-		return
 	}
-	http.Redirect(w, r, back+"?stopped=1", http.StatusSeeOther)
 }
 
 func (a *app) closeSession(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
 	back := "/sessions/" + url.PathEscape(key)
-	meta, ok := a.idx.Meta(key)
-	if !ok {
+	err := a.closeWorkspace(key)
+	switch {
+	case err == nil:
+		http.Redirect(w, r, back+"?closed=1", http.StatusSeeOther)
+	case errors.Is(err, errNotFound):
 		http.NotFound(w, r)
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
-	ws, err := a.herdr.WorkspaceForPath(ctx, meta.Path)
-	if err != nil {
+	case errors.Is(err, herdr.ErrNotDriven):
 		http.Redirect(w, r, back+"?err=notdriven", http.StatusSeeOther)
-		return
-	}
-	if err := a.herdr.WorkspaceClose(ctx, ws); err != nil {
-		a.logger.Error("close", "err", err)
+	default:
 		http.Redirect(w, r, back+"?err=closefail", http.StatusSeeOther)
-		return
 	}
-	http.Redirect(w, r, back+"?closed=1", http.StatusSeeOther)
 }
 
 // streamTranscript patches the chat tail, driver badge, and stop box on
