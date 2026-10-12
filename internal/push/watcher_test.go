@@ -67,7 +67,7 @@ func probeAgent(status string, withSession bool) herdr.Agent {
 	return a
 }
 
-func startWatcher(ctx context.Context, f *fakeHerdr, events chan Event) *Watcher {
+func startWatcher(ctx context.Context, f herdrAPI, events chan Event) *Watcher {
 	w := &Watcher{
 		HC:        f,
 		Reconcile: 2 * time.Millisecond,
@@ -247,15 +247,20 @@ func TestRepeatSameStatusSuppressed(t *testing.T) {
 func TestWorkingResetsDedupe(t *testing.T) {
 	// A done pushes once; after the agent returns to working and finishes
 	// again, the new working->done cycle must push too.
-	step := waitStep{
+	// The first step carries the hook so the first stillSame sees done; the
+	// quiet repeat exists because a hook on the repeating step would re-set
+	// done on every fake AgentWait and erase the test's working window
+	// before the reconcile tick could ever observe it.
+	stepDone := waitStep{
 		ag: probeAgent("done", true),
 		then: func(f *fakeHerdr) {
 			f.setAgents(probeAgent("done", true))
 		},
 	}
+	stepDoneQuiet := waitStep{ag: probeAgent("done", true)}
 	f := &fakeHerdr{
 		agents: []herdr.Agent{probeAgent("working", true)},
-		script: map[string][]waitStep{"wP:p1": {step}}, // last step repeats
+		script: map[string][]waitStep{"wP:p1": {stepDone, stepDoneQuiet}},
 	}
 	events := make(chan Event, 8)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -271,7 +276,9 @@ func TestWorkingResetsDedupe(t *testing.T) {
 		t.Fatal("no done event")
 	}
 	f.setAgents(probeAgent("working", true))
-	time.Sleep(250 * time.Millisecond) // let reconcile see working
+	// The 2ms reconcile tick must observe working inside this window. Suite
+	// load can starve the watcher goroutine well past 250ms, so keep margin.
+	time.Sleep(600 * time.Millisecond)
 	f.setAgents(probeAgent("done", true))
 	select {
 	case e := <-events:
@@ -284,7 +291,7 @@ func TestWorkingResetsDedupe(t *testing.T) {
 	select {
 	case e := <-events:
 		t.Fatalf("unexpected third event: %+v", e)
-	case <-time.After(300 * time.Millisecond):
+	case <-time.After(500 * time.Millisecond):
 	}
 }
 
