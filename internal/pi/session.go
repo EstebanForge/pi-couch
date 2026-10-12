@@ -103,43 +103,50 @@ func (m *Message) Blocks() []Block {
 
 // ParseHeader reads the session header from the first parseable line.
 func ParseHeader(r io.Reader) (Header, error) {
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if line == "" {
-			continue
+	var h Header
+	found := false
+	parseLines(r, func(line string) {
+		if found {
+			return
 		}
-		var h Header
-		if err := json.Unmarshal([]byte(line), &h); err != nil {
-			continue
+		var x Header
+		if json.Unmarshal([]byte(line), &x) == nil && x.Type == "session" {
+			h, found = x, true
 		}
-		if h.Type != "session" {
-			continue
-		}
-		return h, nil
+	})
+	if !found {
+		return Header{}, io.ErrUnexpectedEOF
 	}
-	return Header{}, io.ErrUnexpectedEOF
+	return h, nil
 }
 
 // ParseEntries decodes every parseable line. Malformed lines are skipped:
 // a torn final line from a live writer must not fail the read.
 func ParseEntries(r io.Reader) []Entry {
 	var out []Entry
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if line == "" {
-			continue
-		}
+	parseLines(r, func(line string) {
 		var e Entry
-		if err := json.Unmarshal([]byte(line), &e); err != nil {
-			continue
+		if json.Unmarshal([]byte(line), &e) == nil {
+			out = append(out, e)
 		}
-		out = append(out, e)
-	}
+	})
 	return out
+}
+
+// parseLines yields every non-empty line with no size cap. bufio.Scanner
+// dies on ErrTooLong and silently drops the rest of the file, so one huge
+// entry (a base64 image) would truncate the whole session.
+func parseLines(r io.Reader, fn func(line string)) {
+	rd := bufio.NewReaderSize(r, 64*1024)
+	for {
+		line, err := rd.ReadString('\n')
+		if s := strings.TrimSpace(line); s != "" {
+			fn(s)
+		}
+		if err != nil {
+			return
+		}
+	}
 }
 
 // ActivePath resolves the current branch: childless entries are leaves; the
@@ -168,7 +175,12 @@ func ActivePath(entries []Entry) []Entry {
 		return nil
 	}
 	var path []Entry
+	visited := map[string]bool{}
 	for e := *leaf; ; {
+		if visited[e.ID] {
+			return nil // malformed cycle in the parent chain
+		}
+		visited[e.ID] = true
 		path = append(path, e)
 		if e.ParentID == nil || *e.ParentID == "" {
 			break

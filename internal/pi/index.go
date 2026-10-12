@@ -88,6 +88,9 @@ func (ix *Index) List() ([]SessionMeta, error) {
 
 // Meta returns one session by URL key (file name without .jsonl).
 func (ix *Index) Meta(key string) (SessionMeta, bool) {
+	if !validKey(key) {
+		return SessionMeta{}, false
+	}
 	for _, d := range ix.subdirs() {
 		path := filepath.Join(ix.root, d, key+".jsonl")
 		if meta, ok := ix.cachedMeta(path); ok {
@@ -95,6 +98,12 @@ func (ix *Index) Meta(key string) (SessionMeta, bool) {
 		}
 	}
 	return SessionMeta{}, false
+}
+
+// validKey rejects keys that could escape the sessions root, mirroring the
+// store's key rules: keys are URL path values, not trusted strings.
+func validKey(key string) bool {
+	return key != "" && !strings.ContainsAny(key, "/\\") && !strings.Contains(key, "..")
 }
 
 // ByPath returns one session by absolute file path (herdr reports the
@@ -118,23 +127,33 @@ func (ix *Index) subdirs() []string {
 	return out
 }
 
-// cachedMeta reads the cache under lock; a miss parses under lock.
-// Parsing under one lock keeps concurrent streams from stampeding one file.
+// cachedMeta serves from the cache on a hit; on a miss it parses WITHOUT
+// holding the lock, so one slow multi-MB parse never head-of-line blocks
+// every other stream. Concurrent misses may parse the same file twice; the
+// last write to the cache wins and both results are identical.
 func (ix *Index) cachedMeta(path string) (SessionMeta, bool) {
-	ix.mu.Lock()
-	defer ix.mu.Unlock()
-	return ix.meta(path)
-}
-
-func (ix *Index) meta(path string) (SessionMeta, bool) {
 	st, err := os.Stat(path)
 	if err != nil {
 		return SessionMeta{}, false
 	}
 	key := strings.TrimSuffix(filepath.Base(path), ".jsonl")
-	if c, ok := ix.cache[key]; ok && c.mtime.Equal(st.ModTime()) && c.size == st.Size() {
+	ix.mu.Lock()
+	c, ok := ix.cache[key]
+	ix.mu.Unlock()
+	if ok && c.mtime.Equal(st.ModTime()) && c.size == st.Size() {
 		return c.meta, true
 	}
+	meta, ok := ix.parse(path, key, st)
+	if !ok {
+		return SessionMeta{}, false
+	}
+	ix.mu.Lock()
+	ix.cache[key] = metaCache{mtime: st.ModTime(), size: st.Size(), meta: meta}
+	ix.mu.Unlock()
+	return meta, true
+}
+
+func (ix *Index) parse(path, key string, st os.FileInfo) (SessionMeta, bool) {
 	f, err := os.Open(path)
 	if err != nil {
 		return SessionMeta{}, false
@@ -190,7 +209,6 @@ func (ix *Index) meta(path string) (SessionMeta, bool) {
 		}
 	}
 	meta.FirstUser = truncate(meta.FirstUser, 80)
-	ix.cache[key] = metaCache{mtime: st.ModTime(), size: st.Size(), meta: meta}
 	return meta, true
 }
 
@@ -317,10 +335,15 @@ func argsSummary(raw json.RawMessage) string {
 	return truncate(string(raw), 80)
 }
 
+// truncate keeps n runes, so multibyte text never splits mid-rune.
 func truncate(s string, n int) string {
 	s = strings.ReplaceAll(strings.TrimSpace(s), "\n", " ")
 	if len(s) <= n {
 		return s
 	}
-	return s[:n-1] + "…"
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n-1]) + "…"
 }
