@@ -51,6 +51,7 @@ func (w *Watcher) Run(ctx context.Context) {
 			return // socket down; next tick retries
 		}
 		live := map[string]bool{}
+		livePath := map[string]bool{}
 		for _, a := range agents {
 			// Any pane with a driver gets a watcher, whatever its current
 			// status: a working agent is exactly the one about to finish.
@@ -58,7 +59,16 @@ func (w *Watcher) Run(ctx context.Context) {
 				continue
 			}
 			live[a.PaneID] = true
+			if a.Session != nil && a.Session.Value != "" {
+				livePath[a.Session.Value] = true
+			}
 			mu.Lock()
+			// Reset the dedupe marker once the agent is back at work, so the
+			// next working->done cycle pushes again. Without this, a session
+			// would buzz once per distinct status until a restart.
+			if a.AgentStatus == "working" && a.Session != nil && a.Session.Value != "" {
+				delete(notified, a.Session.Value)
+			}
 			_, running := stops[a.PaneID]
 			if !running {
 				stop := make(chan struct{})
@@ -74,6 +84,11 @@ func (w *Watcher) Run(ctx context.Context) {
 			if !live[pane] {
 				close(stop)
 				delete(stops, pane)
+			}
+		}
+		for p := range notified {
+			if !livePath[p] {
+				delete(notified, p)
 			}
 		}
 		mu.Unlock()
@@ -131,19 +146,18 @@ func (w *Watcher) watch(ctx context.Context, pane string, stop <-chan struct{}, 
 			return
 		case <-time.After(w.Stability):
 		}
-		if !w.stillSame(pane, status, path) {
+		if !w.stillSame(ctx, pane, status, path) {
 			continue
 		}
 		mu.Lock()
+		// herdr re-fires the wait on every agent update while the status
+		// holds; dedupe here so the phone buzzes once per cycle.
 		skip := notified[path] == status || (notified[path] == "done" && status == "idle")
 		if !skip {
 			notified[path] = status
 		}
 		mu.Unlock()
-		if skip {
-			// herdr re-fires the wait on every agent update while the
-			// status holds; dedupe here so the phone buzzes once.
-		} else {
+		if !skip {
 			w.OnEvent(Event{Path: path, Name: ag.Name, Status: status})
 		}
 		select {
@@ -157,8 +171,8 @@ func (w *Watcher) watch(ctx context.Context, pane string, stop <-chan struct{}, 
 }
 
 // stillSame re-reads the agent list to confirm the transition held.
-func (w *Watcher) stillSame(pane, status, path string) bool {
-	agents, err := w.HC.Agents(context.Background())
+func (w *Watcher) stillSame(ctx context.Context, pane, status, path string) bool {
+	agents, err := w.HC.Agents(ctx)
 	if err != nil {
 		return false
 	}

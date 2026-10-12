@@ -244,6 +244,50 @@ func TestRepeatSameStatusSuppressed(t *testing.T) {
 	}
 }
 
+func TestWorkingResetsDedupe(t *testing.T) {
+	// A done pushes once; after the agent returns to working and finishes
+	// again, the new working->done cycle must push too.
+	step := waitStep{
+		ag: probeAgent("done", true),
+		then: func(f *fakeHerdr) {
+			f.setAgents(probeAgent("done", true))
+		},
+	}
+	f := &fakeHerdr{
+		agents: []herdr.Agent{probeAgent("working", true)},
+		script: map[string][]waitStep{"wP:p1": {step}}, // last step repeats
+	}
+	events := make(chan Event, 8)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	startWatcher(ctx, f, events)
+
+	select {
+	case e := <-events:
+		if e.Status != "done" {
+			t.Fatalf("first event: %+v", e)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no done event")
+	}
+	f.setAgents(probeAgent("working", true))
+	time.Sleep(60 * time.Millisecond) // let reconcile see working
+	f.setAgents(probeAgent("done", true))
+	select {
+	case e := <-events:
+		if e.Status != "done" {
+			t.Fatalf("second event: %+v", e)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("second cycle suppressed: dedupe did not reset on working")
+	}
+	select {
+	case e := <-events:
+		t.Fatalf("unexpected third event: %+v", e)
+	case <-time.After(150 * time.Millisecond):
+	}
+}
+
 func TestNewAgentPickedUp(t *testing.T) {
 	f := &fakeHerdr{
 		agents: []herdr.Agent{probeAgent("idle", true)},
