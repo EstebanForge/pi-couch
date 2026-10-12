@@ -50,3 +50,10 @@ Probe artifacts: one junk pi session file under `~/.pi/agent/sessions/--tmp-tmp.
 - `herdr api snapshot` JSON nests all state under `result.snapshot`; top-level keys are only `id` and `result`, and workspaces carry no `id` key (use `workspace_id` from creation results).
 - `herdr api` has only `snapshot` and `schema` subcommands. Raw socket probes go through a small python script over the unix socket.
 - The `pane.agent_status_changed` wait match requires both `pane_id` and `agent_status`: one call matches one pane and one target status. `agent.wait` matches one agent against repeatable statuses, which is the cheaper shape.
+
+## Datastar v1 bundle (learned 2026-10-12, live-update hunt)
+
+- The vendored `datastar.js` (v1.0.4, from the repo's `bundles/`) is an ES module with `export` statements. A classic `<script src defer>` tag dies on a silent SyntaxError; the tag must be `type="module"`. Module scripts also enforce a JavaScript MIME type on the response.
+- v1.0 renamed `data-on-load` to `data-init`. The v1.0.4 attribute vocabulary is `init`, `on-interval`, `on-intersect`, `on-emit`, plus `get`/`post` verbs; unknown `data-*` attributes are ignored without any console output. Pages written against v0.x names bind nothing.
+- The minifier builds attribute names via a `` `data-${e}` `` template, so grepping the bundle for `data-on-load` proves absence of nothing. Probe the string table (`rg '"[a-z-]{3,18}"'`) or inject live probe elements: `data-signals` plus `data-text` proves the engine runs, a dead `data-init` probe isolates a verb problem.
+- A transcript that never live-updates with zero console errors and a healthy curl of the SSE endpoint is exactly this signature: transport fine, engine never listening.
