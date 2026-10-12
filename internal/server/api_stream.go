@@ -200,8 +200,10 @@ func parseLimit(r *http.Request) (int, error) {
 // --- JSON steering twins ---
 
 var (
-	errStopFail  = errors.New("stop failed")
-	errCloseFail = errors.New("close failed")
+	errStopFail   = errors.New("stop failed")
+	errCloseFail  = errors.New("close failed")
+	errEmptyText  = errors.New("empty text")
+	errPromptFail = errors.New("prompt failed")
 )
 
 // stopAgent sends ctrl+c to the herdr agent driving the session. Shared
@@ -250,6 +252,32 @@ var errClientGone = errors.New("client gone")
 
 func (a *app) apiStop(w http.ResponseWriter, r *http.Request) {
 	a.writeOutcome(w, a.stopAgent(r.PathValue("key")))
+}
+
+// apiPrompt is the JSON twin of the templ steerPrompt: fetch cannot
+// read the 303 redirects, so the outcome is in-band.
+func (a *app) apiPrompt(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	var in struct {
+		Text string `json:"text"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "badrequest"})
+		return
+	}
+	err := a.promptAgent(r.PathValue("key"), in.Text)
+	switch {
+	case err == nil:
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	case errors.Is(err, errEmptyText):
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "empty"})
+	case errors.Is(err, errNotFound):
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "notfound"})
+	case errors.Is(err, herdr.ErrNotDriven):
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "notdriven"})
+	default:
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "failed"})
+	}
 }
 
 func (a *app) apiClose(w http.ResponseWriter, r *http.Request) {

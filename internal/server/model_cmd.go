@@ -2,10 +2,14 @@ package server
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
 	"regexp"
 	"time"
+
+	"github.com/EstebanForge/couch-pi/internal/herdr"
 )
 
 // pi's TUI intercepts "/model <pattern>" and "/thinking <level>" in the
@@ -24,58 +28,131 @@ var thinkingLevels = map[string]bool{
 	"high": true, "xhigh": true, "max": true,
 }
 
-func (a *app) modelSet(w http.ResponseWriter, r *http.Request) {
-	key := r.PathValue("key")
-	back := "/sessions/" + url.PathEscape(key)
-	pattern := r.FormValue("pattern")
-	if !modelPattern.MatchString(pattern) {
-		http.Redirect(w, r, back+"?err=badmodel", http.StatusSeeOther)
+var (
+	errBadModel     = errors.New("bad model pattern")
+	errModelFail    = errors.New("model set failed")
+	errBadThinking  = errors.New("bad thinking level")
+	errThinkingFail = errors.New("thinking set failed")
+)
+
+// apiModel and apiThinking are the JSON twins of modelSet/thinkingSet:
+// fetch cannot read their 303 redirects, so outcomes are in-band.
+func (a *app) apiModel(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
+	var in struct {
+		Pattern string `json:"pattern"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "badrequest"})
 		return
+	}
+	a.writeModelOutcome(w, a.modelAgent(r.PathValue("key"), in.Pattern))
+}
+
+func (a *app) apiThinking(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<10)
+	var in struct {
+		Level string `json:"level"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "badrequest"})
+		return
+	}
+	a.writeModelOutcome(w, a.thinkingAgent(r.PathValue("key"), in.Level))
+}
+
+func (a *app) writeModelOutcome(w http.ResponseWriter, err error) {
+	switch {
+	case err == nil:
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	case errors.Is(err, errBadModel), errors.Is(err, errBadThinking):
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid"})
+	case errors.Is(err, errNotFound):
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "notfound"})
+	case errors.Is(err, herdr.ErrNotDriven):
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "notdriven"})
+	default:
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "failed"})
+	}
+}
+
+// modelAgent drives both transports; errors map to notices (templ)
+// or in-band JSON codes (fetch).
+func (a *app) modelAgent(key, pattern string) error {
+	if !modelPattern.MatchString(pattern) {
+		return errBadModel
 	}
 	meta, ok := a.idx.Meta(key)
 	if !ok {
-		http.NotFound(w, r)
-		return
+		return errNotFound
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	target, err := a.herdr.TargetForPath(ctx, meta.Path)
 	if err != nil {
-		http.Redirect(w, r, back+"?err=notdriven", http.StatusSeeOther)
-		return
+		return herdr.ErrNotDriven
 	}
 	if err := a.herdr.Prompt(ctx, target, "/model "+pattern); err != nil {
 		a.logger.Error("model set", "err", err)
-		http.Redirect(w, r, back+"?err=modelfail", http.StatusSeeOther)
-		return
+		return errModelFail
 	}
-	http.Redirect(w, r, back+"?modelset=1", http.StatusSeeOther)
+	return nil
+}
+
+func (a *app) modelSet(w http.ResponseWriter, r *http.Request) {
+	key := r.PathValue("key")
+	back := "/sessions/" + url.PathEscape(key)
+	err := a.modelAgent(key, r.FormValue("pattern"))
+	switch {
+	case err == nil:
+		http.Redirect(w, r, back+"?modelset=1", http.StatusSeeOther)
+	case errors.Is(err, errBadModel):
+		http.Redirect(w, r, back+"?err=badmodel", http.StatusSeeOther)
+	case errors.Is(err, errNotFound):
+		http.NotFound(w, r)
+	case errors.Is(err, herdr.ErrNotDriven):
+		http.Redirect(w, r, back+"?err=notdriven", http.StatusSeeOther)
+	default:
+		http.Redirect(w, r, back+"?err=modelfail", http.StatusSeeOther)
+	}
+}
+
+// thinkingAgent is the level twin of modelAgent.
+func (a *app) thinkingAgent(key, level string) error {
+	if !thinkingLevels[level] {
+		return errBadThinking
+	}
+	meta, ok := a.idx.Meta(key)
+	if !ok {
+		return errNotFound
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	target, err := a.herdr.TargetForPath(ctx, meta.Path)
+	if err != nil {
+		return herdr.ErrNotDriven
+	}
+	if err := a.herdr.Prompt(ctx, target, "/thinking "+level); err != nil {
+		a.logger.Error("thinking set", "err", err)
+		return errThinkingFail
+	}
+	return nil
 }
 
 func (a *app) thinkingSet(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
 	back := "/sessions/" + url.PathEscape(key)
-	level := r.FormValue("level")
-	if !thinkingLevels[level] {
+	err := a.thinkingAgent(key, r.FormValue("level"))
+	switch {
+	case err == nil:
+		http.Redirect(w, r, back+"?thinkingset=1", http.StatusSeeOther)
+	case errors.Is(err, errBadThinking):
 		http.Redirect(w, r, back+"?err=badthinking", http.StatusSeeOther)
-		return
-	}
-	meta, ok := a.idx.Meta(key)
-	if !ok {
+	case errors.Is(err, errNotFound):
 		http.NotFound(w, r)
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
-	target, err := a.herdr.TargetForPath(ctx, meta.Path)
-	if err != nil {
+	case errors.Is(err, herdr.ErrNotDriven):
 		http.Redirect(w, r, back+"?err=notdriven", http.StatusSeeOther)
-		return
-	}
-	if err := a.herdr.Prompt(ctx, target, "/thinking "+level); err != nil {
-		a.logger.Error("thinking set", "err", err)
+	default:
 		http.Redirect(w, r, back+"?err=thinkingfail", http.StatusSeeOther)
-		return
 	}
-	http.Redirect(w, r, back+"?thinkingset=1", http.StatusSeeOther)
 }

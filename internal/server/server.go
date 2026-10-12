@@ -164,6 +164,9 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("GET /api/stream/transcript/{key}", a.apiStreamTranscript)
 	mux.HandleFunc("POST /api/sessions/{key}/stop", a.apiStop)
 	mux.HandleFunc("POST /api/sessions/{key}/close", a.apiClose)
+	mux.HandleFunc("POST /api/sessions/{key}/prompt", a.apiPrompt)
+	mux.HandleFunc("POST /api/sessions/{key}/model", a.apiModel)
+	mux.HandleFunc("POST /api/sessions/{key}/thinking", a.apiThinking)
 	mux.HandleFunc("GET /stream/sessions", a.streamSessions)
 	mux.HandleFunc("GET /stream/transcript/{key}", a.streamTranscript)
 	mux.HandleFunc("GET /sessions/{key}", a.transcript)
@@ -346,33 +349,47 @@ func noticeText(q url.Values) string {
 	}
 }
 
+// promptAgent drives both the templ redirect handler and the JSON
+// twin: same internals, different transport.
+func (a *app) promptAgent(key, text string) error {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return errEmptyText
+	}
+	meta, ok := a.idx.Meta(key)
+	if !ok {
+		return errNotFound
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	target, err := a.herdr.TargetForPath(ctx, meta.Path)
+	if err != nil {
+		return herdr.ErrNotDriven
+	}
+	if err := a.herdr.Prompt(ctx, target, text); err != nil {
+		a.logger.Error("prompt", "err", err)
+		return errPromptFail
+	}
+	return nil
+}
+
 func (a *app) steerPrompt(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	key := r.PathValue("key")
 	back := "/sessions/" + url.PathEscape(key)
-	text := strings.TrimSpace(r.FormValue("text"))
-	if text == "" {
+	err := a.promptAgent(key, r.FormValue("text"))
+	switch {
+	case err == nil:
+		http.Redirect(w, r, back+"?sent=1", http.StatusSeeOther)
+	case errors.Is(err, errEmptyText):
 		http.Redirect(w, r, back+"?err=empty", http.StatusSeeOther)
-		return
-	}
-	meta, ok := a.idx.Meta(key)
-	if !ok {
+	case errors.Is(err, errNotFound):
 		http.NotFound(w, r)
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
-	target, err := a.herdr.TargetForPath(ctx, meta.Path)
-	if err != nil {
+	case errors.Is(err, herdr.ErrNotDriven):
 		http.Redirect(w, r, back+"?err=notdriven", http.StatusSeeOther)
-		return
+	default:
+		http.Redirect(w, r, back+"?err=promptfail", http.StatusSeeOther)
 	}
-	if err := a.herdr.Prompt(ctx, target, text); err != nil {
-		a.logger.Error("prompt", "err", err)
-		http.Redirect(w, r, back+"?err=notdriven", http.StatusSeeOther)
-		return
-	}
-	http.Redirect(w, r, back+"?sent=1", http.StatusSeeOther)
 }
 
 func (a *app) steerStop(w http.ResponseWriter, r *http.Request) {
