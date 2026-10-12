@@ -106,6 +106,35 @@ initTerminal();
 initComments();
 initPush();
 initTranscriptSearch();
+initModelPicker();
+
+// Model picker datalist (D2): debounced server-side search over the pi
+// catalog, capped at 25 rows by the endpoint.
+function initModelPicker(): void {
+	const input = document.querySelector<HTMLInputElement>("input[name=pattern][list]");
+	const dl = document.getElementById("dl-models") as HTMLDataListElement | null;
+	if (!input || !dl) {
+		return;
+	}
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const load = (): void => {
+		const q = input.value.trim();
+		if (q.length < 2) {
+			dl.innerHTML = "";
+			return;
+		}
+		fetch(`/api/models?q=${encodeURIComponent(q)}`)
+			.then((r) => (r.ok ? r.json() : []))
+			.then((rows: { id: string }[]) => {
+				dl.innerHTML = rows.map((r) => `<option value="${r.id}">`).join("");
+			})
+			.catch(() => {});
+	};
+	input.addEventListener("input", () => {
+		clearTimeout(timer);
+		timer = setTimeout(load, 300);
+	});
+}
 
 // In-transcript search (V10): count matches in #chat and cycle them with
 // the browser's find, so a multi-MB DOM never gets walked node by node.

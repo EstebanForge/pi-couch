@@ -164,6 +164,9 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("POST /sessions/{key}/prompt", a.steerPrompt)
 	mux.HandleFunc("POST /sessions/{key}/stop", a.steerStop)
 	mux.HandleFunc("POST /sessions/{key}/close", a.closeSession)
+	mux.HandleFunc("POST /sessions/{key}/model", a.modelSet)
+	mux.HandleFunc("POST /sessions/{key}/thinking", a.thinkingSet)
+	mux.HandleFunc("GET /api/models", a.models)
 	mux.HandleFunc("GET /api/push/key", a.pushKey)
 	mux.HandleFunc("POST /api/push/subscribe", a.pushSubscribe)
 	mux.HandleFunc("POST /api/push/unsubscribe", a.pushUnsubscribe)
@@ -247,6 +250,18 @@ func noticeText(q url.Values) string {
 		return "Ctrl-C failed. Check the desk CLI."
 	case q.Get("err") == "closefail":
 		return "Close failed. Check the desk CLI."
+	case q.Get("modelset") == "1":
+		return "Model switch sent. Queued if the agent is working."
+	case q.Get("thinkingset") == "1":
+		return "Thinking level sent. Queued if the agent is working."
+	case q.Get("err") == "badmodel":
+		return "Not a model pattern."
+	case q.Get("err") == "modelfail":
+		return "Model switch failed. Check the desk CLI."
+	case q.Get("err") == "badthinking":
+		return "Unknown thinking level."
+	case q.Get("err") == "thinkingfail":
+		return "Thinking switch failed. Check the desk CLI."
 	default:
 		return ""
 	}

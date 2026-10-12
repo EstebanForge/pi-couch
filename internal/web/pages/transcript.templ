@@ -62,6 +62,9 @@ templ Transcript(meta pi.SessionMeta, items []pi.ViewItem, driver string, notice
 					<button class="btn btn-primary rounded-xl" type="submit">Send</button>
 				</form>
 			</div>
+			<div class="fixed bottom-[7.25rem] inset-x-0 z-40 px-2">
+				@ModelPicker(meta.Key, meta.Model)
+			</div>
 		</body>
 	</html>
 }
@@ -141,6 +144,38 @@ templ SearchBox() {
 			<span id="ts-count" class="text-xs opacity-60 tabular-nums whitespace-nowrap"></span>
 			<button id="ts-prev" class="btn btn-sm btn-ghost rounded-full" type="button" aria-label="Previous match">&uarr;</button>
 			<button id="ts-next" class="btn btn-sm btn-ghost rounded-full" type="button" aria-label="Next match">&darr;</button>
+		</div>
+	</details>
+}
+
+// ModelPicker (D2) sits above the composer. Sends pi's own editor
+// commands, so a switch is exact and local: /model takes a pattern
+// (provider/id, fuzzy fragment, optional :thinking suffix), /thinking
+// takes one of pi's levels. Queued by pi when the agent is working.
+templ ModelPicker(key string, current string) {
+	<details class="collapse collapse-arrow bg-base-100/95 rounded-xl border border-base-300">
+		<summary class="collapse-title text-sm py-1.5 min-h-0">
+			Model <span class="opacity-50 font-mono text-xs">{ current }</span>
+		</summary>
+		<div class="collapse-content flex flex-col gap-2">
+			<form method="post" action={ templ.URL("/sessions/" + key + "/model") } class="flex items-center gap-2">
+				<input name="pattern" list="dl-models" required placeholder="provider/model[:thinking]" autocomplete="off"
+					class="input input-sm w-full rounded-xl bg-base-200 font-mono"/>
+				<datalist id="dl-models"></datalist>
+				<button class="btn btn-sm rounded-xl" type="submit">Set</button>
+			</form>
+			<form method="post" action={ templ.URL("/sessions/" + key + "/thinking") } class="flex items-center gap-2">
+				<select name="level" class="select select-sm w-full rounded-xl bg-base-200">
+					<option value="off">thinking: off</option>
+					<option value="minimal">minimal</option>
+					<option value="low">low</option>
+					<option value="medium" selected>medium</option>
+					<option value="high">high</option>
+					<option value="xhigh">xhigh</option>
+					<option value="max">max</option>
+				</select>
+				<button class="btn btn-sm rounded-xl" type="submit">Set</button>
+			</form>
 		</div>
 	</details>
 }
