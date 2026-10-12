@@ -163,6 +163,7 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("POST /sessions/{key}/terminal/input", a.terminalInput)
 	mux.HandleFunc("POST /sessions/{key}/prompt", a.steerPrompt)
 	mux.HandleFunc("POST /sessions/{key}/stop", a.steerStop)
+	mux.HandleFunc("POST /sessions/{key}/close", a.closeSession)
 	mux.HandleFunc("GET /api/push/key", a.pushKey)
 	mux.HandleFunc("POST /api/push/subscribe", a.pushSubscribe)
 	mux.HandleFunc("POST /api/push/unsubscribe", a.pushUnsubscribe)
@@ -236,12 +237,16 @@ func noticeText(q url.Values) string {
 		return "Sent. Steering queues while the agent works."
 	case q.Get("stopped") == "1":
 		return "Ctrl-C sent."
+	case q.Get("closed") == "1":
+		return "Session closed in herdr. The transcript stays readable."
 	case q.Get("err") == "notdriven":
 		return "No herdr driver is running this session."
 	case q.Get("err") == "empty":
 		return "Nothing to send."
 	case q.Get("err") == "stopfail":
 		return "Ctrl-C failed. Check the desk CLI."
+	case q.Get("err") == "closefail":
+		return "Close failed. Check the desk CLI."
 	default:
 		return ""
 	}
@@ -297,6 +302,29 @@ func (a *app) steerStop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, back+"?stopped=1", http.StatusSeeOther)
+}
+
+func (a *app) closeSession(w http.ResponseWriter, r *http.Request) {
+	key := r.PathValue("key")
+	back := "/sessions/" + url.PathEscape(key)
+	meta, ok := a.idx.Meta(key)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	ws, err := a.herdr.WorkspaceForPath(ctx, meta.Path)
+	if err != nil {
+		http.Redirect(w, r, back+"?err=notdriven", http.StatusSeeOther)
+		return
+	}
+	if err := a.herdr.WorkspaceClose(ctx, ws); err != nil {
+		a.logger.Error("close", "err", err)
+		http.Redirect(w, r, back+"?err=closefail", http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, back+"?closed=1", http.StatusSeeOther)
 }
 
 // streamTranscript patches the chat tail, driver badge, and stop box on

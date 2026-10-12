@@ -21,6 +21,7 @@ type Agent struct {
 	Agent       string           `json:"agent"`
 	AgentStatus string           `json:"agent_status"`
 	PaneID      string           `json:"pane_id"`
+	WorkspaceID string           `json:"workspace_id"`
 	Session     *AgentSessionRef `json:"agent_session"`
 }
 
@@ -107,6 +108,27 @@ func (c *Client) TargetForPath(ctx context.Context, path string) (string, error)
 
 // ErrNotDriven means no herdr agent currently runs that session file.
 var ErrNotDriven = errors.New("herdr: no agent runs this session")
+
+// WorkspaceForPath returns the workspace id of the agent driving the session
+// file. Closing a workspace is the phone-side "stop this session" verb (D7).
+func (c *Client) WorkspaceForPath(ctx context.Context, path string) (string, error) {
+	agents, err := c.Agents(ctx)
+	if err != nil {
+		return "", err
+	}
+	for _, a := range agents {
+		if a.Session != nil && a.Session.Value == path {
+			return a.WorkspaceID, nil
+		}
+	}
+	return "", ErrNotDriven
+}
+
+// WorkspaceClose closes the workspace (and its agents) by id.
+func (c *Client) WorkspaceClose(ctx context.Context, workspaceID string) error {
+	_, err := c.call(ctx, "workspace.close", map[string]any{"workspace_id": workspaceID})
+	return err
+}
 
 // AgentWait blocks until the agent transitions into one of the until states
 // and returns the agent object. Verified against herdr 0.9.3: the call fires
