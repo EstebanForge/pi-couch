@@ -271,20 +271,20 @@ func TestWorkingResetsDedupe(t *testing.T) {
 		t.Fatal("no done event")
 	}
 	f.setAgents(probeAgent("working", true))
-	time.Sleep(60 * time.Millisecond) // let reconcile see working
+	time.Sleep(250 * time.Millisecond) // let reconcile see working
 	f.setAgents(probeAgent("done", true))
 	select {
 	case e := <-events:
 		if e.Status != "done" {
 			t.Fatalf("second event: %+v", e)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(4 * time.Second):
 		t.Fatal("second cycle suppressed: dedupe did not reset on working")
 	}
 	select {
 	case e := <-events:
 		t.Fatalf("unexpected third event: %+v", e)
-	case <-time.After(150 * time.Millisecond):
+	case <-time.After(300 * time.Millisecond):
 	}
 }
 

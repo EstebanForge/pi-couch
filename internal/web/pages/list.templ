@@ -9,7 +9,7 @@ import (
 	"github.com/EstebanForge/couch-pi/internal/pi"
 )
 
-templ List(sessions []pi.SessionMeta, badges map[string]string) {
+templ List(sessions []pi.SessionMeta, badges map[string]string, total, w int) {
 	<!doctype html>
 	<html lang="en" data-theme="dracula">
 		<head>
@@ -30,13 +30,13 @@ templ List(sessions []pi.SessionMeta, badges map[string]string) {
 			<header class="px-4 pt-5 pb-2 flex items-end justify-between gap-2">
 				<div class="min-w-0">
 					<h1 class="text-2xl font-bold">Couch Pi</h1>
-					<p class="sub text-sm opacity-60">{ fmt.Sprintf("%d sessions", len(sessions)) }</p>
+					<p class="sub text-sm opacity-60">{ fmt.Sprintf("%d sessions", total) }</p>
 				</div>
 				<button id="push-btn" type="button" class="btn btn-ghost rounded-full shrink-0" hidden>Notifications</button>
 			</header>
 			<main>
-				<div id="session-list" data-on-load={ sseTarget() }>
-					@SessionList(sessions, badges)
+				<div id="session-list" data-on-load={ sseTarget(w) }>
+					@SessionList(sessions, badges, total, w)
 				</div>
 			</main>
 		</body>
@@ -44,10 +44,21 @@ templ List(sessions []pi.SessionMeta, badges map[string]string) {
 }
 
 // SessionList is the live-patched fragment. The stream endpoint re-renders
-// it into #session-list on every watcher tick and heartbeat.
-templ SessionList(sessions []pi.SessionMeta, badges map[string]string) {
-	<ul id="session-cards" class="flex flex-col gap-2 px-3 pb-24">
-		for _, m := range sessions {
+// it into #session-list on every watcher tick and heartbeat, windowed to
+// the same slice the page rendered so pagination survives the stream.
+templ SessionList(sessions []pi.SessionMeta, badges map[string]string, total, w int) {
+	<ul id="session-cards" class="flex flex-col gap-2 px-3 pb-4">
+		for i, m := range sessions {
+			if i > 0 && active(badges[sessions[i-1].Path]) && !active(badges[m.Path]) {
+				<li class="list-none">
+					<div class="divider my-1 text-xs uppercase tracking-widest opacity-50">Earlier</div>
+				</li>
+			}
+			if i == w-10 && w > 15 {
+				// Anchor for the Load-more link: lands the viewport on the
+				// first card of the freshly added batch.
+				<li id="more" class="h-0"></li>
+			}
 			<li>
 				<a href={ templ.URL("/sessions/" + m.Key) } class="card bg-base-200 rounded-2xl shadow-none">
 					<div class="card-body p-3 flex-row items-center gap-3">
@@ -75,6 +86,17 @@ templ SessionList(sessions []pi.SessionMeta, badges map[string]string) {
 			</li>
 		}
 	</ul>
+	<div class="px-3 pb-24">
+		if w < total {
+			<a href={ templ.URL(fmt.Sprintf("/?w=%d#more", w+10)) } class="btn btn-ghost btn-block rounded-2xl bg-base-200">Load more</a>
+		}
+	</div>
+}
+
+// active reports a driving status: the sessions above the Earlier
+// divider.
+func active(status string) bool {
+	return status == "working" || status == "blocked"
 }
 
 // badgeClass maps a herdr driver status to a daisyUI badge variant.
@@ -105,8 +127,8 @@ func statusColor(status string) string {
 	}
 }
 
-func sseTarget() string {
-	return `@get('/stream/sessions')`
+func sseTarget(w int) string {
+	return fmt.Sprintf(`@get('/stream/sessions?w=%d')`, w)
 }
 
 func tok(n int64) string {

@@ -183,7 +183,48 @@ func (a *app) list(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sessions, badges := a.snapshot(r)
-	serveTempl(w, r, pages.List(sessions, badges))
+	window, size, total := listWindow(r, sessions, badges)
+	serveTempl(w, r, pages.List(window, badges, total, size))
+}
+
+// listWindow caps the rendered session list at the pagination window
+// (latest 15 by default, grown 10 at a time via /?w=N#more) and floats
+// the currently driving sessions (working/blocked) above the stopped
+// ones, newest first inside each group. The session stream re-renders
+// the same window, so badges stay live without ever pushing hundreds of
+// cards into the DOM.
+func listWindow(r *http.Request, all []pi.SessionMeta, badges map[string]string) ([]pi.SessionMeta, int, int) {
+	w := 15
+	if n, err := strconv.Atoi(r.URL.Query().Get("w")); err == nil && n > w {
+		w = n
+	}
+	if w > len(all) {
+		w = len(all)
+	}
+	if len(badges) == 0 {
+		return all[:w], w, len(all)
+	}
+	grouped := make([]pi.SessionMeta, 0, len(all))
+	for _, m := range all {
+		if isActive(badges[m.Path]) {
+			grouped = append(grouped, m)
+		}
+	}
+	for _, m := range all {
+		if !isActive(badges[m.Path]) {
+			grouped = append(grouped, m)
+		}
+	}
+	if w > len(grouped) {
+		w = len(grouped)
+	}
+	return grouped[:w], w, len(grouped)
+}
+
+// isActive reports a herdr driver status that belongs in the active
+// group: working, or working but paused waiting for input.
+func isActive(status string) bool {
+	return status == "working" || status == "blocked"
 }
 
 func (a *app) streamSessions(w http.ResponseWriter, r *http.Request) {
@@ -192,8 +233,9 @@ func (a *app) streamSessions(w http.ResponseWriter, r *http.Request) {
 	defer unsub()
 	for {
 		sessions, badges := a.snapshot(r)
+		window, size, total := listWindow(r, sessions, badges)
 		err := sse.PatchElementTempl(
-			pages.SessionList(sessions, badges),
+			pages.SessionList(window, badges, total, size),
 			datastar.WithSelector("#session-list"),
 			datastar.WithModeInner(),
 		)
