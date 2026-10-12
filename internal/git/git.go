@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -50,6 +51,10 @@ func (f FileChange) Label() string {
 
 func run(ctx context.Context, dir string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
+	// The agent in the workdir runs its own git commands; a status that
+	// refreshes the index takes index.lock and can fail the agent's add or
+	// commit. GIT_OPTIONAL_LOCKS=0 keeps our reads lock-free.
+	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
 	var out, errb bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &errb
@@ -99,14 +104,17 @@ func Status(ctx context.Context, repo string) ([]FileChange, error) {
 			continue
 		}
 		f := FileChange{Staged: string(entry[0]), Work: string(entry[1]), Path: entry[3:]}
-		if f.Staged == "R" || f.Work == "R" {
+		if f.Staged == "R" || f.Staged == "C" || f.Work == "R" || f.Work == "C" {
 			if i+1 < len(fields) {
 				i++ // consume the old path
 			}
 		}
 		a, d, b := added[f.Path], deleted[f.Path], binary[f.Path] || sbinary[f.Path]
+		// Sum staged and worktree counts, matching `git diff HEAD --numstat`;
+		// precedence would let a staged rename's 0/0 hide real worktree edits.
 		if sa, ok := sadd[f.Path]; ok {
-			a, d = sa, sdel[f.Path]
+			a += sa
+			d += sdel[f.Path]
 		}
 		f.Added, f.Deleted, f.Binary = a, d, b
 		files = append(files, f)
@@ -114,8 +122,12 @@ func Status(ctx context.Context, repo string) ([]FileChange, error) {
 	return files, nil
 }
 
+// numstat maps path -> added/deleted/binary from `diff --numstat -z`.
+// Unquoted -z fields keep non-ASCII and special filenames intact; a rename
+// record carries the counts, then old and new paths as their own NUL fields
+// (verified: "0\t0\t\0old\0new\0"), and the counts belong to the new path.
 func numstat(ctx context.Context, repo string, staged bool) (map[string]int, map[string]int, map[string]bool) {
-	args := []string{"diff", "--numstat"}
+	args := []string{"diff", "--numstat", "-z", "--no-ext-diff"}
 	if staged {
 		args = append(args, "--cached")
 	}
@@ -126,12 +138,17 @@ func numstat(ctx context.Context, repo string, staged bool) (map[string]int, map
 	if err != nil {
 		return added, deleted, bin
 	}
-	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
-		parts := strings.Split(line, "\t")
+	fields := strings.Split(out, "\x00")
+	for i := 0; i < len(fields); i++ {
+		parts := strings.Split(fields[i], "\t")
 		if len(parts) < 3 {
 			continue
 		}
 		path := parts[2]
+		if path == "" && i+2 < len(fields) {
+			i += 2
+			path = fields[i] // rename/copy: counts belong to the new path
+		}
 		if parts[0] == "-" {
 			bin[path] = true
 			continue
@@ -147,9 +164,9 @@ func numstat(ctx context.Context, repo string, staged bool) (map[string]int, map
 // Diff returns the diff for one path; staged selects --cached. Truncated
 // reports hitting DiffLimit; binary files return empty text.
 func Diff(ctx context.Context, repo, path string, staged bool) (text string, truncated bool, err error) {
-	args := []string{"diff", "--"}
+	args := []string{"diff", "--no-ext-diff", "--"}
 	if staged {
-		args = []string{"diff", "--cached", "--"}
+		args = []string{"diff", "--cached", "--no-ext-diff", "--"}
 	}
 	args = append(args, path)
 	out, err := run(ctx, repo, args...)

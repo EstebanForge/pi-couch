@@ -41,9 +41,13 @@ func (a *app) changes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		known := false
+		stagedOnly := false
 		for _, f := range files {
 			if f.Path == selFile && f.Label() != "new" && !f.Binary {
 				known = true
+				// A staged-only change has no worktree side, so only the
+				// cached diff has content.
+				stagedOnly = f.Work == " " || f.Work == ""
 				break
 			}
 		}
@@ -51,7 +55,7 @@ func (a *app) changes(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, "/sessions/"+url.PathEscape(meta.Key)+"/changes", http.StatusSeeOther)
 			return
 		}
-		diffText, truncated, err = git.Diff(ctx, repo, selFile, false)
+		diffText, truncated, err = git.Diff(ctx, repo, selFile, stagedOnly)
 		if err != nil {
 			http.Error(w, "git diff failed", http.StatusInternalServerError)
 			return

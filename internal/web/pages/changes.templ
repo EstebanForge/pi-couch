@@ -3,6 +3,7 @@ package pages
 import (
 	"github.com/EstebanForge/couch-pi/internal/web"
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -21,10 +22,10 @@ templ Changes(meta pi.SessionMeta, repo string, branch string, files []git.FileC
 			<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
 			<meta name="color-scheme" content="dark light"/>
 			<title>{ meta.DisplayName() } - changes</title>
-			<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5/daisyui.css"/>
-			<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5/theme/dracula.css"/>
+			<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5.7.47/daisyui.css" integrity="sha384-7aEtEHaaQlvolkHZ6DyoGlsNOFe/zuR0er02iYikX9npKr+C4ANk7t3C7wzeItRf" crossorigin="anonymous"/>
+			<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5.7.47/theme/dracula.css" integrity="sha384-5wuHXUrEEjdxHCFM30I9idvob9Li9ycYna0ziWfDPkAHDFijPEdeecw3xNvf4dzA" crossorigin="anonymous"/>
 			<link rel="stylesheet" href={ web.AssetPath("/static/app.css") }/>
-			<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+			<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.3" integrity="sha384-aJ9rL4k6lF+91guGvUFVSkpIcge7Zd9EiI4TQDLoK9kFaFJgKHgjEXVvG/qA5COj" crossorigin="anonymous"></script>
 			<script src="/static/js/datastar.js" defer></script>
 			<script src={ web.AssetPath("/static/js/main.js") } defer></script>
 		</head>
@@ -91,7 +92,7 @@ templ FileCards(key string, files []git.FileChange) {
 			</div>
 		} else {
 			<div class="card bg-base-200 rounded-xl shadow-none">
-				<a href={ templ.URL("/sessions/" + key + "/changes?file=" + f.Path) } class="card-body p-3 flex-row items-center gap-2">
+				<a href={ templ.URL("/sessions/" + url.PathEscape(key) + "/changes?file=" + url.QueryEscape(f.Path)) } class="card-body p-3 flex-row items-center gap-2">
 					<span class={ "badge badge-sm shrink-0", labelBadge(f.Label()) }>{ f.Label() }</span>
 					<span class="font-mono text-sm truncate min-w-0">{ f.Path }</span>
 					<span class="text-xs opacity-60 ml-auto shrink-0">{ fmt.Sprintf("+%d -%d", f.Added, f.Deleted) }</span>
@@ -130,12 +131,18 @@ func parseDiff(diffText string) []diffLine {
 	lines := strings.Split(strings.TrimRight(diffText, "\n"), "\n")
 	out := make([]diffLine, 0, len(lines))
 	newNo := 0
+	inHeader := true
 	for _, line := range lines {
 		switch {
 		case strings.HasPrefix(line, "@@"):
+			inHeader = false
 			out = append(out, diffLine{kind: "hunk", text: line})
 			newNo = hunkNewStart(line)
-		case strings.HasPrefix(line, "+++") || strings.HasPrefix(line, "---"):
+		case inHeader && (strings.HasPrefix(line, "+++") || strings.HasPrefix(line, "---")):
+			// File header only: mid-hunk a removed "-- x" line also starts
+			// with "--" but is content, not metadata.
+			out = append(out, diffLine{kind: "meta", text: line})
+		case line == "\\ No newline at end of file":
 			out = append(out, diffLine{kind: "meta", text: line})
 		case strings.HasPrefix(line, "+"):
 			newNo++
@@ -189,5 +196,7 @@ templ DiffView(diffText string, truncated bool) {
 }
 
 func sseChanges(key string) string {
-	return `@get('/stream/changes/` + key + `')`
+	// The key lands inside a JS expression; strconv.Quote keeps a filename
+	// with quotes or backslashes from breaking out.
+	return "@get(" + strconv.Quote("/stream/changes/"+url.PathEscape(key)) + ")"
 }
