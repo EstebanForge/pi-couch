@@ -167,6 +167,7 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("POST /sessions/{key}/model", a.modelSet)
 	mux.HandleFunc("POST /sessions/{key}/thinking", a.thinkingSet)
 	mux.HandleFunc("GET /api/models", a.models)
+	mux.HandleFunc("POST /api/upload", a.uploadHandler)
 	mux.HandleFunc("GET /api/push/key", a.pushKey)
 	mux.HandleFunc("POST /api/push/subscribe", a.pushSubscribe)
 	mux.HandleFunc("POST /api/push/unsubscribe", a.pushUnsubscribe)

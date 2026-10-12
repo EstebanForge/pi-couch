@@ -107,6 +107,66 @@ initComments();
 initPush();
 initTranscriptSearch();
 initModelPicker();
+initAttach();
+
+// Image attachment (D6): pick a file, it uploads at once, and on send the
+// server-side path rides in the prompt text - pi picks up an image when its
+// path appears in the message, the same way herdr's clipboard paste works.
+function initAttach(): void {
+	const input = document.getElementById("attach-file") as HTMLInputElement | null;
+	const chip = document.getElementById("attach-chip");
+	const nameEl = document.getElementById("attach-name");
+	if (!input || !chip || !nameEl) {
+		return;
+	}
+	let path = "";
+	const setChip = (text: string, show: boolean): void => {
+		nameEl.textContent = text;
+		chip.classList.toggle("hidden", !show);
+		chip.classList.toggle("flex", show);
+	};
+	const clear = (): void => {
+		path = "";
+		input.value = "";
+		setChip("", false);
+	};
+	document.getElementById("attach-clear")?.addEventListener("click", clear);
+	input.addEventListener("change", () => {
+		const f = input.files?.[0];
+		if (!f) {
+			return;
+		}
+		if (f.size > 10 * 1024 * 1024) {
+			setChip("Too large (10MB cap)", true);
+			input.value = "";
+			return;
+		}
+		setChip(`Uploading ${f.name}…`, true);
+		const body = new FormData();
+		body.append("file", f);
+		fetch("/api/upload", { method: "POST", body })
+			.then(async (r) => {
+				const out = await r.json();
+				if (!r.ok || !out.path) {
+					throw new Error(out.error || "upload failed");
+				}
+				path = out.path;
+				setChip(f.name, true);
+			})
+			.catch((e: Error) => {
+				setChip(e.message, true);
+				input.value = "";
+			});
+	});
+	const form = input.closest("form");
+	form?.addEventListener("submit", () => {
+		const ta = form.querySelector<HTMLTextAreaElement>("textarea[name=text]");
+		if (ta && path) {
+			ta.value = `${ta.value.trimEnd()}\n${path}`;
+		}
+		clear();
+	});
+}
 
 // Model picker datalist (D2): debounced server-side search over the pi
 // catalog, capped at 25 rows by the endpoint.
