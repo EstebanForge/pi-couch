@@ -9,26 +9,36 @@ import {
 	type TranscriptReset,
 	type TranscriptStatus,
 } from "../api";
+import { Composer } from "../components/Composer";
 import { navigate } from "../nav";
 import { TOOLS, toolEnabled } from "../session-tools";
 import { useSessions } from "../state/sessions";
 import {
+	addPending,
 	type DriverState,
 	emptyDriver,
 	groupWorkBlocks,
+	markPending,
 	reduceAppend,
 	reduceReset,
 	reduceStatus,
+	removePending,
 	type WorkBlock,
 } from "../state/transcript";
 import { connectStream, type StreamStatus } from "../stream";
 
 const LIMIT = 400; // client-side tail cap; the server re-resets past it
 
+let pendingCounter = 0;
+const nextPendingId = () => ++pendingCounter;
+
 type Action =
 	| { t: "reset"; p: TranscriptReset }
 	| { t: "append"; p: TranscriptAppend }
-	| { t: "status"; p: TranscriptStatus };
+	| { t: "status"; p: TranscriptStatus }
+	| { t: "add-pending"; id: number; text: string; queued: boolean }
+	| { t: "mark-pending"; id: number; state: "sent" | "queued" | "unconfirmed" }
+	| { t: "remove-pending"; id: number };
 
 function driver(s: DriverState, a: Action): DriverState {
 	switch (a.t) {
@@ -38,6 +48,12 @@ function driver(s: DriverState, a: Action): DriverState {
 			return reduceAppend(s, a.p);
 		case "status":
 			return reduceStatus(s, a.p);
+		case "add-pending":
+			return addPending(s, a.id, a.text, a.queued);
+		case "mark-pending":
+			return markPending(s, a.id, a.state);
+		case "remove-pending":
+			return removePending(s, a.id);
 	}
 }
 
@@ -139,6 +155,8 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 	const [notice, setNotice] = useState("");
 	const pinned = useRef(true);
 	const scroller = useRef<HTMLDivElement | null>(null);
+	const dragStart = useRef<{ y: number } | null>(null);
+	const taBlur = useRef<HTMLTextAreaElement | null>(null);
 
 	useEffect(() => {
 		const stream = connectStream(`/api/stream/transcript/${encodeURIComponent(sessionKey)}`, {
@@ -244,7 +262,6 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 						onChange={(e) => setQuery(e.target.value)}
 						placeholder="Filter the transcript…"
 						className="w-full rounded-lg bg-base-200 px-3 py-2 text-[16px] outline-none"
-						autoFocus
 					/>
 				</div>
 			)}
@@ -255,7 +272,23 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 			)}
 			{notice && <div className="bg-warning/20 px-3 py-1 text-center text-[12px]">{notice}</div>}
 
-			<div ref={scroller} className="min-h-0 flex-1" style={{ overscrollBehavior: "contain" }}>
+			<div
+				ref={scroller}
+				className="min-h-0 flex-1"
+				style={{ overscrollBehavior: "contain" }}
+				onPointerDown={(e) => {
+					dragStart.current = e.pointerType === "touch" ? { y: e.clientY } : null;
+				}}
+				onPointerUp={(e) => {
+					const start = dragStart.current;
+					dragStart.current = null;
+					if (!start) return;
+					// A tap, or a 32px+ downward drag, dismisses the keyboard.
+					if (e.clientY - start.y >= 32 || Math.abs(e.clientY - start.y) < 8) {
+						taBlur.current?.blur();
+					}
+				}}
+			>
 				<Virtuoso
 					data={blocks}
 					computeItemKey={(_, b) => itemKey(b)}
@@ -272,6 +305,49 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 					<div className="p-6 text-center text-[13px] text-muted">Nothing here yet.</div>
 				)}
 			</div>
+
+			{/* pending bubbles: reconcile with the stream; the composer
+			    marks or removes them from the fetch outcome */}
+			{state.pending.length > 0 && (
+				<div className="space-y-1 px-3 pb-1">
+					{state.pending.map((p) => (
+						<div key={p.id} className="flex justify-end">
+							<div
+								className={`max-w-[85%] rounded-2xl px-3 py-2 text-[13px] opacity-70 ${
+									p.state === "unconfirmed" ? "bg-warning/30" : "bg-primary/20"
+								}`}
+							>
+								{p.state === "sending" && <span className="mr-1 animate-pulse">◌</span>}
+								{p.state === "queued" && <span className="mr-1">⏳</span>}
+								{p.seed}
+								{p.state === "queued" && (
+									<div className="text-[10px] text-muted">queued for the end of the turn</div>
+								)}
+								{p.state === "unconfirmed" && (
+									<div className="text-[10px] text-warning">
+										Not confirmed. Check the transcript before sending again.
+									</div>
+								)}
+							</div>
+						</div>
+					))}
+				</div>
+			)}
+
+			<Composer
+				sessionKey={sessionKey}
+				status={state.status}
+				model={state.model}
+				thinking={state.thinking}
+				addPending={(text, queued) => {
+					const id = nextPendingId();
+					dispatch({ t: "add-pending", id, text, queued });
+					return id;
+				}}
+				markPending={(id, mark) => dispatch({ t: "mark-pending", id, state: mark })}
+				removePending={(id) => dispatch({ t: "remove-pending", id })}
+				requestClose={() => setConfirmClose(true)}
+			/>
 
 			<Dialog
 				opened={overflow}

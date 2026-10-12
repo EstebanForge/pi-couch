@@ -65,3 +65,44 @@ export const stopSession = (key: string) =>
 	postJSON(`/api/sessions/${encodeURIComponent(key)}/stop`);
 export const closeSession = (key: string) =>
 	postJSON(`/api/sessions/${encodeURIComponent(key)}/close`);
+
+async function postJSONBody(path: string, body: unknown): Promise<{ ok: boolean; error?: string }> {
+	const res = await fetch(path, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(body),
+	});
+	let parsed: { ok?: boolean; error?: string } = {};
+	try {
+		parsed = (await res.json()) as typeof parsed;
+	} catch {
+		// 204 and other empty bodies: the status decides
+	}
+	if (!res.ok) return { ok: false, error: parsed.error ?? `http ${res.status}` };
+	return { ok: true };
+}
+
+export const sendPrompt = (key: string, text: string) =>
+	postJSONBody(`/api/sessions/${encodeURIComponent(key)}/prompt`, { text });
+export const setModel = (key: string, pattern: string) =>
+	postJSONBody(`/api/sessions/${encodeURIComponent(key)}/model`, { pattern });
+export const setThinking = (key: string, level: string) =>
+	postJSONBody(`/api/sessions/${encodeURIComponent(key)}/thinking`, { level });
+export const sendKeys = (key: string, keys: string[]) =>
+	postJSONBody(`/api/sessions/${encodeURIComponent(key)}/terminal/input`, { keys });
+
+export async function getModels(q: string): Promise<string[]> {
+	const res = await fetch(`/api/models?q=${encodeURIComponent(q)}`);
+	if (!res.ok) throw new Error(`models ${res.status}`);
+	const rows = (await res.json()) as { id: string }[];
+	return rows.map((r) => r.id);
+}
+
+export async function uploadImage(file: File): Promise<string> {
+	const fd = new FormData();
+	fd.append("file", file);
+	const res = await fetch("/api/upload", { method: "POST", body: fd });
+	if (!res.ok) throw new Error(`upload ${res.status}`);
+	const data = (await res.json()) as { path: string };
+	return data.path;
+}

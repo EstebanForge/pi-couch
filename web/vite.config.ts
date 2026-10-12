@@ -15,6 +15,8 @@ const keepEmbedDir = (): Plugin => ({
 
 // base stays '/app/' until cutover: the SPA mounts there in production while
 // the templ pages keep serving '/'. Dev serves '/app/' too, so one code path.
+const proxyTarget = process.env.COUCHPI_PROXY ?? "127.0.0.1:8090";
+
 export default defineConfig({
 	base: '/app/',
 	plugins: [react(), tailwindcss(), keepEmbedDir()],
@@ -24,8 +26,10 @@ export default defineConfig({
 	},
 	server: {
 		proxy: {
-			'/api': 'http://127.0.0.1:8090',
-			'/stream': 'http://127.0.0.1:8090',
+			// COUCHPI_PROXY points dev at web/dev/fixture.mjs for UI work
+			// without a live agent.
+			'/api': `http://${proxyTarget}`,
+			'/stream': `http://${proxyTarget}`,
 		},
 	},
 });

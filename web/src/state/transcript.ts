@@ -4,15 +4,68 @@
 
 import type { StreamItem, TranscriptAppend, TranscriptReset, TranscriptStatus } from "../api";
 
+export type PendingMsg = {
+	id: number;
+	seed: string; // first 60 normalized chars, matched against arriving user items
+	state: "sending" | "sent" | "queued" | "unconfirmed";
+};
+
 export type DriverState = {
 	items: StreamItem[]; // ordered by seq, tail of the active branch
 	status: string; // herdr badge: working, blocked, done, idle, ""
 	model: string;
 	thinking: string;
 	header: { name: string; first_user: string; cwd: string } | null;
+	pending: PendingMsg[];
 };
 
-export const emptyDriver: DriverState = { items: [], status: "", model: "", thinking: "", header: null };
+export const emptyDriver: DriverState = {
+	items: [],
+	status: "",
+	model: "",
+	thinking: "",
+	header: null,
+	pending: [],
+};
+
+// normalizeSeed folds whitespace so the seed matches the server's
+// re-serialization of the same text.
+function normalizeSeed(text: string): string {
+	return text.replace(/\s+/g, " ").trim().slice(0, 60);
+}
+
+export function addPending(s: DriverState, id: number, text: string, queued: boolean): DriverState {
+	const msg: PendingMsg = {
+		id,
+		seed: normalizeSeed(text),
+		state: queued ? "queued" : "sending",
+	};
+	return { ...s, pending: [...s.pending, msg] };
+}
+
+export function markPending(s: DriverState, id: number, state: PendingMsg["state"]): DriverState {
+	return {
+		...s,
+		pending: s.pending.map((p) => (p.id === id ? { ...p, state } : p)),
+	};
+}
+
+export function removePending(s: DriverState, id: number): DriverState {
+	return { ...s, pending: s.pending.filter((p) => p.id !== id) };
+}
+
+// reconcilePending drops bubbles whose user item arrived (text starts
+// with the seed). A reset re-syncs everything, so it clears all.
+function reconcile(s: DriverState): DriverState {
+	if (s.pending.length === 0) return s;
+	const keep = s.pending.filter(
+		(p) =>
+			!s.items.some(
+				(it) => it.kind === "user" && normalizeSeed(it.text).startsWith(p.seed) && p.seed !== "",
+			),
+	);
+	return keep.length === s.pending.length ? s : { ...s, pending: keep };
+}
 
 export function reduceReset(_s: DriverState, p: TranscriptReset): DriverState {
 	return {
@@ -21,13 +74,14 @@ export function reduceReset(_s: DriverState, p: TranscriptReset): DriverState {
 		model: p.model,
 		thinking: p.thinking,
 		header: p.meta ?? null,
+		pending: [],
 	};
 }
 
 export function reduceAppend(s: DriverState, p: TranscriptAppend): DriverState {
 	const fresh = p.items.filter((it) => !s.items.some((cur) => cur.seq === it.seq));
 	if (fresh.length === 0) return s;
-	return { ...s, items: [...s.items, ...fresh].sort((a, b) => a.seq - b.seq) };
+	return reconcile({ ...s, items: [...s.items, ...fresh].sort((a, b) => a.seq - b.seq) });
 }
 
 export function reduceStatus(s: DriverState, p: TranscriptStatus): DriverState {
