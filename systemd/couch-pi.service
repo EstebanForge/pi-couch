@@ -3,7 +3,7 @@ Description=Couch Pi web client for pi sessions
 After=network-online.target
 
 [Service]
-ExecStart=%h/.local/bin/couch-pi --addr 127.0.0.1:8090
+ExecStart=%h/.local/bin/couch-pi --addr 127.0.0.1:8090 --origin https://box.example.ts.net
 Restart=on-failure
 RestartSec=2
 

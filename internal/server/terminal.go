@@ -84,6 +84,7 @@ func (a *app) terminalInput(w http.ResponseWriter, r *http.Request) {
 		Text string   `json:"text"`
 		Keys []string `json:"keys"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<10) // keystrokes, not file uploads
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || (in.Text == "" && len(in.Keys) == 0) {
 		http.Error(w, "empty input", http.StatusBadRequest)
 		return

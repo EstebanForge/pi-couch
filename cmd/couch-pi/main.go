@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/EstebanForge/couch-pi/internal/herdr"
@@ -20,6 +21,7 @@ import (
 func main() {
 	addr := flag.String("addr", "127.0.0.1:8090", "listen address; bind loopback only, tailscale serve fronts TLS")
 	sessions := flag.String("sessions", "", "pi sessions root (default ~/.pi/agent/sessions)")
+	origin := flag.String("origin", "", "public https origin (e.g. https://<host>.ts.net); cross-site POST guard allowlist")
 	flag.Parse()
 
 	root := *sessions
@@ -33,7 +35,8 @@ func main() {
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	// SIGTERM is what systemd sends on stop; without it the process just dies.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	idx := pi.NewIndex(root)
@@ -42,6 +45,8 @@ func main() {
 		logger.Warn("live updates off", "err", err) // heartbeat still refreshes
 		watcher = nil
 	}
+
+	hc := herdr.New()
 
 	st, err := store.New()
 	if err != nil {
@@ -64,9 +69,9 @@ func main() {
 		Timeout:    10 * time.Second,
 	}
 	onEvent := notifyFunc(logger, idx, st, pusher)
-	go (&push.Watcher{HC: herdr.New(), Reconcile: 15 * time.Second, Stability: 2 * time.Second, WaitMax: 15 * time.Minute, Rearm: 5 * time.Second, OnEvent: onEvent, Log: logger}).Run(ctx)
+	go (&push.Watcher{HC: hc, Reconcile: 15 * time.Second, Stability: 2 * time.Second, WaitMax: 15 * time.Minute, Rearm: 5 * time.Second, OnEvent: onEvent, Log: logger}).Run(ctx)
 
-	if err := server.Run(logger, *addr, idx, herdr.New(), watcher, st, pusher); err != nil {
+	if err := server.Run(ctx, logger, *addr, idx, hc, watcher, st, pusher, *origin); err != nil {
 		logger.Error("server exited", "err", err)
 		os.Exit(1)
 	}
@@ -110,20 +115,20 @@ func notifyFunc(logger *slog.Logger, idx *pi.Index, st *store.Store, pusher *pus
 			logger.Warn("push send", "err", err)
 		}
 		if len(dead) > 0 {
-			remaining := subs[:0]
-			for _, s := range subs {
-				drop := false
-				for _, d := range dead {
-					if s.Endpoint == d {
-						drop = true
-						break
+			deadSet := make(map[string]bool, len(dead))
+			for _, d := range dead {
+				deadSet[d] = true
+			}
+			err := st.UpdateSubs(func(subs []store.Sub) []store.Sub {
+				remaining := subs[:0]
+				for _, s := range subs {
+					if !deadSet[s.Endpoint] {
+						remaining = append(remaining, s)
 					}
 				}
-				if !drop {
-					remaining = append(remaining, s)
-				}
-			}
-			if err := st.SetSubs(remaining); err != nil {
+				return remaining
+			})
+			if err != nil {
 				logger.Error("push cleanup", "err", err)
 			}
 		}

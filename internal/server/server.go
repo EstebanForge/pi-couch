@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -35,31 +36,108 @@ const terminalPoll = time.Second
 const changesPoll = 3 * time.Second
 
 type app struct {
-	logger      *slog.Logger
-	idx         *pi.Index
-	herdr       *herdr.Client
-	watcher     *pi.Watcher // nil: heartbeat-only updates
-	st          *store.Store
-	pusher      *push.Sender
-	vapidPublic string
+	logger        *slog.Logger
+	idx           *pi.Index
+	herdr         *herdr.Client
+	watcher       *pi.Watcher // nil: heartbeat-only updates
+	st            *store.Store
+	pusher        *push.Sender
+	vapidPublic   string
+	allowedOrigin string // -origin; the public https origin served through tailscale
 }
 
-func Run(logger *slog.Logger, addr string, idx *pi.Index, hc *herdr.Client, w *pi.Watcher, st *store.Store, pusher *push.Sender) error {
-	a := &app{logger: logger, idx: idx, herdr: hc, watcher: w, st: st, pusher: pusher}
+func Run(ctx context.Context, logger *slog.Logger, addr string, idx *pi.Index, hc *herdr.Client, w *pi.Watcher, st *store.Store, pusher *push.Sender, allowedOrigin string) error {
+	a := &app{logger: logger, idx: idx, herdr: hc, watcher: w, st: st, pusher: pusher, allowedOrigin: allowedOrigin}
 	if pusher != nil {
 		a.vapidPublic = pusher.Public
 	}
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           a.routes(),
+		Handler:           a.guard(a.routes()),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	logger.Info("couch-pi listening", "addr", addr)
-	err := srv.ListenAndServe()
-	if errors.Is(err, http.ErrServerClosed) {
-		return nil
+	srvErr := make(chan error, 1)
+	go func() {
+		err := srv.ListenAndServe()
+		if !errors.Is(err, http.ErrServerClosed) {
+			srvErr <- err
+		}
+	}()
+	select {
+	case err := <-srvErr:
+		return err
+	case <-ctx.Done():
 	}
-	return err
+	// Graceful stop: drain briefly, then force-close (SSE streams never idle).
+	shutCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutCtx); err != nil {
+		return srv.Close()
+	}
+	return nil
+}
+
+// guard is the cross-site defense for state-changing requests. The tailnet
+// is the auth boundary (no login layer by decision), but a hostile page open
+// in the phone's browser must not drive terminals cross-site. Browsers send
+// Sec-Fetch-Site on every request; curl and the native door send no headers
+// and pass. The Host allowlist stops DNS rebinding against the loopback bind.
+func (a *app) guard(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			switch r.Header.Get("Sec-Fetch-Site") {
+			case "", "same-origin", "none":
+			default:
+				a.logger.Warn("blocked cross-site request", "fetch-site", r.Header.Get("Sec-Fetch-Site"), "path", r.URL.Path)
+				http.Error(w, "cross-site request", http.StatusForbidden)
+				return
+			}
+			if o := r.Header.Get("Origin"); o != "" && !a.originAllowed(o, r.Host) {
+				a.logger.Warn("blocked foreign origin", "origin", o, "path", r.URL.Path)
+				http.Error(w, "cross-origin request", http.StatusForbidden)
+				return
+			}
+			host := hostOnly(r.Host)
+			if !localHost(host) && (a.allowedOrigin == "" || host != originHost(a.allowedOrigin)) {
+				a.logger.Warn("blocked rebound host", "host", r.Host, "path", r.URL.Path)
+				http.Error(w, "unknown host", http.StatusForbidden)
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (a *app) originAllowed(origin, reqHost string) bool {
+	u, err := url.Parse(origin)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	if reqHost != "" && u.Host == reqHost {
+		return true
+	}
+	return localHost(u.Hostname()) || (a.allowedOrigin != "" && u.Host == originHost(a.allowedOrigin))
+}
+
+func localHost(host string) bool {
+	return host == "localhost" || host == "127.0.0.1" || host == "::1"
+}
+
+// hostOnly strips the port from a Host header or origin (IPv6 aware).
+func hostOnly(hostport string) string {
+	if host, _, err := net.SplitHostPort(hostport); err == nil {
+		return host
+	}
+	return hostport
+}
+
+func originHost(origin string) string {
+	u, err := url.Parse(origin)
+	if err != nil {
+		return ""
+	}
+	return u.Hostname()
 }
 
 func (a *app) routes() http.Handler {
@@ -104,6 +182,8 @@ func (a *app) list(w http.ResponseWriter, r *http.Request) {
 
 func (a *app) streamSessions(w http.ResponseWriter, r *http.Request) {
 	sse := datastar.NewSSE(w, r)
+	ticks, unsub := a.subscribeTicks()
+	defer unsub()
 	for {
 		sessions, badges := a.snapshot(r)
 		err := sse.PatchElementTempl(
@@ -119,7 +199,7 @@ func (a *app) streamSessions(w http.ResponseWriter, r *http.Request) {
 			return
 		default:
 		}
-		if !a.waitTick(r) {
+		if !a.waitTick(r, ticks) {
 			return
 		}
 	}
@@ -160,12 +240,15 @@ func noticeText(q url.Values) string {
 		return "No herdr driver is running this session."
 	case q.Get("err") == "empty":
 		return "Nothing to send."
+	case q.Get("err") == "stopfail":
+		return "Ctrl-C failed. Check the desk CLI."
 	default:
 		return ""
 	}
 }
 
 func (a *app) steerPrompt(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	key := r.PathValue("key")
 	back := "/sessions/" + url.PathEscape(key)
 	text := strings.TrimSpace(r.FormValue("text"))
@@ -210,6 +293,8 @@ func (a *app) steerStop(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := a.herdr.SendKeys(ctx, target, []string{"ctrl+c"}); err != nil {
 		a.logger.Error("stop", "err", err)
+		http.Redirect(w, r, back+"?err=stopfail", http.StatusSeeOther)
+		return
 	}
 	http.Redirect(w, r, back+"?stopped=1", http.StatusSeeOther)
 }
@@ -223,6 +308,8 @@ func (a *app) streamTranscript(w http.ResponseWriter, r *http.Request) {
 		limit = n
 	}
 	sse := datastar.NewSSE(w, r)
+	ticks, unsub := a.subscribeTicks()
+	defer unsub()
 	for {
 		meta, ok := a.idx.Meta(key)
 		if !ok {
@@ -246,18 +333,27 @@ func (a *app) streamTranscript(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		if !a.waitTick(r) {
+		if !a.waitTick(r, ticks) {
 			return
 		}
 	}
 }
 
+// subscribeTicks registers one fan-out slot; nil watcher degrades to
+// heartbeat-only updates.
+func (a *app) subscribeTicks() (<-chan struct{}, func()) {
+	if a.watcher == nil {
+		return nil, func() {}
+	}
+	return a.watcher.Subscribe()
+}
+
 // waitTick blocks for the next update trigger; false means the client left.
-func (a *app) waitTick(r *http.Request) bool {
+func (a *app) waitTick(r *http.Request, ticks <-chan struct{}) bool {
 	ctx := r.Context()
-	if a.watcher != nil {
+	if ticks != nil {
 		select {
-		case <-a.watcher.Events():
+		case <-ticks:
 			return true
 		case <-time.After(heartbeat):
 			return true

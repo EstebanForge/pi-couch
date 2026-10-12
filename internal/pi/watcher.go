@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -12,9 +13,11 @@ import (
 
 // Watcher folds fsnotify events on the sessions tree into debounced ticks.
 // fsnotify is not recursive: the root is watched for new workdirs, each
-// workdir for session file writes.
+// workdir for session file writes. Every subscriber gets its own channel, so
+// one slow stream cannot starve the others.
 type Watcher struct {
-	ticks chan struct{}
+	mu   sync.Mutex
+	subs map[chan struct{}]struct{}
 }
 
 // StartWatcher begins watching. Ticks coalesce bursts (a session write can
@@ -32,25 +35,43 @@ func StartWatcher(ctx context.Context, root string) (*Watcher, error) {
 		_ = fs.Add(d) // a workdir vanishing between list and add is fine
 	}
 
-	w := &Watcher{ticks: make(chan struct{}, 1)}
+	w := &Watcher{subs: map[chan struct{}]struct{}{}}
 	go w.loop(ctx, fs, root)
 	return w, nil
 }
 
-// Events returns the debounced tick channel.
-func (w *Watcher) Events() <-chan struct{} { return w.ticks }
+// Subscribe returns this consumer's tick channel and an unsubscribe func.
+func (w *Watcher) Subscribe() (<-chan struct{}, func()) {
+	ch := make(chan struct{}, 1)
+	w.mu.Lock()
+	w.subs[ch] = struct{}{}
+	w.mu.Unlock()
+	return ch, func() {
+		w.mu.Lock()
+		delete(w.subs, ch)
+		w.mu.Unlock()
+	}
+}
+
+// tick wakes every subscriber; a busy consumer drops the tick (its next
+// render is fresh enough).
+func (w *Watcher) tick() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for ch := range w.subs {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	}
+}
 
 func (w *Watcher) loop(ctx context.Context, fs *fsnotify.Watcher, root string) {
 	defer fs.Close()
 	var debounce *time.Timer
 	fire := func() {
 		if debounce == nil {
-			debounce = time.AfterFunc(250*time.Millisecond, func() {
-				select {
-				case w.ticks <- struct{}{}:
-				default: // consumer still busy; its next render is fresh enough
-				}
-			})
+			debounce = time.AfterFunc(250*time.Millisecond, w.tick)
 		} else {
 			debounce.Reset(250 * time.Millisecond)
 		}

@@ -20,12 +20,14 @@ func TestWatcherTicksOnSessionWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	ticks, unsub := w.Subscribe()
+	defer unsub()
 
 	if err := os.WriteFile(filepath.Join(dir, "s.jsonl"), []byte("{}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	select {
-	case <-w.Events():
+	case <-ticks:
 	case <-time.After(3 * time.Second):
 		t.Fatal("no tick on session write")
 	}
@@ -39,6 +41,8 @@ func TestWatcherTickOnNewWorkdirFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	ticks, unsub := w.Subscribe()
+	defer unsub()
 
 	// New workdir created after the watcher started, then a session file.
 	dir := filepath.Join(root, "--tmp-late--")
@@ -49,7 +53,7 @@ func TestWatcherTickOnNewWorkdirFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	select {
-	case <-w.Events():
+	case <-ticks:
 	case <-time.After(3 * time.Second):
 		t.Fatal("no tick for late workdir file")
 	}
@@ -62,9 +66,11 @@ func TestWatcherStop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	ticks, unsub := w.Subscribe()
+	defer unsub()
 	cancel()
 	select {
-	case <-w.Events():
+	case <-ticks:
 		t.Fatal("no tick expected after stop")
 	case <-time.After(200 * time.Millisecond):
 	}
