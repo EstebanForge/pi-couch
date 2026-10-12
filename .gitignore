@@ -7,3 +7,5 @@ dist/
 bin/
 *_templ.go
 internal/web/static/js/main.js
+internal/web/app/*
+!internal/web/app/.gitkeep
