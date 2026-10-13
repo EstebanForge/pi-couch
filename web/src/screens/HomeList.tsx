@@ -6,14 +6,8 @@ import { navigate } from "../nav";
 import { type PushState, pushState, togglePush } from "../push";
 import { grouped, useSessions } from "../state/sessions";
 import { connectStream } from "../stream";
-
-const STATUS_COLOR: Record<string, string> = {
-	working: "bg-warning",
-	blocked: "bg-error",
-	done: "bg-success",
-	idle: "bg-muted",
-	unknown: "bg-muted",
-};
+import { STATUS_DOT, isWaiting } from "../status";
+import { Spinner } from "../components/Spinner";
 
 const LIST_WINDOW = 15;
 const WINDOW_STEP = 10;
@@ -130,10 +124,14 @@ export default function HomeList() {
 										}
 										className="flex w-full items-center gap-3 rounded-2xl bg-base-200 px-4 py-3 text-left active:scale-[0.99]"
 									>
-										<span
-											title={st}
-											className={`h-2.5 w-2.5 shrink-0 rounded-full ${STATUS_COLOR[st] ?? "bg-muted"}`}
-										/>
+										{isWaiting(st) && st === "working" ? (
+											<Spinner size={13} className="text-primary" />
+										) : (
+											<span
+												title={st}
+												className={`h-2.5 w-2.5 shrink-0 rounded-full ${STATUS_DOT[st] ?? "bg-muted"}`}
+											/>
+										)}
 										<span className="min-w-0 flex-1">
 											<span className="block truncate text-[15px] font-medium">
 												{short(s.name || s.first_user || s.key, 60)}

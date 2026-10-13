@@ -91,18 +91,19 @@ export function reduceStatus(s: DriverState, p: TranscriptStatus): DriverState {
 // Work blocks fold consecutive non-speech items (thinking, tool calls and
 // results, bash, custom) into one collapsible row: the biggest scroll
 // length win on a 360px phone. Speech (user/text) and markers stay solo.
+// Blocks render collapsed; the reader opens them on demand.
 export type WorkBlock =
 	| { type: "item"; item: StreamItem }
-	| { type: "block"; items: StreamItem[]; open: boolean };
+	| { type: "block"; items: StreamItem[] };
 
 const FOLDABLE = new Set(["thinking", "tool_call", "tool_result", "bash", "custom"]);
 
-export function groupWorkBlocks(items: StreamItem[], agentWorking: boolean): WorkBlock[] {
+export function groupWorkBlocks(items: StreamItem[]): WorkBlock[] {
 	const out: WorkBlock[] = [];
 	let run: StreamItem[] = [];
 	const flush = () => {
 		if (run.length > 0) {
-			out.push({ type: "block", items: run, open: agentWorking });
+			out.push({ type: "block", items: run });
 			run = [];
 		}
 	};

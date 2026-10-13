@@ -7,6 +7,7 @@ import { Sheet, Toast } from "konsta/react";
 import { useEffect, useRef, useState } from "react";
 import { getModels, sendKeys, sendPrompt, setModel, setThinking, uploadImage } from "../api";
 import { ESC_SETTLE_MS, QUICK_KEYS, type QuickKey } from "../chat/quick-keys";
+import { Spinner } from "./Spinner";
 
 const MAX_FILES = 10;
 const MAX_PARALLEL = 3;
@@ -311,14 +312,16 @@ export function Composer(props: {
 						}}
 						className="max-w-[55%] truncate rounded-full bg-base-300 px-2.5 py-1 text-[11px] text-base-content active:scale-95"
 					>
-						{modelMark ? "…" : ""} {showModel || "model"}
+						{modelMark && <Spinner size={12} className="mr-1 text-primary" />}
+						{showModel || "model"}
 					</button>
 					<button
 						type="button"
 						onClick={() => setSheet("thinking")}
 						className="rounded-full bg-base-300 px-2.5 py-1 text-[11px] text-base-content active:scale-95"
 					>
-						{thinkingMark ? "…" : ""} {showThinking || "thinking"}
+						{thinkingMark && <Spinner size={12} className="mr-1 text-primary" />}
+						{showThinking || "thinking"}
 					</button>
 					<div className="ml-auto flex items-center gap-1">
 						{files.map((f) => (
@@ -328,8 +331,15 @@ export function Composer(props: {
 									f.error ? "bg-error/30 text-error" : "bg-base-300 text-muted"
 								}`}
 							>
-								<span className="truncate">
-									{f.path ? "✓" : f.error ? "✕" : "↑"} {f.name}
+								<span className="flex min-w-0 items-center gap-1">
+									{f.path ? (
+										"✓"
+									) : f.error ? (
+										"✕"
+									) : (
+										<Spinner size={10} className="text-muted" />
+									)}
+									<span className="truncate">{f.name}</span>
 								</span>
 								<button
 									type="button"

@@ -78,19 +78,14 @@ describe("groupWorkBlocks", () => {
 			item(3, "tool_result", "out"),
 			item(4, "text", "answer"),
 		];
-		const blocks = groupWorkBlocks(items, false);
+		const blocks = groupWorkBlocks(items);
 		expect(blocks).toHaveLength(3);
 		expect(blocks[0]).toEqual({ type: "item", item: items[0] });
-		expect(blocks[1]).toMatchObject({ type: "block", open: false });
+		expect(blocks[1]).toMatchObject({ type: "block" });
 		if (blocks[1].type === "block") {
 			expect(blocks[1].items.map((i) => i.seq)).toEqual([1, 2, 3]);
 		}
 		expect(blocks[2]).toEqual({ type: "item", item: items[4] });
-	});
-
-	it("opens blocks while the agent works", () => {
-		const blocks = groupWorkBlocks([item(0, "thinking", "h")], true);
-		expect(blocks[0]).toMatchObject({ type: "block", open: true });
 	});
 
 	it("never folds markers between runs", () => {
@@ -99,7 +94,7 @@ describe("groupWorkBlocks", () => {
 			item(1, "marker", "Model -> x"),
 			item(2, "bash", "ls"),
 		];
-		const blocks = groupWorkBlocks(items, false);
+		const blocks = groupWorkBlocks(items);
 		expect(blocks).toHaveLength(3);
 	});
 });

@@ -10,9 +10,11 @@ import {
 	type TranscriptStatus,
 } from "../api";
 import { Composer } from "../components/Composer";
+import { Spinner } from "../components/Spinner";
 import { navigate } from "../nav";
 import { TOOLS, toolEnabled } from "../session-tools";
 import { useSessions } from "../state/sessions";
+import { STATUS_DOT, isWaiting } from "../status";
 import {
 	addPending,
 	type DriverState,
@@ -56,13 +58,6 @@ function driver(s: DriverState, a: Action): DriverState {
 			return removePending(s, a.id);
 	}
 }
-
-const STATUS_DOT: Record<string, string> = {
-	working: "bg-warning",
-	blocked: "bg-error",
-	done: "bg-success",
-	idle: "bg-muted",
-};
 
 function itemKey(b: WorkBlock): string {
 	return b.type === "item" ? `s${b.item.seq}` : `b${b.items[0].seq}`;
@@ -115,12 +110,14 @@ function itemRow(it: StreamItem, expanded: boolean) {
 	}
 }
 
-function Block({ block, working }: { block: WorkBlock; working: boolean }) {
+function Block({ block }: { block: WorkBlock; working?: boolean }) {
 	const [override, setOverride] = useState<boolean | null>(null);
 	if (block.type === "item") {
 		return itemRow(block.item, true);
 	}
-	const open = override ?? (working && block.open);
+	// Steps stay collapsed unless the reader opens them; the live stream
+	// already carries the Working marker, so auto-expansion is noise.
+	const open = override ?? false;
 	const names = [...new Set(block.items.map((i) => i.tool_name || i.kind))].slice(0, 3).join(", ");
 	return (
 		<div className="px-3 py-0.5">
@@ -131,7 +128,7 @@ function Block({ block, working }: { block: WorkBlock; working: boolean }) {
 			>
 				<span className="font-mono">{open ? "▾" : "▸"}</span>
 				<span>
-					{block.items.length} steps · {names}
+					{block.items.length} {block.items.length === 1 ? "step" : "steps"} · {names}
 					{block.items.length > 3 ? "…" : ""}
 				</span>
 			</button>
@@ -176,9 +173,9 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 		const q = query?.trim().toLowerCase();
 		const items = q ? state.items.filter((it) => it.text.toLowerCase().includes(q)) : state.items;
 		if (items.length > LIMIT)
-			return groupWorkBlocks(items.slice(items.length - LIMIT), state.status !== "");
-		return groupWorkBlocks(items, state.status !== "");
-	}, [state.items, state.status, query]);
+			return groupWorkBlocks(items.slice(items.length - LIMIT));
+		return groupWorkBlocks(items);
+	}, [state.items, query]);
 
 	const meta = useSessions((s) => s.sessions.find((x) => x.key === sessionKey));
 	const firstUser = state.items.find((it) => it.kind === "user")?.text.slice(0, 60);
@@ -215,10 +212,17 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 				left={<NavbarBackLink onClick={() => history.back()} />}
 				title={
 					<div className="flex min-w-0 items-center gap-2">
-						<span
-							className={`size-2 shrink-0 rounded-full ${dot}`}
-							title={state.status || "idle"}
-						/>
+						{isWaiting(state.status) ? (
+							<Spinner
+								size={14}
+								className={state.status === "blocked" ? "text-error" : "text-primary"}
+							/>
+						) : (
+							<span
+								className={`size-2 shrink-0 rounded-full ${dot}`}
+								title={state.status || "idle"}
+							/>
+						)}
 						<span className="truncate text-[15px]">{title}</span>
 					</div>
 				}
@@ -300,7 +304,19 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 					}}
 					initialTopMostItemIndex={Math.max(0, blocks.length - 1)}
 					className="h-full"
-					itemContent={(_, b) => <Block block={b} working={state.status !== ""} />}
+					itemContent={(_, b) => <Block block={b} />}
+					components={{
+						Footer: () =>
+							isWaiting(state.status) ? (
+								<div className="flex items-center gap-2 px-3 py-2 text-[13px] text-muted">
+									<Spinner
+										size={14}
+										className={state.status === "blocked" ? "text-error" : "text-primary"}
+									/>
+									{state.status === "blocked" ? "Waiting for you" : "Working"}
+								</div>
+							) : null,
+					}}
 				/>
 				{blocks.length === 0 && (
 					<div className="p-6 text-center text-[13px] text-muted">Nothing here yet.</div>
@@ -318,7 +334,7 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 									p.state === "unconfirmed" ? "bg-warning/30" : "bg-primary/20"
 								}`}
 							>
-								{p.state === "sending" && <span className="mr-1 animate-pulse">◌</span>}
+								{p.state === "sending" && <Spinner size={14} className="mr-1 text-primary" />}
 								{p.state === "queued" && <span className="mr-1">⏳</span>}
 								{p.seed}
 								{p.state === "queued" && (
