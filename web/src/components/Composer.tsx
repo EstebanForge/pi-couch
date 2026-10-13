@@ -62,9 +62,11 @@ export function Composer(props: {
 	const hasText = text.trim().length > 0;
 	const canSend = hasText && !uploading;
 
-	const sendText = async (body: string, queued: boolean) => {
+	const sendText = async (body: string, queued: boolean, draft?: string) => {
 		const id = props.addPending(body, queued);
-		const sent = body;
+		// With attachments the body carries upload paths the textarea
+		// never held; only the text part can leave the box.
+		const acked = draft ?? body;
 		let outcome: "ok" | "fail" | "unknown" = "unknown";
 		try {
 			const r = await sendPrompt(sessionKey, body);
@@ -77,7 +79,7 @@ export function Composer(props: {
 		if (outcome === "ok") {
 			// The draft keeps text typed during the flight; only the
 			// acknowledged part leaves the box.
-			setText((cur) => (cur.startsWith(sent) ? cur.slice(sent.length) : cur));
+			setText((cur) => (cur.startsWith(acked) ? cur.slice(acked.length) : cur));
 			props.markPending(id, queued ? "queued" : "sent");
 		} else if (outcome === "fail") {
 			props.removePending(id);
@@ -92,7 +94,7 @@ export function Composer(props: {
 		const paths = files.filter((f) => f.path).map((f) => f.path as string);
 		const body = paths.length > 0 ? [...paths, text].join("\n") : text;
 		setFiles([]);
-		void sendText(body, false);
+		void sendText(body, false, text);
 	};
 
 	const pickFiles = async (list: FileList | null) => {
