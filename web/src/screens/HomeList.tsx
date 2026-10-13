@@ -80,7 +80,11 @@ export default function HomeList() {
 
 	return (
 		<div className="mx-auto flex min-h-dvh max-w-3xl flex-col" style={{ paddingBottom: "var(--safe-bottom, 0px)" }}>
-			<header className="sticky top-0 z-10 flex items-center gap-3 bg-base-300/95 px-4 py-3 backdrop-blur">
+			<header
+				className="fixed inset-x-0 top-0 z-30 bg-base-300/95 backdrop-blur"
+				style={{ paddingTop: "var(--safe-top, 0px)" }}
+			>
+				<div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-3">
 				<button
 					type="button"
 					aria-label="Menu"
@@ -113,12 +117,14 @@ export default function HomeList() {
 								d="M12 3a6 6 0 0 0-6 6v3.2l-1.6 3.2a.7.7 0 0 0 .6 1h14a.7.7 0 0 0 .6-1L18 12.2V9a6 6 0 0 0-6-6Zm-2 15a2 2 0 0 0 4 0"
 								fill="currentColor"
 							/>
-						</svg>
+							</svg>
 					</button>
 				)}
+				</div>
 			</header>
 
-			<div className="px-3 pt-3">
+			{/* 68px fixed bar + the old pt-3 gap; body still pads the status bar */}
+			<div className="px-3 pt-[80px]">
 				<div className="relative">
 					<input
 						type="text"

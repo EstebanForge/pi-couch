@@ -164,7 +164,7 @@ export default function ChangesScreen({ sessionKey }: { sessionKey: string }) {
 		: undefined;
 
 	return (
-		<div className="mx-auto flex min-h-dvh max-w-3xl flex-col" style={{ paddingBottom: "var(--safe-bottom, 0px)" }}>
+		<div className="mx-auto flex min-h-dvh max-w-3xl flex-col" style={{ paddingBottom: "var(--safe-bottom, 0px)", paddingTop: "64px" }}>
 			<Navbar
 				left={
 					back ? (
@@ -175,7 +175,7 @@ export default function ChangesScreen({ sessionKey }: { sessionKey: string }) {
 				}
 				title={openFile ?? "Changes"}
 				subtitle={list?.repo ? list.branch || "no branch" : "not a git repository"}
-				className="top-0 z-10"
+				style={{ position: "fixed", top: "var(--safe-top, 0px)", left: 0, right: 0, zIndex: 30 }}
 			/>
 
 			<main className="flex-1 px-3 pb-40">
