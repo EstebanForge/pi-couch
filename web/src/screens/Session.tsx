@@ -123,7 +123,7 @@ function Block({ block }: { block: WorkBlock; working?: boolean }) {
 		<div className="px-3 py-0.5">
 			<button
 				type="button"
-				className="flex w-full items-center gap-2 rounded-lg bg-base-200 px-2 py-1.5 text-left text-[12px] text-muted"
+				className="flex min-h-9 w-full items-center gap-2 rounded-lg bg-base-200 px-2 py-2 text-left text-[12px] text-muted"
 				onClick={() => setOverride(!open)}
 			>
 				<span className="font-mono">{open ? "▾" : "▸"}</span>
