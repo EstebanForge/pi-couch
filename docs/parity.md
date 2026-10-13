@@ -19,7 +19,7 @@ islands in internal/web/static/js/main.ts.
 | Header count = total sessions | yes | yes | |
 | Live refresh (stream) | yes | yes | templ rides the paced datastar stream; SPA rides /api/stream/sessions with hash-gated snapshots. |
 | Push bell (permission on tap, subscribe/unsubscribe) | yes | GAP | SPA never registers /sw.js, so push is impossible from /app/. Fix: bell in the header + push.ts (register, subscribe on tap, unsubscribe). |
-| PWA install (manifest link, installable on desktop) | yes | STAGE 7 | Plan moves /sw.js and the manifest into the new embed at cutover; the manifest's start_url is / until then. |
+| PWA install (manifest link, installable on desktop) | yes | yes | /sw.js, the manifest and the icons ship in the SPA embed (web/public) and the worker registers at boot. |
 
 ## Session view (transcript.templ, streamTranscript)
 
@@ -83,6 +83,6 @@ islands in internal/web/static/js/main.ts.
 
 ## Verdict
 
-Gaps to close in this gate: the home-list window and Load more, the
-active-first grouping, and the push bell with sw.js registration.
-Everything else is PARITY, STAGE 7, or an SPA-side excess.
+All gaps closed 2026-10-13 (window and Load more, active-first
+grouping, push bell, then the cutover moved the PWA pieces into the
+embed). Everything is PARITY or an SPA-side excess; the gate is done.

@@ -4,7 +4,7 @@ Operating guide for coding agents working on Couch Pi.
 
 ## Project overview
 
-Couch Pi: phone-first web client for the pi coding agents on this server. Shows every pi session on the machine, drives them through herdr, reviews git changes per repo, collects line comments, pushes on status changes. It is a client, not a runtime: it never forks its own agent runtime. Status: M0-M5 and M0.5 shipped; M4 polish shipped 2026-10-12 (search, session close, one-hand targets, installable PWA, model/thinking picker, image attachments). Plan and decisions live in docs/.
+Couch Pi: phone-first web client for the pi coding agents on this server. Shows every pi session on the machine, drives them through herdr, reviews git changes per repo, collects line comments, pushes on status changes. It is a client, not a runtime: it never forks its own agent runtime. Status: all milestones shipped; the React client rewrite cut over 2026-10-13 — the SPA is the whole site, the templ pages and Datastar are deleted. Plan and decisions live in docs/.
 
 ## Read first (sources of truth)
 
@@ -18,7 +18,7 @@ Couch Pi: phone-first web client for the pi coding agents on this server. Shows 
 
 - Plain pi sessions only: jsonl trees under `~/.pi/agent/sessions/`. No pi-durable, no RPC children, no guests (ADR-0001).
 - herdr is the only driver. Every start, steer, stop, resume goes through herdr's socket API. Protocol 22 is pinned; adapt on change. Abort is Ctrl-C via send-keys, not an API verb (ADR-0001).
-- Stack: one Go binary, stdlib `net/http` routing, templ for HTML, Datastar Go SDK over SSE, vendored xterm.js, vanilla TS islands built with esbuild. No web framework, no client SPA, no node_modules on the server (ADR-0002).
+- Stack: one Go binary, stdlib `net/http` routing, and a React 19 + Vite + Tailwind 4 + Konsta SPA served from `go:embed`. The templ pages, Datastar and the daisyUI CDN died at the stage-7 cutover (ADR-0006 supersedes ADR-0002). No web framework on the server; node is a build-time dependency only.
 - Android install surface: thin Kotlin WebView APK. One Activity, no IPC bridge, no bundled assets, no FCM; sideloaded, not the PWA install flow (ADR-0003).
 - Security: server binds 127.0.0.1 only, fronted by `tailscale serve`. The tailnet is the boundary; no extra auth layer. Never widen this without a new ADR.
 
@@ -26,19 +26,18 @@ Couch Pi: phone-first web client for the pi coding agents on this server. Shows 
 
 Verified (M0):
 
-- `./scripts/build.sh`: templ generate, esbuild bundle, then `go build` to `bin/couch-pi`.
-- `go tool templ generate ./...` and the esbuild line inside build.sh run standalone when needed.
-- `go vet ./...` and `gofmt -l .` must both be clean before a commit.
+- `./scripts/build.sh`: builds the React SPA (when npm is present), then `go build` to `bin/couch-pi`.
+- `go vet ./...` and `gofmt -l .` must both be clean before a commit; web/ adds `tsc`, `biome` and `vitest` (run via web/node_modules/.bin).
 - `go test ./...`: parser and index tests; the real-sessions integration test skips itself when the dir is absent.
 - Run: `bin/couch-pi --addr 127.0.0.1:8090` (loopback only). `curl localhost:8090/healthz` expects `ok`.
 - herdr probes: `herdr api schema --json`, `herdr api snapshot`, `herdr agent --help`.
 - Service install is manual (user unit): copy `systemd/couch-pi.service` to `~/.config/systemd/user/`, then `systemctl --user daemon-reload && systemctl --user enable --now couch-pi`.
-- Deploy server updates (the phone hits the service, not `bin/`): `./scripts/build.sh && install -m 755 bin/couch-pi ~/.local/bin/couch-pi && systemctl --user restart couch-pi && curl -s localhost:8090/healthz`. build.sh now also builds the React SPA (npm ci + npm run build under web/) when npm is on PATH, so a deploy always embeds a fresh SPA; on machines without node the Go-only build still works and a fresh clone serves 404 on `/app/` until the SPA is built there. The unit runs `%h/.local/bin/couch-pi`, so restarting without the install step keeps serving the previous binary; verify by content (e.g. the served `/static/app.css`), not just healthz. The unit passes `--origin https://box.example.ts.net`; state-changing POSTs from any other host are rejected as cross-site, so a dev run without the flag only accepts loopback.
+- Deploy server updates (the phone hits the service, not `bin/`): `./scripts/build.sh && install -m 755 bin/couch-pi ~/.local/bin/couch-pi && systemctl --user restart couch-pi && curl -s localhost:8090/healthz`. build.sh builds the React SPA (npm ci + npm run build under web/) when npm is on PATH, so a deploy always embeds a fresh SPA; on machines without node the Go-only build still works and a fresh clone serves 404 everywhere until the SPA is built there. The unit runs `%h/.local/bin/couch-pi`, so restarting without the install step keeps serving the previous binary; verify by content (e.g. the served `/manifest.webmanifest`), not just healthz. The unit passes `--origin https://box.example.ts.net:8443`; state-changing POSTs from any other host are rejected as cross-site, so a dev run without the flag only accepts loopback.
 - Remote front: `tailscale serve --bg --https=8443 8090` puts the loopback server on `https://box.example.ts.net:8443/` (tailnet-only). Port 8443, not 443: Wicket stacks publish 0.0.0.0:443 machine-wide and would collide. `curl https://box.example.ts.net:8443/healthz` expects `ok`.
 - APK: `cd android && ./gradlew assembleDebug` (wrapper copied from Baluard; `android/local.properties` holds `sdk.dir`, gitignored). Install: `adb install -r android/app/build/outputs/apk/debug/app-debug.apk`. Debug-signed, Pi Agent adaptive icon and dark splash; no keystore yet.
-- Push slice: VAPID keys and subscriptions live under `~/.local/state/couch-pi/` (`vapid.json` 0600, `push-subs.json`). `GET /api/push/key`, `POST /api/push/subscribe|unsubscribe`, `GET /sw.js`.
+- Push slice: VAPID keys and subscriptions live under `~/.local/state/couch-pi/` (`vapid.json` 0600, `push-subs.json`). `GET /api/push/key`, `POST /api/push/subscribe|unsubscribe`; `/sw.js`, `/manifest.webmanifest` and the icons come from the SPA embed (`web/public/`).
 
-Pins: templ v0.3.1070 and esbuild v0.28.2 as Go `tool` directives; datastar-go v1.2.2 with the vendored browser bundle `static/js/datastar.js` (core v1.0.4); fsnotify v1.10.1. herdr socket framing is NDJSON: `{"id","method","params"}` in, one compact JSON line out.
+Pins: fsnotify v1.10.1, webpush-go v1.4.0; the web stack pins live in web/package.json (React 19.3, Vite 8.3, Tailwind 4.3, Konsta 5.5, xterm 5.5). herdr socket framing is NDJSON: `{"id","method","params"}` in, one compact JSON line out.
 
 ## Architecture (planned, per PLAN.md)
 
