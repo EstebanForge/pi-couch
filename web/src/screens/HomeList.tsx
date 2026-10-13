@@ -6,8 +6,8 @@ import { navigate } from "../nav";
 import { type PushState, pushState, togglePush } from "../push";
 import { grouped, useSessions } from "../state/sessions";
 import { connectStream } from "../stream";
-import { STATUS_DOT, isWaiting } from "../status";
 import { Spinner } from "../components/Spinner";
+import { STATUS_DOT, isWaiting } from "../status";
 
 const LIST_WINDOW = 15;
 const WINDOW_STEP = 10;
@@ -95,7 +95,10 @@ export default function HomeList() {
 					<p className="mt-6 rounded-xl bg-base-200 p-4 text-sm text-error">{error}</p>
 				)}
 				{status === "loading" && sessions.length === 0 && (
-					<p className="mt-6 px-1 text-sm text-muted">Loading sessions…</p>
+					<div className="flex h-[60dvh] flex-col items-center justify-center gap-3 text-sm text-muted">
+						<Spinner size={24} className="text-primary" />
+						Loading sessions…
+					</div>
 				)}
 				{status === "ok" && sessions.length === 0 && (
 					<p className="mt-6 px-1 text-sm text-muted">No sessions.</p>
