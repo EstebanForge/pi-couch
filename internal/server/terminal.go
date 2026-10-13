@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -20,8 +21,11 @@ func (a *app) terminal(w http.ResponseWriter, r *http.Request) {
 }
 
 // streamTerminal polls pane.read for the session's pane and emits the
-// visible screen when the revision moves. herdr 0.9.3 offers no output
-// push (subscribe sockets ack only; events.wait is agent-status only).
+// visible screen when it changes. herdr 0.9.3 offers no output push
+// (subscribe sockets ack only; events.wait is agent-status only), and
+// PaneReadResult's revision is per-connection — our one-shot client
+// re-dials every poll, so it reads 0 forever. The screen text itself is
+// the change signal, hashed like the changes stream.
 func (a *app) streamTerminal(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
 	meta, ok := a.idx.Meta(key)
@@ -41,16 +45,27 @@ func (a *app) streamTerminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	lastRev := int64(-1)
+	lastHash := ""
+	lastSent := time.Now()
 	for {
 		read, err := a.herdr.PaneRead(ctx, target, "recent", 400)
 		if err != nil {
 			return
 		}
-		if read.Revision != lastRev {
-			lastRev = read.Revision
+		sum := sha256.Sum256([]byte(read.Text))
+		hash := string(sum[:])
+		if hash != lastHash {
+			lastHash = hash
+			lastSent = time.Now()
 			payload, err := json.Marshal(map[string]any{"text": read.Text, "revision": read.Revision})
 			if err != nil || !writeSSE(w, "term", string(payload)) {
+				return
+			}
+		} else if time.Since(lastSent) >= keepaliveEvery {
+			// A quiet pane sends nothing otherwise; the client's silence
+			// watchdog would kill a healthy stream.
+			lastSent = time.Now()
+			if !writeSSE(w, "ping", "{}") {
 				return
 			}
 		}
