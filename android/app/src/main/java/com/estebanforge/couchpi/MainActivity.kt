@@ -144,7 +144,8 @@ class MainActivity : Activity() {
     private companion object {
         // Tailscale serve fronts the loopback-only Go server; the tailnet is
         // the boundary (project P1). Same URL works on LAN and off-site.
-        const val DEFAULT_URL = "https://box.example.ts.net"
+        // :8443 — Wicket stacks publish 0.0.0.0:443 machine-wide.
+        const val DEFAULT_URL = "https://box.example.ts.net:8443"
         const val PREF_URL = "url"
     }
 }

@@ -72,6 +72,20 @@ func TestGuardBlocksReboundHost(t *testing.T) {
 	}
 }
 
+func TestGuardAllowsOriginOnAlternatePort(t *testing.T) {
+	// tailscale serve moved to :8443 (Wicket owns :443 machine-wide): the
+	// Origin header carries the port, the -origin flag may not. Hostname
+	// equality decides; ports do not mint new trusted servers.
+	h := map[string]string{"Sec-Fetch-Site": "same-origin", "Origin": "https://box.example.ts.net:8443"}
+	if rec := post("/x", "box.example.ts.net:8443", h); rec.Code != http.StatusOK {
+		t.Fatalf("alt-port origin POST: %d", rec.Code)
+	}
+	// Host rewritten to the loopback target must still pass via the flag.
+	if rec := post("/x", "127.0.0.1:8090", h); rec.Code != http.StatusOK {
+		t.Fatalf("alt-port origin via rewritten host: %d", rec.Code)
+	}
+}
+
 func TestGuardAllowsGetUnconditionally(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/x", nil)
 	req.Host = "evil.example"

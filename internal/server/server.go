@@ -127,7 +127,7 @@ func (a *app) originAllowed(origin, reqHost string) bool {
 	if reqHost != "" && u.Host == reqHost {
 		return true
 	}
-	return localHost(u.Hostname()) || (a.allowedOrigin != "" && u.Host == originHost(a.allowedOrigin))
+	return localHost(u.Hostname()) || (a.allowedOrigin != "" && u.Hostname() == originHost(a.allowedOrigin))
 }
 
 func localHost(host string) bool {

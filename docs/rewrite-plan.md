@@ -190,7 +190,7 @@ web/                  new Vite project root (build-time node only)
 internal/web/app/     Vite output, embedded by Go (ignored by git except .gitkeep)
 ```
 
-The APK shell keeps loading https://box.example.ts.net/. Planned Kotlin change: none. The keyboard spike below may force one small change.
+The APK shell keeps loading https://box.example.ts.net:8443/ (Wicket owns :443 machine-wide). Planned Kotlin change: none. The keyboard spike below may force one small change.
 
 ## Transcript spec
 
