@@ -8,10 +8,10 @@
 // scripted appends and a working→done status), /api/models. The
 // transcript is synthetic: realistic item shapes, nothing private.
 
-import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { createServer } from "node:http";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const recorded = JSON.parse(readFileSync(join(here, "fixture-session.json"), "utf8"));
@@ -64,7 +64,11 @@ const transcript = (res) => {
 	const steps = [
 		{ kind: "thinking", text: "Thinking about the fixture request in detail…" },
 		{ kind: "tool_call", text: "fixture.Arg", tool_name: "fixture_tool" },
-		{ kind: "tool_result", text: "tool output line one\ntool output line two", tool_name: "fixture_tool" },
+		{
+			kind: "tool_result",
+			text: "tool output line one\ntool output line two",
+			tool_name: "fixture_tool",
+		},
 		{ kind: "text", text: "Fixture answer: the composer should show this text." },
 	];
 	let i = 0;

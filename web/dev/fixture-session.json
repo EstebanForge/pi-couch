@@ -1,11 +1,25 @@
 [
 	{ "kind": "user", "text": "First user line of the fixture — steer something for the demo." },
-	{ "kind": "thinking", "text": "The fixture thinking block: long enough to wrap on a 360px screen and show the italic muted styling the way real thinking renders." },
+	{
+		"kind": "thinking",
+		"text": "The fixture thinking block: long enough to wrap on a 360px screen and show the italic muted styling the way real thinking renders."
+	},
 	{ "kind": "tool_call", "text": "src/screen.tsx", "tool_name": "edit" },
-	{ "kind": "tool_result", "text": "Successfully replaced 2 block(s) in src/screen.tsx.", "tool_name": "edit" },
-	{ "kind": "text", "text": "Here is the planned change. The composer sits under the transcript, quick keys above it." },
+	{
+		"kind": "tool_result",
+		"text": "Successfully replaced 2 block(s) in src/screen.tsx.",
+		"tool_name": "edit"
+	},
+	{
+		"kind": "text",
+		"text": "Here is the planned change. The composer sits under the transcript, quick keys above it."
+	},
 	{ "kind": "tool_call", "text": "rg -n 'Composer' web/src", "tool_name": "bash" },
-	{ "kind": "tool_result", "text": "web/src/components/Composer.tsx\nweb/src/screens/Session.tsx", "tool_name": "bash" },
+	{
+		"kind": "tool_result",
+		"text": "web/src/components/Composer.tsx\nweb/src/screens/Session.tsx",
+		"tool_name": "bash"
+	},
 	{ "kind": "marker", "text": "CONTEXT COMPACTED (demo marker)" },
 	{ "kind": "user", "text": "Second steer: continue with the strip." },
 	{ "kind": "text", "text": "Done — the strip renders above the composer card." }
