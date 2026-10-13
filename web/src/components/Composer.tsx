@@ -302,7 +302,7 @@ export function Composer(props: {
 			)}
 
 			{/* composer card */}
-			<div className="border-t border-base-300 bg-base-200/60 px-2 pt-1 pb-safe-area">
+			<div className="border-t border-base-300 bg-base-200/60 px-2 pt-1 pb-safe">
 				<div className="flex items-center gap-1 pb-1">
 					<button
 						type="button"
@@ -411,7 +411,7 @@ export function Composer(props: {
 
 			{/* model sheet */}
 			<Sheet
-				className="pb-safe-area"
+				className="pb-safe-all"
 				opened={sheet === "model"}
 				onBackdropClick={() => setSheet("none")}
 			>
@@ -455,7 +455,7 @@ export function Composer(props: {
 
 			{/* thinking sheet */}
 			<Sheet
-				className="pb-safe-area"
+				className="pb-safe-all"
 				opened={sheet === "thinking"}
 				onBackdropClick={() => setSheet("none")}
 			>

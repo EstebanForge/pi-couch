@@ -41,6 +41,14 @@
 	}
 }
 
+/* Fixed overlays (sheets, toasts) escape the body safe-area inset, and
+   env() reads 0 inside the Android WebView, so the Konsta safe classes
+   alone never lift anything there. Combine both sources: the shell
+   injects --safe-bottom in the APK, desktop browsers fill env(). */
+.pb-safe-all {
+	padding-bottom: calc(var(--safe-bottom, 0px) + env(safe-area-inset-bottom, 0px));
+}
+
 /* Screen slides: forward pushes in from the right, back reverses. */
 @media (prefers-reduced-motion: no-preference) {
 	html[data-nav="fwd"]::view-transition-old(root) {

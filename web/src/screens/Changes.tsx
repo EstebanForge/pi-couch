@@ -164,7 +164,7 @@ export default function ChangesScreen({ sessionKey }: { sessionKey: string }) {
 		: undefined;
 
 	return (
-		<div className="mx-auto flex min-h-dvh max-w-3xl flex-col">
+		<div className="mx-auto flex min-h-dvh max-w-3xl flex-col" style={{ paddingBottom: "var(--safe-bottom, 0px)" }}>
 			<Navbar
 				left={
 					back ? (
@@ -296,7 +296,7 @@ export default function ChangesScreen({ sessionKey }: { sessionKey: string }) {
 			)}
 
 			{/* comment draft sheet */}
-			<Sheet opened={sheet !== null} onBackdropClick={() => setSheet(null)} className="pb-safe">
+			<Sheet opened={sheet !== null} onBackdropClick={() => setSheet(null)} className="pb-safe-all">
 				<div className="p-4">
 					<p className="pb-2 text-sm text-muted">{sheet ? `${sheet.file}:${sheet.line}` : ""}</p>
 					<textarea

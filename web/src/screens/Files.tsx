@@ -64,7 +64,7 @@ export default function FilesScreen({ sessionKey }: { sessionKey: string }) {
 		);
 
 	return (
-		<div className="mx-auto flex min-h-dvh max-w-3xl flex-col">
+		<div className="mx-auto flex min-h-dvh max-w-3xl flex-col" style={{ paddingBottom: "var(--safe-bottom, 0px)" }}>
 			<Navbar
 				left={<NavbarBackLink onClick={back ?? (() => history.back())} />}
 				title={

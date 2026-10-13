@@ -206,7 +206,7 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 	};
 
 	return (
-		<div className="flex h-dvh flex-col bg-base-100">
+		<div className="flex h-dvh flex-col bg-base-100" style={{ paddingBottom: "var(--safe-bottom, 0px)" }}>
 			<Navbar
 				className="top-safe-area"
 				left={<NavbarBackLink onClick={() => history.back()} />}

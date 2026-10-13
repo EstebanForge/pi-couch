@@ -51,7 +51,7 @@ export default function HomeList() {
 	};
 
 	return (
-		<div className="mx-auto flex min-h-dvh max-w-3xl flex-col">
+		<div className="mx-auto flex min-h-dvh max-w-3xl flex-col" style={{ paddingBottom: "var(--safe-bottom, 0px)" }}>
 			<header className="sticky top-0 z-10 flex items-center gap-3 bg-base-300/95 px-4 py-3 backdrop-blur">
 				<button
 					type="button"
@@ -169,7 +169,12 @@ export default function HomeList() {
 				onBackdropClick={() => setMenuOpen(false)}
 				className="bg-base-300 text-base-content"
 			>
-				<div className="p-4">
+				{/* fixed-position overlay escapes the body safe-area inset,
+				    so the content carries its own top offset */}
+				<div
+					className="p-4"
+					style={{ paddingTop: "calc(var(--safe-top, 0px) + 1rem)" }}
+				>
 					<p className="px-2 pb-2 text-xs uppercase tracking-widest text-muted">Menu</p>
 					<button
 						type="button"
