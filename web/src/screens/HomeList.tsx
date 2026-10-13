@@ -9,7 +9,7 @@ import { connectStream } from "../stream";
 import { Spinner } from "../components/Spinner";
 import { STATUS_DOT, isWaiting } from "../status";
 
-const LIST_WINDOW = 15;
+const LIST_WINDOW = 7;
 const WINDOW_STEP = 10;
 
 export default function HomeList() {
