@@ -3,10 +3,14 @@ package com.estebanforge.couchpi
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.graphics.Color
+import android.net.Uri
 import android.os.Bundle
 import android.view.View
 import android.view.WindowInsets
+import android.webkit.ValueCallback
+import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
@@ -25,6 +29,13 @@ class MainActivity : Activity() {
 
     private val prefs by lazy { getSharedPreferences("couch-pi", Context.MODE_PRIVATE) }
     private var web: WebView? = null
+
+    // Pending file-chooser callback: the WebView hands it over in
+    // onShowFileChooser and demands exactly one onReceiveValue, on pick
+    // or on cancel, or every later tap on the attach button dead-ends.
+    private var fileCallback: ValueCallback<Array<Uri>>? = null
+
+    private val fileReq = 7001
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -75,6 +86,29 @@ class MainActivity : Activity() {
             // web bugs and stays out of any future signed release.
             WebView.setWebContentsDebuggingEnabled(true)
             webViewClient = safeAreaClient() // stay in-app; inject real insets
+            // The file input needs a WebChromeClient: without
+            // onShowFileChooser the WebView no-ops the tap and the
+            // mobile file/gallery picker never opens.
+            webChromeClient = object : WebChromeClient() {
+                override fun onShowFileChooser(
+                    webView: WebView?,
+                    callback: ValueCallback<Array<Uri>>,
+                    params: FileChooserParams,
+                ): Boolean {
+                    fileCallback?.onReceiveValue(null)
+                    fileCallback = callback
+                    val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = "image/*" // the composer only uploads images
+                        putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                    }
+                    startActivityForResult(
+                        Intent.createChooser(intent, "Attach image"),
+                        fileReq,
+                    )
+                    return true
+                }
+            }
             setBackgroundColor(Color.parseColor("#0f1115"))
         }
         // Edge-to-edge at targetSdk 35: the WebView stays full-bleed so the
@@ -86,6 +120,26 @@ class MainActivity : Activity() {
         @Suppress("DEPRECATION") // pre-35 devices; ignored on 35+
         window.statusBarColor = Color.TRANSPARENT
         view.loadUrl(url)
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != fileReq) return
+        val cb = fileCallback ?: return
+        fileCallback = null
+        if (resultCode != RESULT_OK || data == null) {
+            cb.onReceiveValue(null) // picker cancelled: release, don't attach
+            return
+        }
+        val uris = mutableListOf<Uri>()
+        val clip = data.clipData
+        if (clip != null) {
+            for (i in 0 until clip.itemCount) uris.add(clip.getItemAt(i).uri)
+        } else if (data.data != null) {
+            uris.add(data.data!!)
+        }
+        cb.onReceiveValue(uris.toTypedArray())
     }
 
     // Chromium WebView keeps env(safe-area-inset-*) at 0, so pass the real
