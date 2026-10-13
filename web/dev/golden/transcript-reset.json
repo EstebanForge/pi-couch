@@ -1,0 +1,40 @@
+{
+	"items": [
+		{
+			"kind": "user",
+			"text": "Reply with exactly: golden ready",
+			"seq": 1
+		},
+		{
+			"kind": "thinking",
+			"text": "The instruction overrides normal response style.",
+			"seq": 2
+		},
+		{
+			"kind": "tool_call",
+			"text": "rg -n golden docs/",
+			"tool_name": "bash",
+			"seq": 3
+		},
+		{
+			"kind": "tool_result",
+			"text": "docs/golden.md:1: golden",
+			"tool_name": "bash",
+			"duration_ms": 240,
+			"seq": 4
+		},
+		{
+			"kind": "text",
+			"text": "golden ready",
+			"seq": 5
+		}
+	],
+	"status": "done",
+	"model": "zai/glm-5.3-flash",
+	"thinking": "high",
+	"meta": {
+		"name": "golden fixture session",
+		"first_user": "Reply with exactly: golden ready",
+		"cwd": "/tmp/demo"
+	}
+}
