@@ -18,8 +18,9 @@ export default function HomeList() {
 	const [size, setSize] = useState(LIST_WINDOW);
 	const [loadingMore, setLoadingMore] = useState(false);
 
-	// Grow the window one step per tap. The spinner must paint before
-	// the heavier mount work, so the slice grows after the next frame.
+	// Grow the window one step per tap. The spinner must paint first
+	// and the step lands after a deliberate 500ms beat, so the load is
+	// visible instead of a blur.
 	const loadMore = () => {
 		if (loadingMore) return;
 		setLoadingMore(true);
@@ -27,7 +28,7 @@ export default function HomeList() {
 			setTimeout(() => {
 				setSize((s) => s + WINDOW_STEP);
 				setLoadingMore(false);
-			}, 0);
+			}, 500);
 		});
 	};
 	const [push, setPush] = useState<PushState>("off");
