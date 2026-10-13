@@ -72,6 +72,13 @@ func App() http.Handler {
 			http.NotFound(w, r) // fresh clone without a web build
 			return
 		}
+		// The SPA is fully external (Vite emits no inline scripts) and
+		// streams only from its own origin; Konsta, Virtuoso and React
+		// set style attributes, so style-src keeps unsafe-inline.
+		w.Header().Set("Content-Security-Policy",
+			"default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; "+
+				"img-src 'self' data:; connect-src 'self'; font-src 'self'; "+
+				"base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
 		_, _ = w.Write(data)

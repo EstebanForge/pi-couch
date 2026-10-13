@@ -46,6 +46,25 @@ func TestAppServesIndex(t *testing.T) {
 	}
 }
 
+func TestAppIndexCSP(t *testing.T) {
+	if !hasIndex(t) {
+		t.Skip("no built spa; run scripts/build.sh")
+	}
+	srv := httptest.NewServer(App())
+	defer srv.Close()
+	res, err := http.Get(srv.URL + "/app/sessions/deep/link")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	csp := res.Header.Get("Content-Security-Policy")
+	for _, want := range []string{"default-src 'none'", "script-src 'self'", "connect-src 'self'", "style-src 'self' 'unsafe-inline'"} {
+		if !strings.Contains(csp, want) {
+			t.Errorf("CSP missing %q in %q", want, csp)
+		}
+	}
+}
+
 func TestAppSpaRouteFallsBackToIndex(t *testing.T) {
 	if !hasIndex(t) {
 		t.Skip("no built spa; run scripts/build.sh")
