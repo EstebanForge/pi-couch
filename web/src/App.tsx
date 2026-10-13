@@ -4,6 +4,7 @@ import ChangesScreen from "./screens/Changes";
 import FilesScreen from "./screens/Files";
 import HomeScreen from "./screens/HomeList";
 import SessionScreen from "./screens/Session";
+import TerminalScreen from "./screens/Terminal";
 
 function Screen() {
 	const path = usePath();
@@ -16,6 +17,11 @@ function Screen() {
 	if (m) {
 		const key = decodeURIComponent(m[1]);
 		return <FilesScreen key={`${key}:files`} sessionKey={key} />;
+	}
+	m = path.match(/^\/sessions\/(.+)\/terminal$/);
+	if (m) {
+		const key = decodeURIComponent(m[1]);
+		return <TerminalScreen key={`${key}:terminal`} sessionKey={key} />;
 	}
 	m = path.match(/^\/sessions\/(.+)$/);
 	if (m) {

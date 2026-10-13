@@ -19,7 +19,7 @@ export type Tool = {
 export const TOOLS: Tool[] = [
 	{ id: "changes", label: "Changes", placement: "strip", href: (k) => `/sessions/${k}/changes` },
 	{ id: "files", label: "Files", placement: "strip", href: (k) => `/sessions/${k}/files` },
-	{ id: "terminal", label: "Terminal", placement: "strip", disabled: true },
+	{ id: "terminal", label: "Terminal", placement: "strip", href: (k) => `/sessions/${k}/terminal` },
 	{ id: "search", label: "Search", placement: "strip" },
 	// Ctrl-C on an idle pi prompt can exit pi, so stop is working/blocked only.
 	{

@@ -169,7 +169,13 @@ export const setModel = (key: string, pattern: string) =>
 export const setThinking = (key: string, level: string) =>
 	postJSONBody(`/api/sessions/${encodeURIComponent(key)}/thinking`, { level });
 export const sendKeys = (key: string, keys: string[]) =>
-	postJSONBody(`/api/sessions/${encodeURIComponent(key)}/terminal/input`, { keys });
+	postJSONBody(`/sessions/${encodeURIComponent(key)}/terminal/input`, { keys });
+// Raw text into the TUI (editor buffer, menus); pi does not see it as a
+// prompt and it never submits a line by itself (spike-proven). Both key
+// posts ride the legacy path (JSON in, 204 out); they move under /api
+// at cutover.
+export const sendTextInput = (key: string, text: string) =>
+	postJSONBody(`/sessions/${encodeURIComponent(key)}/terminal/input`, { text });
 
 export async function getModels(q: string): Promise<string[]> {
 	const res = await fetch(`/api/models?q=${encodeURIComponent(q)}`);

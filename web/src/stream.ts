@@ -9,6 +9,8 @@ export type StreamStatus = "connecting" | "open" | "offline";
 export type StreamHandlers = {
 	onEvent: (name: string, data: string) => void;
 	onStatus?: (status: StreamStatus) => void;
+	// SSE event names to listen for; defaults to the JSON stream set.
+	events?: string[];
 };
 
 export type Stream = { close: () => void };
@@ -50,7 +52,7 @@ export function connectStream(url: string, h: StreamHandlers): Stream {
 			status("open");
 			h.onEvent("message", e.data ?? "");
 		};
-		for (const name of EVENT_NAMES) {
+		for (const name of h.events ?? EVENT_NAMES) {
 			source.addEventListener(name, (e) => {
 				lastSeen = Date.now();
 				status("open");
