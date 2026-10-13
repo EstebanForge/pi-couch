@@ -10,12 +10,26 @@ import { Spinner } from "../components/Spinner";
 import { STATUS_DOT, isWaiting } from "../status";
 
 const LIST_WINDOW = 7;
-const WINDOW_STEP = 10;
+const WINDOW_STEP = 5;
 
 export default function HomeList() {
 	const { sessions, badges, status, error, load, apply } = useSessions();
 	const [menuOpen, setMenuOpen] = useState(false);
 	const [size, setSize] = useState(LIST_WINDOW);
+	const [loadingMore, setLoadingMore] = useState(false);
+
+	// Grow the window one step per tap. The spinner must paint before
+	// the heavier mount work, so the slice grows after the next frame.
+	const loadMore = () => {
+		if (loadingMore) return;
+		setLoadingMore(true);
+		requestAnimationFrame(() => {
+			setTimeout(() => {
+				setSize((s) => s + WINDOW_STEP);
+				setLoadingMore(false);
+			}, 0);
+		});
+	};
 	const [push, setPush] = useState<PushState>("off");
 
 	useEffect(() => {
@@ -152,9 +166,11 @@ export default function HomeList() {
 				{status === "ok" && size < ordered.length && (
 					<button
 						type="button"
-						onClick={() => setSize(size + WINDOW_STEP)}
-						className="mx-auto mt-3 block rounded-xl bg-base-200 px-5 py-3 text-sm text-muted active:scale-[0.99]"
+						onClick={loadMore}
+						disabled={loadingMore}
+						className="mx-auto mt-3 flex items-center gap-2 rounded-xl bg-base-200 px-5 py-3 text-sm text-muted active:scale-[0.99]"
 					>
+						{loadingMore && <Spinner size={14} />}
 						Load more ({ordered.length - size} earlier)
 					</button>
 				)}
