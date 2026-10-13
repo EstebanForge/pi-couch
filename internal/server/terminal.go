@@ -6,26 +6,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"time"
-
-	"github.com/EstebanForge/couch-pi/internal/web/pages"
 )
 
-func (a *app) terminal(w http.ResponseWriter, r *http.Request) {
-	meta, ok := a.idx.Meta(r.PathValue("key"))
-	if !ok {
-		http.NotFound(w, r)
-		return
-	}
-	badges := a.herdr.Badges(r.Context())
-	serveTempl(w, r, pages.Terminal(meta, badges[meta.Path]))
-}
-
-// streamTerminal polls pane.read for the session's pane and emits the
-// visible screen when it changes. herdr 0.9.3 offers no output push
-// (subscribe sockets ack only; events.wait is agent-status only), and
-// PaneReadResult's revision is per-connection — our one-shot client
-// re-dials every poll, so it reads 0 forever. The screen text itself is
-// the change signal, hashed like the changes stream.
 func (a *app) streamTerminal(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
 	meta, ok := a.idx.Meta(key)

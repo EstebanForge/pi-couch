@@ -1,8 +1,7 @@
 // Push toggle for the home header bell. Port of the legacy initPush
-// island (main.ts): permission is asked only on the explicit tap, the
-// service worker registers on demand, and a browser without push
-// support hides the button entirely. The worker itself stays the Go
-// server's /sw.js until cutover moves it into this embed.
+// island (main.ts): permission is asked only on the explicit tap, and a
+// browser without push support hides the button entirely. The worker
+// itself lives in web/public/sw.js, served from this embed at /sw.js.
 
 function urlBase64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
 	const pad = "=".repeat((4 - (b64.length % 4)) % 4);

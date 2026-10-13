@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/EstebanForge/couch-pi/internal/store"
-	"github.com/EstebanForge/couch-pi/internal/web"
 )
 
 // pushServiceHosts is the allowlist of push services the server relays
@@ -119,28 +118,4 @@ func filterEndpoint(subs []store.Sub, endpoint string) []store.Sub {
 		}
 	}
 	return out
-}
-
-// serviceWorker serves /sw.js from the embed; scope "/" covers all routes.
-func (a *app) serviceWorker(w http.ResponseWriter, r *http.Request) {
-	b, err := web.ServiceWorker()
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-cache")
-	_, _ = w.Write(b)
-}
-
-// manifest serves the PWA manifest (P4, desktop install; the APK owns
-// Android). Icons ship under /static/.
-func (a *app) manifest(w http.ResponseWriter, r *http.Request) {
-	b, err := web.Manifest()
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	w.Header().Set("Content-Type", "application/manifest+json")
-	_, _ = w.Write(b)
 }

@@ -108,13 +108,12 @@ export async function getSentComments(key: string): Promise<SentComment[]> {
 
 export type PendingComment = { file: string; line: number; text: string };
 
-// Send-all rides the existing JSON handler on the legacy path (the
-// templ tray uses it too); it moves under /api at cutover.
+// Send-all posts the JSON twin under /api.
 export async function sendAllComments(
 	key: string,
 	comments: PendingComment[],
 ): Promise<{ ok: boolean; error?: string }> {
-	const res = await fetch(`/sessions/${encodeURIComponent(key)}/comments`, {
+	const res = await fetch(`/api/sessions/${encodeURIComponent(key)}/comments`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ comments }),
@@ -169,13 +168,11 @@ export const setModel = (key: string, pattern: string) =>
 export const setThinking = (key: string, level: string) =>
 	postJSONBody(`/api/sessions/${encodeURIComponent(key)}/thinking`, { level });
 export const sendKeys = (key: string, keys: string[]) =>
-	postJSONBody(`/sessions/${encodeURIComponent(key)}/terminal/input`, { keys });
+	postJSONBody(`/api/sessions/${encodeURIComponent(key)}/terminal/input`, { keys });
 // Raw text into the TUI (editor buffer, menus); pi does not see it as a
-// prompt and it never submits a line by itself (spike-proven). Both key
-// posts ride the legacy path (JSON in, 204 out); they move under /api
-// at cutover.
+// prompt and it never submits a line by itself (spike-proven).
 export const sendTextInput = (key: string, text: string) =>
-	postJSONBody(`/sessions/${encodeURIComponent(key)}/terminal/input`, { text });
+	postJSONBody(`/api/sessions/${encodeURIComponent(key)}/terminal/input`, { text });
 
 export async function getModels(q: string): Promise<string[]> {
 	const res = await fetch(`/api/models?q=${encodeURIComponent(q)}`);

@@ -13,12 +13,12 @@ const keepEmbedDir = (): Plugin => ({
 	},
 });
 
-// base stays '/app/' until cutover: the SPA mounts there in production while
-// the templ pages keep serving '/'. Dev serves '/app/' too, so one code path.
+// The SPA is the whole site since cutover: base '/' and the Go server
+// mounts the embed on GET /.
 const proxyTarget = process.env.COUCHPI_PROXY ?? "127.0.0.1:8090";
 
 export default defineConfig({
-	base: '/app/',
+	base: '/',
 	plugins: [react(), tailwindcss(), keepEmbedDir()],
 	build: {
 		outDir: '../internal/web/app',

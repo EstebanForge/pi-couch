@@ -2,7 +2,7 @@ import { useSyncExternalStore } from "react";
 import { flushSync } from "react-dom";
 
 // Tiny path router: real URLs, push for forward, replace for sideways hops,
-// popstate for the Back gesture. BASE is '/app/' until cutover.
+// popstate for the Back gesture. BASE tracks Vite's base ('/' since cutover).
 //
 // Direction comes from a monotonic index stored in history.state: push
 // stores the next index, replace keeps the current one, and popstate

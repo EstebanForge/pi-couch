@@ -12,25 +12,9 @@ import (
 
 	"github.com/EstebanForge/couch-pi/internal/herdr"
 	"github.com/EstebanForge/couch-pi/internal/store"
-	"github.com/EstebanForge/couch-pi/internal/web/pages"
 )
 
 const maxBatchComments = 50
-
-func (a *app) comments(w http.ResponseWriter, r *http.Request) {
-	meta, ok := a.idx.Meta(r.PathValue("key"))
-	if !ok {
-		http.NotFound(w, r)
-		return
-	}
-	sent, err := a.st.Sent(meta.Key)
-	if err != nil {
-		// Sent history is additive UI; a broken state file must not 500 the page.
-		slog.Error("sent comments", "err", err)
-		sent = nil
-	}
-	serveTempl(w, r, pages.Comments(meta, sent))
-}
 
 // sendAllInput is the island's Send All payload.
 type sendAllInput struct {
@@ -44,7 +28,7 @@ type sendAllInput struct {
 // sendAll formats the tray into one review prompt, submits it through
 // herdr prompt, and only then records it as sent. A failed or undriven
 // send persists nothing, so the device tray stays the source of truth.
-func (a *app) sendAll(w http.ResponseWriter, r *http.Request) {
+func (a *app) apiSendAll(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
 	meta, ok := a.idx.Meta(key)
 	if !ok {

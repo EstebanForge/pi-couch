@@ -10,3 +10,10 @@ createRoot(el).render(
 		<App />
 	</StrictMode>,
 );
+
+// The worker carries the PWA fetch handler (desktop install) and the push
+// events; the bell's subscribe path reuses this registration. Register at
+// boot, not only on the bell tap, so install works from any page.
+if ("serviceWorker" in navigator) {
+	navigator.serviceWorker.register("/sw.js").catch(() => {});
+}

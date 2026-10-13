@@ -1,49 +1,41 @@
-// Package web serves embedded static assets. Pages render in package server.
+// Package web serves the embedded React SPA build.
 package web
 
 import (
-	"crypto/sha256"
 	"embed"
-	"encoding/hex"
 	"io/fs"
 	"net/http"
 	"strings"
 )
 
-//go:embed static
-var staticFS embed.FS
-
 //go:embed all:app
 var appFS embed.FS
 
-// assetVer holds a short content hash per embedded asset. It versions asset
-// URLs in page heads so a deploy busts client caches (the WebView included).
-var assetVer = map[string]string{}
-
-func init() {
-	for _, p := range []string{"app.css", "js/main.js"} {
-		b, err := staticFS.ReadFile("static/" + p)
-		if err != nil {
-			panic(err) // embed layout is compile-time fixed
-		}
-		sum := sha256.Sum256(b)
-		assetVer[p] = hex.EncodeToString(sum[:4])
-	}
+// mimeByExt pins content types the Go mime table misses (the manifest
+// must not sniff to text/plain).
+var mimeByExt = map[string]string{
+	".webmanifest": "application/manifest+json",
+	".js":          "text/javascript; charset=utf-8",
+	".css":         "text/css; charset=utf-8",
+	".html":        "text/html; charset=utf-8",
+	".png":         "image/png",
+	".svg":         "image/svg+xml",
+	".ico":         "image/x-icon",
 }
 
-// App serves the React SPA build (web/) under /app/. Hashed build assets
-// cache immutably; every other path falls back to index.html so the client
-// router owns the URL. no-cache on HTML keeps deploys honest in the WebView.
-// The SPA mounts at /app/ while the templ pages still serve /; cutover moves
-// it to / and deletes the templ pages (rewrite-plan.md).
+// App serves the React SPA build (web/) at the site root. Hashed build
+// assets (assets/*) cache immutably; public files (sw.js, the manifest,
+// icons) are unhashed, so they revalidate on every load. Every other
+// path falls back to index.html so the client router owns the URL, and
+// no-cache on the HTML keeps deploys honest in the WebView.
 func App() http.Handler {
 	sub, err := fs.Sub(appFS, "app")
 	if err != nil {
 		panic(err) // embed layout is compile-time fixed
 	}
 	files := http.FileServerFS(sub)
-	return http.StripPrefix("/app/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		p := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/"), "/")
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := strings.Trim(r.URL.Path, "/")
 		if p != "" {
 			d, oerr := sub.Open(p)
 			if oerr == nil {
@@ -54,10 +46,19 @@ func App() http.Handler {
 					http.NotFound(w, r)
 					return
 				case info.IsDir():
-					http.NotFound(w, r) // no listings, parity with Static
+					http.NotFound(w, r) // no listings; the asset set is fixed
 					return
 				default:
-					w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+					if strings.HasPrefix(p, "assets/") {
+						w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+					} else {
+						w.Header().Set("Cache-Control", "no-cache")
+					}
+					if ext := p[strings.LastIndex(p, "."):]; ext != p && ext != "" {
+						if ct, ok := mimeByExt[strings.ToLower(ext)]; ok {
+							w.Header().Set("Content-Type", ct)
+						}
+					}
 					files.ServeHTTP(w, r)
 					return
 				}
@@ -82,51 +83,5 @@ func App() http.Handler {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
 		_, _ = w.Write(data)
-	}))
-}
-
-// AssetPath versions a build-artifact asset URL (/static/app.css,
-// /static/js/main.js); vendored assets pass through untouched.
-func AssetPath(p string) string {
-	if v, ok := assetVer[strings.TrimPrefix(p, "/static/")]; ok {
-		return p + "?v=" + v
-	}
-	return p
-}
-
-// Static serves embedded assets. no-cache keeps dev loops honest: the
-// browser revalidates every load instead of heuristically caching.
-// Directories 404: no listings, the asset set is fixed.
-func Static() http.Handler {
-	sub, err := fs.Sub(staticFS, "static")
-	if err != nil {
-		panic(err) // embed layout is compile-time fixed
-	}
-	files := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// StripPrefix leaves "" for /static/ itself; no listings either way.
-		if r.URL.Path == "" || strings.HasSuffix(r.URL.Path, "/") {
-			http.NotFound(w, r)
-			return
-		}
-		http.FileServerFS(sub).ServeHTTP(w, r)
-	})
-	return http.StripPrefix("/static/", noCache(files))
-}
-
-// ServiceWorker returns the root-scoped push service worker source. Push
-// needs the worker at /sw.js so its scope covers every route.
-func ServiceWorker() ([]byte, error) {
-	return staticFS.ReadFile("static/js/sw.js")
-}
-
-// Manifest returns the PWA manifest.
-func Manifest() ([]byte, error) {
-	return staticFS.ReadFile("static/manifest.webmanifest")
-}
-
-func noCache(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-cache")
-		next.ServeHTTP(w, r)
 	})
 }
