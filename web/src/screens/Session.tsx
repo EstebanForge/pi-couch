@@ -242,6 +242,7 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 						} ${t.id === "search" && query !== null ? "bg-base-300" : ""}`}
 						onClick={() => {
 							if (t.id === "search") setQuery(query === null ? "" : null);
+							else if (t.href) navigate(t.href(sessionKey), { replace: true, dir: "side" });
 						}}
 					>
 						{t.label}

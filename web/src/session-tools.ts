@@ -12,11 +12,13 @@ export type Tool = {
 	disabled?: boolean;
 	// driver-gated tools depend on the herdr state
 	enabled?: (status: string) => boolean;
+	// tool screens hop sideways from the session screen
+	href?: (key: string) => string;
 };
 
 export const TOOLS: Tool[] = [
-	{ id: "changes", label: "Changes", placement: "strip", disabled: true },
-	{ id: "files", label: "Files", placement: "strip", disabled: true },
+	{ id: "changes", label: "Changes", placement: "strip", href: (k) => `/sessions/${k}/changes` },
+	{ id: "files", label: "Files", placement: "strip", href: (k) => `/sessions/${k}/files` },
 	{ id: "terminal", label: "Terminal", placement: "strip", disabled: true },
 	{ id: "search", label: "Search", placement: "strip" },
 	// Ctrl-C on an idle pi prompt can exit pi, so stop is working/blocked only.

@@ -1,6 +1,10 @@
 @import "tailwindcss";
 @import "konsta/react/theme.css";
 
+/* Konsta's dark: variants must key off the .dark class (we set it on the
+   app root), not the OS media query, so sheets and dialogs stay dark. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* Dracula palette as Tailwind 4 theme tokens; utilities read these directly. */
 @theme {
 	--color-base-100: #282a36;

@@ -49,6 +49,86 @@ export async function getSessions(): Promise<SessionsSnapshot> {
 	return (await res.json()) as SessionsSnapshot;
 }
 
+// --- stage 4: changes, files, comments ---
+
+export type ChangeFile = {
+	path: string;
+	staged: string;
+	work: string;
+	added: number;
+	deleted: number;
+	binary: boolean;
+	label: string;
+};
+
+export type ChangesList = { repo: boolean; branch: string; files: ChangeFile[] };
+export type ChangesDiff = { file: string; diff: string; truncated: boolean };
+
+export async function getChanges(key: string): Promise<ChangesList> {
+	const res = await fetch(`/api/sessions/${encodeURIComponent(key)}/changes`);
+	if (!res.ok) throw new Error(`changes ${res.status}`);
+	return (await res.json()) as ChangesList;
+}
+
+export async function getDiff(key: string, file: string): Promise<ChangesDiff> {
+	const res = await fetch(
+		`/api/sessions/${encodeURIComponent(key)}/changes?file=${encodeURIComponent(file)}`,
+	);
+	if (!res.ok) throw new Error(`diff ${res.status}`);
+	return (await res.json()) as ChangesDiff;
+}
+
+export type FileEntry = { name: string; dir: boolean; size: number };
+export type FilesList = { repo: boolean; dir: string; entries: FileEntry[] };
+export type FileView = { file: string; kind: string; content: string };
+
+export async function getFiles(key: string, dir = ""): Promise<FilesList> {
+	const q = dir ? `?dir=${encodeURIComponent(dir)}` : "";
+	const res = await fetch(`/api/sessions/${encodeURIComponent(key)}/files${q}`);
+	if (!res.ok) throw new Error(`files ${res.status}`);
+	return (await res.json()) as FilesList;
+}
+
+export async function getFileView(key: string, file: string): Promise<FileView> {
+	const res = await fetch(
+		`/api/sessions/${encodeURIComponent(key)}/files/view?file=${encodeURIComponent(file)}`,
+	);
+	if (!res.ok) throw new Error(`view ${res.status}`);
+	return (await res.json()) as FileView;
+}
+
+export type SentComment = { ts: number; file: string; line: number; body: string };
+
+export async function getSentComments(key: string): Promise<SentComment[]> {
+	const res = await fetch(`/api/sessions/${encodeURIComponent(key)}/comments`);
+	if (!res.ok) throw new Error(`comments ${res.status}`);
+	const data = (await res.json()) as { sent: SentComment[] };
+	return data.sent ?? [];
+}
+
+export type PendingComment = { file: string; line: number; text: string };
+
+// Send-all rides the existing JSON handler on the legacy path (the
+// templ tray uses it too); it moves under /api at cutover.
+export async function sendAllComments(
+	key: string,
+	comments: PendingComment[],
+): Promise<{ ok: boolean; error?: string }> {
+	const res = await fetch(`/sessions/${encodeURIComponent(key)}/comments`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ comments }),
+	});
+	let body: { ok?: boolean; error?: string } = {};
+	try {
+		body = (await res.json()) as typeof body;
+	} catch {
+		// empty body: the status decides
+	}
+	if (!res.ok) return { ok: false, error: body.error ?? `http ${res.status}` };
+	return { ok: true };
+}
+
 async function postJSON(path: string): Promise<{ ok: boolean; error?: string }> {
 	const res = await fetch(path, { method: "POST" });
 	let body: { ok?: boolean; error?: string } = {};
