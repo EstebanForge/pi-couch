@@ -155,7 +155,10 @@ class MainActivity : Activity() {
                 val js = "document.documentElement.style.setProperty" +
                     "(\"--safe-top\",\"${ins.top / d}px\");" +
                     "document.documentElement.style.setProperty" +
-                    "(\"--safe-bottom\",\"${ins.bottom / d}px\")"
+                    // Halved: the full gesture-bar inset reads as a huge
+                    // empty strip under the composer; half clears the bar
+                    // while keeping the app close to the bottom edge.
+                    "(\"--safe-bottom\",\"${ins.bottom / d / 2}px\")"
                 view.evaluateJavascript(js, null)
             }
 
