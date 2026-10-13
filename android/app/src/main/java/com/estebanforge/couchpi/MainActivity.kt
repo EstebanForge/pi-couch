@@ -70,6 +70,10 @@ class MainActivity : Activity() {
             settings.domStorageEnabled = true
             settings.allowFileAccess = false
             settings.allowContentAccess = false
+            // Remote WebView debugging over adb (chrome://inspect). Debug
+            // builds only; it is the precision instrument for phone-side
+            // web bugs and stays out of any future signed release.
+            WebView.setWebContentsDebuggingEnabled(true)
             webViewClient = safeAreaClient() // stay in-app; inject real insets
             setBackgroundColor(Color.parseColor("#0f1115"))
         }
