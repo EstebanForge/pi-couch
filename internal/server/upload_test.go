@@ -51,10 +51,36 @@ func TestUploadAcceptsPNG(t *testing.T) {
 	}
 }
 
-func TestUploadRejectsNonImage(t *testing.T) {
-	w, _ := postUpload(t, "notes.txt", []byte("just text"))
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("code %d", w.Code)
+func TestUploadAcceptsAnyType(t *testing.T) {
+	w, path := postUpload(t, "notes.txt", []byte("just text"))
+	if w.Code != http.StatusOK {
+		t.Fatalf("code %d body %s", w.Code, w.Body.String())
+	}
+	if path == "" || !strings.HasSuffix(path, ".txt") {
+		t.Fatalf("path %q", path)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	if string(data) != "just text" {
+		t.Fatal("content mismatch")
+	}
+}
+
+func TestUploadExtensionSanitized(t *testing.T) {
+	png := append([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}, make([]byte, 32)...)
+	// Uppercase folds; junk or missing extensions fall back to the
+	// sniffed image type.
+	for _, tc := range []struct{ name, want string }{
+		{"report.PDF", ".pdf"},
+		{"noext", ".png"},
+		{"junk.<script>", ".png"},
+	} {
+		_, path := postUpload(t, tc.name, png)
+		if path == "" || !strings.HasSuffix(path, tc.want) {
+			t.Fatalf("%s: path %q, want suffix %s", tc.name, path, tc.want)
+		}
 	}
 }
 

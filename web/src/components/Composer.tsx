@@ -366,7 +366,8 @@ export function Composer(props: {
 				<input
 					ref={fileInput}
 					type="file"
-					accept="image/png,image/jpeg,image/webp,image/gif"
+					// No accept filter: any file rides the prompt as a path
+					// for the agent's own file tools.
 					multiple
 					hidden
 					onChange={(e) => {

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -21,11 +22,28 @@ const maxUploadBytes = 10 << 20
 // unit) can read it; the OS clears it like herdr's own clipboard dir.
 const uploadDir = "/tmp/couch-pi-uploads"
 
-var uploadExts = map[string]string{
+var sniffExts = map[string]string{
 	"image/png":  ".png",
 	"image/jpeg": ".jpg",
 	"image/webp": ".webp",
 	"image/gif":  ".gif",
+}
+
+// sanitizeExt folds the client extension to a safe form. It is the only
+// piece of the client name that touches disk, and only after this gate.
+func sanitizeExt(clientName, ctype string) string {
+	e := strings.ToLower(filepath.Ext(clientName))
+	ok := len(e) >= 2 && len(e) <= 9 && e[0] == '.'
+	for i := 1; ok && i < len(e); i++ {
+		c := e[i]
+		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9') {
+			ok = false
+		}
+	}
+	if ok {
+		return e
+	}
+	return sniffExts[ctype]
 }
 
 func (a *app) uploadHandler(w http.ResponseWriter, r *http.Request) {
@@ -38,7 +56,7 @@ func (a *app) uploadHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "too large (10MB cap)"})
 		return
 	}
-	f, _, err := r.FormFile("file")
+	f, header, err := r.FormFile("file")
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing file"})
 		return
@@ -47,11 +65,6 @@ func (a *app) uploadHandler(w http.ResponseWriter, r *http.Request) {
 	head := make([]byte, 512)
 	n, _ := f.Read(head)
 	ctype := http.DetectContentType(head[:n])
-	ext, ok := uploadExts[ctype]
-	if !ok {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "png, jpeg, webp, or gif only"})
-		return
-	}
 	if _, err := f.Seek(0, 0); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "rewind failed"})
 		return
@@ -66,7 +79,9 @@ func (a *app) uploadHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "store failed"})
 		return
 	}
-	// The name is server-generated; the client name never touches disk.
+	// The name is server-generated; the client name never touches disk
+	// beyond its sanitized extension.
+	ext := sanitizeExt(header.Filename, ctype)
 	name := "couchpi-" + time.Now().UTC().Format("20060102-150405") + "-" + hex.EncodeToString(suffix[:]) + ext
 	dst, err := os.Create(filepath.Join(dir, name))
 	if err != nil {
@@ -75,10 +90,8 @@ func (a *app) uploadHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer dst.Close()
-	if _, err := dst.Write(head[:n]); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "store failed"})
-		return
-	}
+	// head was only for the content sniff; the rewound file carries the
+	// full body, so writing head first would duplicate its prefix.
 	if _, err := dst.ReadFrom(f); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "store failed"})
 		return

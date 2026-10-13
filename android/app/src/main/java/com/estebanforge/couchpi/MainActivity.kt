@@ -97,15 +97,10 @@ class MainActivity : Activity() {
                 ): Boolean {
                     fileCallback?.onReceiveValue(null)
                     fileCallback = callback
-                    val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
-                        addCategory(Intent.CATEGORY_OPENABLE)
-                        type = "image/*" // the composer only uploads images
-                        putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
-                    }
-                    startActivityForResult(
-                        Intent.createChooser(intent, "Attach image"),
-                        fileReq,
-                    )
+                    // createIntent carries the page's accept list (no
+                    // accept attr means any file), CATEGORY_OPENABLE,
+                    // and multi-select from the input's multiple attr.
+                    startActivityForResult(params.createIntent(), fileReq)
                     return true
                 }
             }
