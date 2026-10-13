@@ -1,4 +1,4 @@
-import { Dialog, DialogButton, Navbar, NavbarBackLink } from "konsta/react";
+import { Dialog, DialogButton } from "konsta/react";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Virtuoso } from "react-virtuoso";
 import type { StreamItem } from "../api";
@@ -207,30 +207,30 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 
 	return (
 		<div className="flex h-dvh flex-col bg-base-100" style={{ paddingBottom: "var(--safe-bottom, 0px)" }}>
-			<Navbar
-				className="top-safe-area"
-				left={<NavbarBackLink onClick={() => history.back()} />}
-				title={
-					<div className="flex min-w-0 items-center gap-2">
-						{isWaiting(state.status) ? (
-							<Spinner
-								size={14}
-								className={state.status === "blocked" ? "text-error" : "text-primary"}
-							/>
-						) : (
-							<span
-								className={`size-2 shrink-0 rounded-full ${dot}`}
-								title={state.status || "idle"}
-							/>
-						)}
-						<span className="truncate text-[15px]">{title}</span>
-					</div>
-				}
-			/>
-			<div className="flex items-center gap-2 border-b border-base-300 px-3 pb-1 text-[12px] text-muted">
-				<span className="truncate">{state.model || "no model"}</span>
-				{state.thinking && <span className="shrink-0">· thinking {state.thinking}</span>}
-			</div>
+			<header className="flex h-11 shrink-0 items-center gap-1 border-b border-base-300 px-1">
+				<button
+					type="button"
+					onClick={() => history.back()}
+					aria-label="Back"
+					className="flex size-11 items-center justify-center text-[18px] active:scale-95"
+				>
+					←
+				</button>
+				<div className="flex min-w-0 items-center gap-2">
+					{isWaiting(state.status) ? (
+						<Spinner
+							size={14}
+							className={state.status === "blocked" ? "text-error" : "text-primary"}
+						/>
+					) : (
+						<span
+							className={`size-2 shrink-0 rounded-full ${dot}`}
+							title={state.status || "idle"}
+						/>
+					)}
+					<span className="truncate text-[15px]">{title}</span>
+				</div>
+			</header>
 			{/* tool strip */}
 			<div
 				className="flex gap-1 overflow-x-auto border-b border-base-300 px-2 py-1"
