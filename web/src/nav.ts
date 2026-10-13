@@ -66,12 +66,27 @@ function href(to: string): string {
 	return BASE.replace(/\/$/, "") + (to.startsWith("/") ? to : `/${to}`);
 }
 
-// cur tracks the index of the entry we are on; seed the boot entry so
-// popstate always finds an index, even for deep links.
+// cur tracks the index of the entry we are on.
 let cur = 0;
-history.replaceState({ i: 0 }, "");
 
 let seq = 0;
+
+// Seed the history stack on a cold deep link: [deep, home, deep] with
+// the deep path current, so the first Back lands on the home list
+// instead of leaving the app. Only on a fresh load (no state yet) and
+// only when the boot path is not the root.
+if (history.state === null) {
+	const deep = window.location.pathname + window.location.search + window.location.hash;
+	if (deep !== BASE && deep !== BASE.replace(/\/$/, "")) {
+		history.replaceState({ i: 1 }, "", deep);
+		history.pushState({ i: 0 }, "", BASE);
+		history.pushState({ i: 1 }, "", deep);
+		cur = 1;
+		seq = 1;
+	} else {
+		history.replaceState({ i: 0 }, "");
+	}
+}
 
 export function navigate(to: string, opts: { replace?: boolean; dir?: Dir } = {}): void {
 	transition(opts.dir ?? "fwd", () => {
