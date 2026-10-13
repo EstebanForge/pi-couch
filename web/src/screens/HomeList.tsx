@@ -126,7 +126,7 @@ export default function HomeList() {
 						onChange={(e) => setQuery(e.target.value)}
 						placeholder="Search sessions…"
 						autoComplete="off"
-						className="w-full rounded-xl bg-base-200 py-3 pl-10 pr-10 text-[16px] text-base-content placeholder:text-muted focus:outline-none"
+						className="w-full rounded-xl border border-muted/40 bg-transparent py-3 pl-10 pr-10 text-[16px] text-base-content placeholder:text-muted focus:border-primary/60 focus:outline-none"
 					/>
 					<svg
 						className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted"
