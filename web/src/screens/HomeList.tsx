@@ -15,6 +15,7 @@ const WINDOW_STEP = 5;
 export default function HomeList() {
 	const { sessions, badges, status, error, load, apply } = useSessions();
 	const [menuOpen, setMenuOpen] = useState(false);
+	const [query, setQuery] = useState("");
 	const [size, setSize] = useState(LIST_WINDOW);
 	const [loadingMore, setLoadingMore] = useState(false);
 
@@ -52,7 +53,19 @@ export default function HomeList() {
 		return () => stream.close();
 	}, [apply]);
 
-	const ordered = grouped(sessions, badges);
+	const needle = query.trim().toLowerCase();
+	const ordered = grouped(sessions, badges).filter((s) => {
+		if (!needle) return true;
+		return (
+			s.name.toLowerCase().includes(needle) ||
+			s.first_user.toLowerCase().includes(needle) ||
+			s.cwd.toLowerCase().includes(needle)
+		);
+	});
+	// A fresh search starts a fresh window.
+	useEffect(() => {
+		setSize(LIST_WINDOW);
+	}, [needle]);
 	const visible = ordered.slice(0, size);
 	// First non-active row: the Earlier divider renders before it when
 	// actives exist and the boundary sits inside the visible window.
@@ -105,6 +118,48 @@ export default function HomeList() {
 				)}
 			</header>
 
+			<div className="px-3 pt-3">
+				<div className="relative">
+					<input
+						type="text"
+						value={query}
+						onChange={(e) => setQuery(e.target.value)}
+						placeholder="Search sessions…"
+						autoComplete="off"
+						className="w-full rounded-xl bg-base-200 py-3 pl-10 pr-10 text-[16px] text-base-content placeholder:text-muted focus:outline-none"
+					/>
+					<svg
+						className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted"
+						width="18"
+						height="18"
+						viewBox="0 0 24 24"
+						aria-hidden="true"
+					>
+						<path
+							d="M10.5 3a7.5 7.5 0 1 0 4.7 13.4l4.2 4.2 1.4-1.4-4.2-4.2A7.5 7.5 0 0 0 10.5 3Zm0 2a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11Z"
+							fill="currentColor"
+						/>
+					</svg>
+					{query !== "" && (
+						<button
+							type="button"
+							aria-label="Clear search"
+							onClick={() => setQuery("")}
+							className="absolute top-1/2 right-1 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-lg text-muted"
+						>
+							<svg width="16" height="16" viewBox="0 0 20 20" aria-hidden="true">
+								<path
+									d="m5 5 10 10M15 5 5 15"
+									stroke="currentColor"
+									strokeWidth="2"
+									strokeLinecap="round"
+								/>
+							</svg>
+						</button>
+					)}
+				</div>
+			</div>
+
 			<main className="flex-1 px-3 pb-24">
 				{status === "error" && (
 					<p className="mt-6 rounded-xl bg-base-200 p-4 text-sm text-error">{error}</p>
@@ -117,6 +172,9 @@ export default function HomeList() {
 				)}
 				{status === "ok" && sessions.length === 0 && (
 					<p className="mt-6 px-1 text-sm text-muted">No sessions.</p>
+				)}
+				{status === "ok" && sessions.length > 0 && ordered.length === 0 && (
+					<p className="mt-6 px-1 text-sm text-muted">No sessions match.</p>
 				)}
 				<ul className="mt-2 flex flex-col gap-2">
 					{visible.map((s, i) => {
