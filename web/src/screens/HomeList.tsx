@@ -1,9 +1,10 @@
 import { Panel } from "konsta/react";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import type { SessionsSnapshot } from "../api";
 import { relTime, short } from "../fmt";
 import { navigate } from "../nav";
-import { useSessions } from "../state/sessions";
+import { type PushState, pushState, togglePush } from "../push";
+import { grouped, useSessions } from "../state/sessions";
 import { connectStream } from "../stream";
 
 const STATUS_COLOR: Record<string, string> = {
@@ -14,13 +15,22 @@ const STATUS_COLOR: Record<string, string> = {
 	unknown: "bg-muted",
 };
 
+const LIST_WINDOW = 15;
+const WINDOW_STEP = 10;
+
 export default function HomeList() {
 	const { sessions, badges, status, error, load, apply } = useSessions();
 	const [menuOpen, setMenuOpen] = useState(false);
+	const [size, setSize] = useState(LIST_WINDOW);
+	const [push, setPush] = useState<PushState>("off");
 
 	useEffect(() => {
 		if (status === "idle") void load();
 	}, [status, load]);
+
+	useEffect(() => {
+		void pushState().then(setPush);
+	}, []);
 
 	// Live updates: the sessions stream resets on every connect and on
 	// change; the snapshot lands straight in the store.
@@ -32,6 +42,19 @@ export default function HomeList() {
 		});
 		return () => stream.close();
 	}, [apply]);
+
+	const ordered = grouped(sessions, badges);
+	const visible = ordered.slice(0, size);
+	// First non-active row: the Earlier divider renders before it when
+	// actives exist and the boundary sits inside the visible window.
+	const boundary = ordered.findIndex((s) => {
+		const st = badges[s.path] ?? "unknown";
+		return st !== "working" && st !== "blocked";
+	});
+
+	const flipPush = () => {
+		void togglePush(push).then(setPush);
+	};
 
 	return (
 		<div className="mx-auto flex min-h-dvh max-w-3xl flex-col">
@@ -55,6 +78,22 @@ export default function HomeList() {
 				<span className="ml-auto text-sm text-muted">
 					{status === "ok" ? `${sessions.length}` : ""}
 				</span>
+				{push !== "unsupported" && (
+					<button
+						type="button"
+						aria-label={push === "on" ? "Notifications on" : "Notifications off"}
+						title={push === "on" ? "Notifications on" : "Notifications off"}
+						onClick={flipPush}
+						className={`grid h-11 w-11 place-items-center rounded-xl ${push === "on" ? "text-warning" : "text-muted"}`}
+					>
+						<svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+							<path
+								d="M12 3a6 6 0 0 0-6 6v3.2l-1.6 3.2a.7.7 0 0 0 .6 1h14a.7.7 0 0 0 .6-1L18 12.2V9a6 6 0 0 0-6-6Zm-2 15a2 2 0 0 0 4 0"
+								fill="currentColor"
+							/>
+						</svg>
+					</button>
+				)}
 			</header>
 
 			<main className="flex-1 px-3 pb-24">
@@ -68,36 +107,56 @@ export default function HomeList() {
 					<p className="mt-6 px-1 text-sm text-muted">No sessions.</p>
 				)}
 				<ul className="mt-2 flex flex-col gap-2">
-					{sessions.map((s) => {
-						const st = badges[s.key] ?? "unknown";
+					{visible.map((s, i) => {
+						const st = badges[s.path] ?? "unknown";
 						return (
-							<li key={s.key}>
-								<button
-									type="button"
-									onClick={() =>
-										navigate(`/sessions/${encodeURIComponent(s.key)}`, {
-											dir: "fwd",
-										})
-									}
-									className="flex w-full items-center gap-3 rounded-2xl bg-base-200 px-4 py-3 text-left active:scale-[0.99]"
-								>
-									<span
-										title={st}
-										className={`h-2.5 w-2.5 shrink-0 rounded-full ${STATUS_COLOR[st] ?? "bg-muted"}`}
-									/>
-									<span className="min-w-0 flex-1">
-										<span className="block truncate text-[15px] font-medium">
-											{short(s.name || s.first_user || s.key, 60)}
+							<Fragment key={s.key}>
+								{i === boundary && boundary > 0 && (
+									<li aria-hidden="true" className="my-1 flex items-center gap-3">
+										<span className="h-px flex-1 bg-base-300" />
+										<span className="text-[11px] uppercase tracking-widest text-muted">
+											Earlier
 										</span>
-										<span className="block truncate text-xs text-muted">
-											{short(s.cwd, 48)} · {relTime(s.mtime)}
+										<span className="h-px flex-1 bg-base-300" />
+									</li>
+								)}
+								<li>
+									<button
+										type="button"
+										onClick={() =>
+											navigate(`/sessions/${encodeURIComponent(s.key)}`, {
+												dir: "fwd",
+											})
+										}
+										className="flex w-full items-center gap-3 rounded-2xl bg-base-200 px-4 py-3 text-left active:scale-[0.99]"
+									>
+										<span
+											title={st}
+											className={`h-2.5 w-2.5 shrink-0 rounded-full ${STATUS_COLOR[st] ?? "bg-muted"}`}
+										/>
+										<span className="min-w-0 flex-1">
+											<span className="block truncate text-[15px] font-medium">
+												{short(s.name || s.first_user || s.key, 60)}
+											</span>
+											<span className="block truncate text-xs text-muted">
+												{short(s.cwd, 48)} · {relTime(s.mtime)}
+											</span>
 										</span>
-									</span>
-								</button>
-							</li>
+									</button>
+								</li>
+							</Fragment>
 						);
 					})}
 				</ul>
+				{status === "ok" && size < ordered.length && (
+					<button
+						type="button"
+						onClick={() => setSize(size + WINDOW_STEP)}
+						className="mx-auto mt-3 block rounded-xl bg-base-200 px-5 py-3 text-sm text-muted active:scale-[0.99]"
+					>
+						Load more ({ordered.length - size} earlier)
+					</button>
+				)}
 			</main>
 
 			{/* Side menu: opens only from the home hamburger, no edge swipe,
