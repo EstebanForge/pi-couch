@@ -22,6 +22,13 @@ export const QUICK_KEYS: QuickKey[] = [
 		enabled: (status) => status === "working" || status === "blocked",
 	},
 	{ id: "enter", label: "⏎", action: { kind: "keys", keys: ["enter"] }, enabled: hasDriver },
+	// Space and Tab drive extension dialogs (space cycles a settings
+	// value or toggles multi-select, tab switches questionnaire tabs);
+	// in pi's plain editor they insert the character. herdr 22 has no
+	// page-up/down key (invalid_key in every spelling), so long selects
+	// scroll with held arrows.
+	{ id: "space", label: "Space", action: { kind: "keys", keys: ["space"] }, enabled: hasDriver },
+	{ id: "tab", label: "Tab", action: { kind: "keys", keys: ["tab"] }, enabled: hasDriver },
 	{ id: "left", label: "←", action: { kind: "keys", keys: ["left"] }, enabled: hasDriver },
 	{ id: "up", label: "↑", action: { kind: "keys", keys: ["up"] }, enabled: hasDriver },
 	{ id: "down", label: "↓", action: { kind: "keys", keys: ["down"] }, enabled: hasDriver },
