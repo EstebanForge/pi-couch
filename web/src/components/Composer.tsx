@@ -264,7 +264,7 @@ export function Composer(props: {
 		<>
 			{/* quick keys strip */}
 			<div
-				className="relative flex gap-2 overflow-x-auto px-2 pb-1"
+				className="relative flex gap-2 overflow-x-auto px-2 pt-2 pb-1"
 				style={{ scrollbarWidth: "none", touchAction: "manipulation", userSelect: "none" }}
 			>
 				{QUICK_KEYS.map((k) => {
