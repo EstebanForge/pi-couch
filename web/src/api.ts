@@ -35,12 +35,16 @@ export type StreamItem = {
 
 export type Todo = { id: number; subject: string; status: string; active_form?: string };
 
+/** An open blocking pi dialog, reported by the couch-pi bridge extension. */
+export type BridgeDialog = { kind: string; title: string };
+
 export type TranscriptReset = {
 	items: StreamItem[];
 	status: string;
 	model: string;
 	thinking: string;
 	awaiting?: boolean;
+	dialog?: BridgeDialog | null;
 	todos?: Todo[];
 	meta?: { name: string; first_user: string; cwd: string } | null;
 };
@@ -51,6 +55,7 @@ export type TranscriptStatus = {
 	model: string;
 	thinking: string;
 	awaiting?: boolean;
+	dialog?: BridgeDialog | null;
 	todos?: Todo[];
 };
 

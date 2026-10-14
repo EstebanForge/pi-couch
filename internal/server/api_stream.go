@@ -35,6 +35,8 @@ type transcriptReset struct {
 	// Awaiting: dialog chrome on the pane at connect time. Omitted when
 	// false.
 	Awaiting bool `json:"awaiting,omitempty"`
+	// Dialog is the bridge extension's open pi dialog, if any.
+	Dialog *BridgeDialog `json:"dialog,omitempty"`
 	// Todos is the extension todo checklist, latest state. Nil when the
 	// session never ran the todo extension.
 	Todos []pi.Todo `json:"todos,omitempty"`
@@ -64,8 +66,18 @@ type transcriptStatus struct {
 	// Awaiting: the agent sits in a blocking pi dialog while still
 	// reporting working. Omitted when false.
 	Awaiting bool `json:"awaiting,omitempty"`
+	// Dialog carries kind and title of the bridge-reported open dialog.
+	Dialog *BridgeDialog `json:"dialog,omitempty"`
 	// Todos re-sent whenever the checklist changes.
 	Todos []pi.Todo `json:"todos,omitempty"`
+}
+
+// dialogPtr hands the stream frames a nil when no dialog is open.
+func dialogPtr(d BridgeDialog, ok bool) *BridgeDialog {
+	if !ok {
+		return nil
+	}
+	return &d
 }
 
 // startSSE writes the event-stream headers and flushes them. The caller
@@ -116,6 +128,7 @@ func (a *app) apiStreamTranscript(w http.ResponseWriter, r *http.Request) {
 	status, model, thinking := "", "", ""
 	var lastAwaiting bool
 	var lastTodos []pi.Todo
+	var lastDialog BridgeDialog
 	var lastSend time.Time
 	for {
 		meta, ok := a.idx.Meta(key)
@@ -130,6 +143,7 @@ func (a *app) apiStreamTranscript(w http.ResponseWriter, r *http.Request) {
 		badges := a.herdr.Badges(r.Context())
 		st := badges[meta.Path]
 		awaiting := a.awaiting.isAwaiting(meta.Path)
+		dialog, hasDialog := a.bridgeDialog(meta.Path)
 		sent := false
 		if delta, ok := chatAppend(prev, items, cur); ok {
 			if len(delta) > 0 {
@@ -140,16 +154,17 @@ func (a *app) apiStreamTranscript(w http.ResponseWriter, r *http.Request) {
 				sent = true
 			}
 		} else {
-			if !send("reset", transcriptReset{Items: items, Status: st, Model: meta.Model, Thinking: meta.Thinking, Awaiting: awaiting, Todos: meta.Todos, Meta: headerOf(meta)}) {
+			if !send("reset", transcriptReset{Items: items, Status: st, Model: meta.Model, Thinking: meta.Thinking, Awaiting: awaiting, Dialog: dialogPtr(dialog, hasDialog), Todos: meta.Todos, Meta: headerOf(meta)}) {
 				return
 			}
 			prev = cur
 			status, model, thinking = st, meta.Model, meta.Thinking
 			sent = true
 		}
-		if st != status || meta.Model != model || meta.Thinking != thinking || awaiting != lastAwaiting || !slices.Equal(meta.Todos, lastTodos) {
+		if st != status || meta.Model != model || meta.Thinking != thinking || awaiting != lastAwaiting || !slices.Equal(meta.Todos, lastTodos) || dialog != lastDialog {
 			status, model, thinking, lastAwaiting, lastTodos = st, meta.Model, meta.Thinking, awaiting, meta.Todos
-			if !send("status", transcriptStatus{Status: st, Model: meta.Model, Thinking: meta.Thinking, Awaiting: awaiting, Todos: meta.Todos}) {
+			lastDialog = dialog
+			if !send("status", transcriptStatus{Status: st, Model: meta.Model, Thinking: meta.Thinking, Awaiting: awaiting, Todos: meta.Todos, Dialog: dialogPtr(dialog, hasDialog)}) {
 				return
 			}
 			sent = true

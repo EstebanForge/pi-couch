@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/EstebanForge/couch-pi/internal/herdr"
@@ -42,6 +43,8 @@ type app struct {
 	vapidPublic   string
 	allowedOrigin string // -origin; the public https origin served through tailscale
 	awaiting      *awaitingDetector
+	bridgeMu      sync.Mutex
+	bridge        map[string]bridgeEntry // session path -> open pi dialog (bridge extension)
 }
 
 func Run(ctx context.Context, logger *slog.Logger, addr string, idx *pi.Index, hc *herdr.Client, w *pi.Watcher, st *store.Store, pusher *push.Sender, allowedOrigin string) error {
@@ -174,6 +177,7 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("POST /api/sessions/{key}/prompt", a.apiPrompt)
 	mux.HandleFunc("POST /api/sessions/{key}/model", a.apiModel)
 	mux.HandleFunc("POST /api/sessions/{key}/thinking", a.apiThinking)
+	mux.HandleFunc("POST /api/bridge/dialog", a.apiBridgeDialog)
 	mux.HandleFunc("POST /api/sessions/{key}/terminal/input", a.terminalInput)
 	// The terminal mirror is a raw-byte SSE stream with custom event
 	// names (term/gone/ping), not one of the JSON /api/stream feeds.

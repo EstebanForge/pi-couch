@@ -2,7 +2,7 @@
 // reset/append/status; every reduction is a pure function here so the
 // logic is unit-testable without a DOM.
 
-import type { StreamItem, Todo, TranscriptAppend, TranscriptReset, TranscriptStatus } from "../api";
+import type { BridgeDialog, StreamItem, Todo, TranscriptAppend, TranscriptReset, TranscriptStatus } from "../api";
 
 export type PendingMsg = {
 	id: number;
@@ -16,6 +16,7 @@ export type DriverState = {
 	model: string;
 	thinking: string;
 	awaiting: boolean; // dialog chrome on the pane: pi waits on the human
+	dialog: BridgeDialog | null; // bridge-reported open pi dialog (kind + title)
 	todos: Todo[]; // extension todo checklist, latest state
 	header: { name: string; first_user: string; cwd: string } | null;
 	pending: PendingMsg[];
@@ -27,6 +28,7 @@ export const emptyDriver: DriverState = {
 	model: "",
 	thinking: "",
 	awaiting: false,
+	dialog: null,
 	todos: [],
 	header: null,
 	pending: [],
@@ -78,6 +80,7 @@ export function reduceReset(_s: DriverState, p: TranscriptReset): DriverState {
 		model: p.model,
 		thinking: p.thinking,
 		awaiting: p.awaiting ?? false,
+		dialog: p.dialog ?? null,
 		todos: p.todos ?? [],
 		header: p.meta ?? null,
 		pending: [],
@@ -97,6 +100,7 @@ export function reduceStatus(s: DriverState, p: TranscriptStatus): DriverState {
 		model: p.model,
 		thinking: p.thinking,
 		awaiting: p.awaiting ?? false,
+		dialog: p.dialog ?? s.dialog,
 		todos: p.todos ?? s.todos,
 	};
 }
