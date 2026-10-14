@@ -47,6 +47,7 @@ Pins: fsnotify v1.10.1, webpush-go v1.4.0; the web stack pins live in web/packag
 - Git service: repo discovery by pruned scan, diffs via exec git.
 - State: comments and UI prefs in a plain JSON file per session. Push subscriptions and the VAPID key live in the store state dir. No database.
 - Push watcher: one `agent.wait` goroutine per live herdr agent (until idle, blocked, done), 15 s reconcile, 5 s re-arm pause, 2 s stability re-check, same-status dedupe (ADR-0005).
+- Dialog sensor: extensions/couch-pi-bridge.ts (symlink into ~/.pi/agent/extensions) listens to pi's ui_prompt events, flips herdr to blocked, and POSTs kind + title to /api/bridge/dialog so the phone shows which dialog waits (ADR-0007). pi's codebase is never modified; APIs only.
 - Web client: server-rendered HTML, Datastar SSE patches, one TS island. Mobile-first, dark default.
 - Native door: views stay separate from streams (JSON POST commands; SSE accepts raw JSON beside Datastar patches; terminal WS is raw bytes plus JSON resize frames) so a Kotlin client plugs in with no server rework.
 
