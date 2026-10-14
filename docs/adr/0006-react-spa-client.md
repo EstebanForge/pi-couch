@@ -1,4 +1,4 @@
-# ADR-0006: React SPA client supersedes the templ and Datastack stack
+# ADR-0006: React SPA client supersedes the templ and Datastar stack
 
 Date: 2026-10-13. Status: accepted. Supersedes ADR-0002.
 
