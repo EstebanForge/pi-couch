@@ -28,6 +28,17 @@ type SessionMeta struct {
 	TotalCost   float64   `json:"total_cost"`
 	Model       string    `json:"model"`
 	Thinking    string    `json:"thinking"`
+	// Todos is the latest rpiv-todo-state checklist; empty when the
+	// session never ran the todo extension.
+	Todos []Todo `json:"todos,omitempty"`
+}
+
+// Todo is one row of the todo extension's checklist.
+type Todo struct {
+	ID         int    `json:"id"`
+	Subject    string `json:"subject"`
+	Status     string `json:"status"` // pending, in_progress, completed
+	ActiveForm string `json:"active_form,omitempty"`
 }
 
 // DisplayName: session_info name, else first user text, else cwd base.
@@ -209,6 +220,15 @@ func (ix *Index) parse(path, key string, st os.FileInfo) (SessionMeta, bool) {
 		case "thinking_level_change":
 			if e.ThinkingLevel != "" {
 				meta.Thinking = e.ThinkingLevel
+			}
+		case "custom":
+			if e.CustomType == "rpiv-todo-state" && len(e.Data) > 0 {
+				var td struct {
+					Tasks []Todo `json:"tasks"`
+				}
+				if json.Unmarshal(e.Data, &td) == nil && len(td.Tasks) > 0 {
+					meta.Todos = td.Tasks
+				}
 			}
 		case "message":
 			m := e.Message

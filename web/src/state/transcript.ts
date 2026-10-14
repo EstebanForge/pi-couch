@@ -2,7 +2,7 @@
 // reset/append/status; every reduction is a pure function here so the
 // logic is unit-testable without a DOM.
 
-import type { StreamItem, TranscriptAppend, TranscriptReset, TranscriptStatus } from "../api";
+import type { StreamItem, Todo, TranscriptAppend, TranscriptReset, TranscriptStatus } from "../api";
 
 export type PendingMsg = {
 	id: number;
@@ -16,6 +16,7 @@ export type DriverState = {
 	model: string;
 	thinking: string;
 	awaiting: boolean; // dialog chrome on the pane: pi waits on the human
+	todos: Todo[]; // extension todo checklist, latest state
 	header: { name: string; first_user: string; cwd: string } | null;
 	pending: PendingMsg[];
 };
@@ -26,6 +27,7 @@ export const emptyDriver: DriverState = {
 	model: "",
 	thinking: "",
 	awaiting: false,
+	todos: [],
 	header: null,
 	pending: [],
 };
@@ -76,6 +78,7 @@ export function reduceReset(_s: DriverState, p: TranscriptReset): DriverState {
 		model: p.model,
 		thinking: p.thinking,
 		awaiting: p.awaiting ?? false,
+		todos: p.todos ?? [],
 		header: p.meta ?? null,
 		pending: [],
 	};
@@ -88,7 +91,14 @@ export function reduceAppend(s: DriverState, p: TranscriptAppend): DriverState {
 }
 
 export function reduceStatus(s: DriverState, p: TranscriptStatus): DriverState {
-	return { ...s, status: p.status, model: p.model, thinking: p.thinking, awaiting: p.awaiting ?? false };
+	return {
+		...s,
+		status: p.status,
+		model: p.model,
+		thinking: p.thinking,
+		awaiting: p.awaiting ?? false,
+		todos: p.todos ?? s.todos,
+	};
 }
 
 // Work blocks fold consecutive non-speech items (thinking, tool calls and

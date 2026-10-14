@@ -30,16 +30,17 @@ type Entry struct {
 
 	Message *Message `json:"message,omitempty"`
 
-	CustomType       string `json:"customType,omitempty"`
-	Name             string `json:"name,omitempty"`     // session_info
-	Summary          string `json:"summary,omitempty"`  // compaction, branch_summary
-	Provider         string `json:"provider,omitempty"` // model_change
-	ModelID          string `json:"modelId,omitempty"`  // model_change
-	ThinkingLevel    string `json:"thinkingLevel,omitempty"`
-	Kind             string `json:"kind,omitempty"` // usage
-	Usage            *Usage `json:"usage,omitempty"`
-	FirstKeptEntryID string `json:"firstKeptEntryId,omitempty"`
-	TokensBefore     int64  `json:"tokensBefore,omitempty"`
+	CustomType       string          `json:"customType,omitempty"`
+	Name             string          `json:"name,omitempty"`     // session_info
+	Summary          string          `json:"summary,omitempty"`  // compaction, branch_summary
+	Provider         string          `json:"provider,omitempty"` // model_change
+	ModelID          string          `json:"modelId,omitempty"`  // model_change
+	ThinkingLevel    string          `json:"thinkingLevel,omitempty"`
+	Kind             string          `json:"kind,omitempty"` // usage
+	Usage            *Usage          `json:"usage,omitempty"`
+	FirstKeptEntryID string          `json:"firstKeptEntryId,omitempty"`
+	Data             json.RawMessage `json:"data,omitempty"` // custom entries (rpiv-todo-state, ...)
+	TokensBefore     int64           `json:"tokensBefore,omitempty"`
 }
 
 // Message wraps AgentMessage. Content arrives either as a plain string

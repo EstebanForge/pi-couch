@@ -1,7 +1,7 @@
 import { Dialog, DialogButton } from "konsta/react";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Virtuoso } from "react-virtuoso";
-import type { StreamItem } from "../api";
+import type { StreamItem, Todo } from "../api";
 import {
 	closeSession,
 	stopSession,
@@ -239,6 +239,16 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 					)}
 				</div>
 			</header>
+			{state.todos.length > 0 && (
+				<div className="border-b border-base-300 px-3 py-2">
+					<div className="pb-1 text-[11px] tracking-widest text-muted uppercase">Todos</div>
+					<ul className="max-h-40 space-y-1 overflow-y-auto">
+						{state.todos.map((t) => (
+							<TodoRow key={t.id} todo={t} />
+						))}
+					</ul>
+				</div>
+			)}
 			{/* tool strip */}
 			<div
 				className="flex gap-1 overflow-x-auto border-b border-base-300 px-2 py-1"
@@ -416,5 +426,24 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 				Close this session? The pi agent exits; the transcript stays readable.
 			</Dialog>
 		</div>
+	);
+}
+
+// TodoRow renders one rpiv-todo checklist row; the state glyph carries
+// the status so the list reads at a glance on a phone.
+function TodoRow({ todo }: { todo: Todo }) {
+	const done = todo.status === "completed";
+	const active = todo.status === "in_progress";
+	return (
+		<li
+			className={`flex items-center gap-2 text-[13px] ${done ? "text-muted line-through" : active ? "text-base-content" : "text-muted"}`}
+		>
+			{active ? (
+				<Spinner size={11} className="shrink-0 text-primary" />
+			) : (
+				<span className={`shrink-0 ${done ? "text-success" : "text-muted"}`}>{done ? "✓" : "○"}</span>
+			)}
+			<span className="min-w-0 truncate">{todo.subject}</span>
+		</li>
 	);
 }

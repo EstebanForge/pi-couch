@@ -33,17 +33,26 @@ export type StreamItem = {
 	seq: number;
 };
 
+export type Todo = { id: number; subject: string; status: string; active_form?: string };
+
 export type TranscriptReset = {
 	items: StreamItem[];
 	status: string;
 	model: string;
 	thinking: string;
 	awaiting?: boolean;
+	todos?: Todo[];
 	meta?: { name: string; first_user: string; cwd: string } | null;
 };
 
 export type TranscriptAppend = { items: StreamItem[] };
-export type TranscriptStatus = { status: string; model: string; thinking: string; awaiting?: boolean };
+export type TranscriptStatus = {
+	status: string;
+	model: string;
+	thinking: string;
+	awaiting?: boolean;
+	todos?: Todo[];
+};
 
 export async function getSessions(): Promise<SessionsSnapshot> {
 	const res = await fetch("/api/sessions");

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"time"
 
@@ -34,6 +35,9 @@ type transcriptReset struct {
 	// Awaiting: dialog chrome on the pane at connect time. Omitted when
 	// false.
 	Awaiting bool `json:"awaiting,omitempty"`
+	// Todos is the extension todo checklist, latest state. Nil when the
+	// session never ran the todo extension.
+	Todos []pi.Todo `json:"todos,omitempty"`
 	// Meta names the session for the header: deep links have no list
 	// snapshot to look the title up in.
 	Meta *sessionHeader `json:"meta,omitempty"`
@@ -60,6 +64,8 @@ type transcriptStatus struct {
 	// Awaiting: the agent sits in a blocking pi dialog while still
 	// reporting working. Omitted when false.
 	Awaiting bool `json:"awaiting,omitempty"`
+	// Todos re-sent whenever the checklist changes.
+	Todos []pi.Todo `json:"todos,omitempty"`
 }
 
 // startSSE writes the event-stream headers and flushes them. The caller
@@ -109,6 +115,7 @@ func (a *app) apiStreamTranscript(w http.ResponseWriter, r *http.Request) {
 	prev := []uint32{}
 	status, model, thinking := "", "", ""
 	var lastAwaiting bool
+	var lastTodos []pi.Todo
 	var lastSend time.Time
 	for {
 		meta, ok := a.idx.Meta(key)
@@ -133,16 +140,16 @@ func (a *app) apiStreamTranscript(w http.ResponseWriter, r *http.Request) {
 				sent = true
 			}
 		} else {
-			if !send("reset", transcriptReset{Items: items, Status: st, Model: meta.Model, Thinking: meta.Thinking, Awaiting: awaiting, Meta: headerOf(meta)}) {
+			if !send("reset", transcriptReset{Items: items, Status: st, Model: meta.Model, Thinking: meta.Thinking, Awaiting: awaiting, Todos: meta.Todos, Meta: headerOf(meta)}) {
 				return
 			}
 			prev = cur
 			status, model, thinking = st, meta.Model, meta.Thinking
 			sent = true
 		}
-		if st != status || meta.Model != model || meta.Thinking != thinking || awaiting != lastAwaiting {
-			status, model, thinking, lastAwaiting = st, meta.Model, meta.Thinking, awaiting
-			if !send("status", transcriptStatus{Status: st, Model: meta.Model, Thinking: meta.Thinking, Awaiting: awaiting}) {
+		if st != status || meta.Model != model || meta.Thinking != thinking || awaiting != lastAwaiting || !slices.Equal(meta.Todos, lastTodos) {
+			status, model, thinking, lastAwaiting, lastTodos = st, meta.Model, meta.Thinking, awaiting, meta.Todos
+			if !send("status", transcriptStatus{Status: st, Model: meta.Model, Thinking: meta.Thinking, Awaiting: awaiting, Todos: meta.Todos}) {
 				return
 			}
 			sent = true
