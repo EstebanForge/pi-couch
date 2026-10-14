@@ -1,5 +1,38 @@
 @import "tailwindcss";
-@import "konsta/react/theme.css";
+
+/* Konsta styles, pruned to what the used components reference. The
+   wholesale theme.css import cost ~80 KB of CSS for components this
+   app never renders. When adding a konsta/react import, add its
+   @source lines below - konsta-css.test.ts fails the build otherwise,
+   because Tailwind generates nothing for class strings it never
+   scans and the component would render unstyled. */
+@import "../node_modules/konsta/styles/base.css";
+@import "../node_modules/konsta/styles/colors.css";
+@import "../node_modules/konsta/styles/touch-ripple.css";
+@import "../node_modules/konsta/styles/no-scrollbar.css";
+@import "../node_modules/konsta/styles/ios-material.css";
+@import "../node_modules/konsta/styles/hairlines.css";
+@import "../node_modules/konsta/styles/safe-areas.css";
+@source "../node_modules/konsta/react/components/App.js";
+@source "../node_modules/konsta/react/components/Button.js";
+@source "../node_modules/konsta/react/components/Dialog.js";
+@source "../node_modules/konsta/react/components/DialogButton.js";
+@source "../node_modules/konsta/react/components/Icon.js";
+@source "../node_modules/konsta/react/components/Navbar.js";
+@source "../node_modules/konsta/react/components/NavbarBackLink.js";
+@source "../node_modules/konsta/react/components/Panel.js";
+@source "../node_modules/konsta/react/components/Sheet.js";
+@source "../node_modules/konsta/react/components/Toast.js";
+@source "../node_modules/konsta/shared/classes/AppClasses.js";
+@source "../node_modules/konsta/shared/classes/ButtonClasses.js";
+@source "../node_modules/konsta/shared/classes/DialogClasses.js";
+@source "../node_modules/konsta/shared/classes/IconClasses.js";
+@source "../node_modules/konsta/shared/classes/NavbarBackLinkClasses.js";
+@source "../node_modules/konsta/shared/classes/NavbarClasses.js";
+@source "../node_modules/konsta/shared/classes/PanelClasses.js";
+@source "../node_modules/konsta/shared/classes/SheetClasses.js";
+@source "../node_modules/konsta/shared/classes/ToastClasses.js";
+@source "../node_modules/konsta/shared/touch-ripple-class.js";
 
 /* Konsta's dark: variants must key off the .dark class (we set it on the
    app root), not the OS media query, so sheets and dialogs stay dark. */
