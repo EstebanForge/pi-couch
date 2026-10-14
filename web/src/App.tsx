@@ -1,10 +1,14 @@
 import { App as KApp } from "konsta/react";
+import { lazy, Suspense } from "react";
 import { usePath } from "./nav";
 import ChangesScreen from "./screens/Changes";
 import FilesScreen from "./screens/Files";
 import HomeScreen from "./screens/HomeList";
 import SessionScreen from "./screens/Session";
-import TerminalScreen from "./screens/Terminal";
+
+// xterm is a third of the bundle and only the terminal screen needs
+// it, so it ships as its own chunk fetched on first visit.
+const TerminalScreen = lazy(() => import("./screens/Terminal"));
 
 function Screen() {
 	const path = usePath();
@@ -21,7 +25,11 @@ function Screen() {
 	m = path.match(/^\/sessions\/(.+)\/terminal$/);
 	if (m) {
 		const key = decodeURIComponent(m[1]);
-		return <TerminalScreen key={`${key}:terminal`} sessionKey={key} />;
+		return (
+			<Suspense fallback={null}>
+				<TerminalScreen key={`${key}:terminal`} sessionKey={key} />
+			</Suspense>
+		);
 	}
 	m = path.match(/^\/sessions\/(.+)$/);
 	if (m) {
