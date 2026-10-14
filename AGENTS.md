@@ -38,7 +38,7 @@ Verified (M0):
 - Push slice: VAPID keys and subscriptions live under `~/.local/state/couch-pi/` (`vapid.json` 0600, `push-subs.json`). `GET /api/push/key`, `POST /api/push/subscribe|unsubscribe`; `/sw.js`, `/manifest.webmanifest` and the icons come from the SPA embed (`web/public/`).
 - Dialog bridge plugin (needed for dialog titles, per ADR-0007): `ln -sf <repo>/extensions/couch-pi-bridge.ts ~/.pi/agent/extensions/couch-pi-bridge.ts` on every machine whose agents should surface dialogs. The repo file is the source of truth; pi loads it at agent start, so agents started before the install (or before an edit) run the old code until restarted. Without the plugin nothing breaks: herdr still flips to blocked via the pane regex in `internal/server/awaiting.go`, but the phone shows no dialog kind or title (and blocked detection for `ctx.ui` dialogs then rides the regex only). `COUCHPI_URL` overrides the default `http://127.0.0.1:8090` dial target.
 
-Pins: fsnotify v1.10.1, webpush-go v1.4.0; the web stack pins live in web/package.json (React 19.3, Vite 8.3, Tailwind 4.3, Konsta 5.5, xterm 5.5). herdr socket framing is NDJSON: `{"id","method","params"}` in, one compact JSON line out.
+Pins: fsnotify v1.10.1, webpush-go v1.4.0; the web stack pins live in web/package.json (React 19.3, Vite 8.3, Tailwind 4.3, Konsta 5.5, xterm 5.5, react-markdown 10.1, remark-gfm 4.0). herdr socket framing is NDJSON: `{"id","method","params"}` in, one compact JSON line out.
 
 ## Architecture (planned, per PLAN.md)
 
@@ -59,6 +59,7 @@ Boundaries:
 
 ## Conventions and gotchas
 
+- Konsta CSS is pruned per component: web/src/index.css carries explicit `@source` lines for every konsta/react import, and konsta-css.test.ts fails the build when an import has no entry. Tailwind generates nothing for class strings it never scans, so a missing entry means the component renders unstyled. Nested dependencies count: DialogButton wraps Button, NavbarBackLink uses Icon.
 - Tolerant jsonl parsing: unknown entry types never crash the parser. Buffer partial lines until the newline before parsing.
 - Verify parser shapes against real session files at M0, not guesses.
 - Repo discovery: scan for `.git` with rg/fd semantics plus a denylist: node_modules, dist, build, target, vendor, .venv, caches, hidden dirs. Never raw `find`.
