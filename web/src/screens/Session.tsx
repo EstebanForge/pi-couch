@@ -10,6 +10,7 @@ import {
 	type TranscriptStatus,
 } from "../api";
 import { Composer } from "../components/Composer";
+import { Markdown } from "../components/Markdown";
 import { Spinner } from "../components/Spinner";
 import { navigate } from "../nav";
 import { TOOLS, toolEnabled } from "../session-tools";
@@ -74,9 +75,7 @@ function itemRow(it: StreamItem, expanded: boolean) {
 				</div>
 			);
 		case "text":
-			return (
-				<div className="px-3 py-1 text-[15px] whitespace-pre-wrap text-base-content">{it.text}</div>
-			);
+			return <Markdown text={it.text} />;
 		case "marker":
 			return (
 				<div className="px-3 py-1 text-center text-[11px] tracking-wider text-muted uppercase">
