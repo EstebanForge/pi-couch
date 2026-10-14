@@ -41,6 +41,7 @@ type app struct {
 	pusher        *push.Sender
 	vapidPublic   string
 	allowedOrigin string // -origin; the public https origin served through tailscale
+	awaiting      *awaitingDetector
 }
 
 func Run(ctx context.Context, logger *slog.Logger, addr string, idx *pi.Index, hc *herdr.Client, w *pi.Watcher, st *store.Store, pusher *push.Sender, allowedOrigin string) error {
@@ -48,6 +49,10 @@ func Run(ctx context.Context, logger *slog.Logger, addr string, idx *pi.Index, h
 	if pusher != nil {
 		a.vapidPublic = pusher.Public
 	}
+	// Dialog awareness: poll working panes for pi-tui chrome and expose
+	// per-session "waiting for input" state on the wire.
+	a.awaiting = newAwaitingDetector(hc, 3*time.Second)
+	go a.awaiting.run(ctx)
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           a.guard(a.routes()),
@@ -186,27 +191,30 @@ func (a *app) routes() http.Handler {
 type sessionsWire struct {
 	Sessions []pi.SessionMeta  `json:"sessions"`
 	Badges   map[string]string `json:"badges"`
+	// Awaiting marks sessions whose agent sits in a blocking pi dialog
+	// (write review, questionnaire). Keyed by session path like badges.
+	Awaiting map[string]bool `json:"awaiting"`
 }
 
 func (a *app) apiSessions(w http.ResponseWriter, r *http.Request) {
-	sessions, badges := a.snapshot(r)
+	sessions, badges, awaiting := a.snapshot(r)
 	if sessions == nil {
 		sessions = []pi.SessionMeta{}
 	}
 	if badges == nil {
 		badges = map[string]string{}
 	}
-	writeJSON(w, http.StatusOK, sessionsWire{Sessions: sessions, Badges: badges})
+	writeJSON(w, http.StatusOK, sessionsWire{Sessions: sessions, Badges: badges, Awaiting: awaiting})
 }
 
-func (a *app) snapshot(r *http.Request) ([]pi.SessionMeta, map[string]string) {
+func (a *app) snapshot(r *http.Request) ([]pi.SessionMeta, map[string]string, map[string]bool) {
 	sessions, err := a.idx.List()
 	if err != nil {
 		a.logger.Error("session list", "err", err)
 		sessions = nil
 	}
 	badges := a.herdr.Badges(r.Context())
-	return sessions, badges
+	return sessions, badges, a.awaiting.snapshot()
 }
 
 // promptAgent drives the JSON prompt endpoint: submit the text to the

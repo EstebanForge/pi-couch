@@ -15,6 +15,7 @@ export type DriverState = {
 	status: string; // herdr badge: working, blocked, done, idle, ""
 	model: string;
 	thinking: string;
+	awaiting: boolean; // dialog chrome on the pane: pi waits on the human
 	header: { name: string; first_user: string; cwd: string } | null;
 	pending: PendingMsg[];
 };
@@ -24,6 +25,7 @@ export const emptyDriver: DriverState = {
 	status: "",
 	model: "",
 	thinking: "",
+	awaiting: false,
 	header: null,
 	pending: [],
 };
@@ -73,6 +75,7 @@ export function reduceReset(_s: DriverState, p: TranscriptReset): DriverState {
 		status: p.status,
 		model: p.model,
 		thinking: p.thinking,
+		awaiting: p.awaiting ?? false,
 		header: p.meta ?? null,
 		pending: [],
 	};
@@ -85,7 +88,7 @@ export function reduceAppend(s: DriverState, p: TranscriptAppend): DriverState {
 }
 
 export function reduceStatus(s: DriverState, p: TranscriptStatus): DriverState {
-	return { ...s, status: p.status, model: p.model, thinking: p.thinking };
+	return { ...s, status: p.status, model: p.model, thinking: p.thinking, awaiting: p.awaiting ?? false };
 }
 
 // Work blocks fold consecutive non-speech items (thinking, tool calls and

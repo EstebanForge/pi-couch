@@ -13,7 +13,7 @@ const LIST_WINDOW = 7;
 const WINDOW_STEP = 5;
 
 export default function HomeList() {
-	const { sessions, badges, status, error, load, apply } = useSessions();
+	const { sessions, badges, awaiting, status, error, load, apply } = useSessions();
 	const [menuOpen, setMenuOpen] = useState(false);
 	const [query, setQuery] = useState("");
 	const [size, setSize] = useState(LIST_WINDOW);
@@ -207,11 +207,11 @@ export default function HomeList() {
 										className="flex w-full items-center gap-3 rounded-2xl bg-base-200 px-4 py-3 text-left active:scale-[0.99]"
 									>
 										{isWaiting(st) && st === "working" ? (
-											<Spinner size={13} className="text-primary" />
+											<Spinner size={13} className={awaiting[s.path] ? "text-accent" : "text-primary"} />
 										) : (
 											<span
-												title={st}
-												className={`h-2.5 w-2.5 shrink-0 rounded-full ${STATUS_DOT[st] ?? "bg-muted"}`}
+												title={awaiting[s.path] ? `${st} · waiting for input` : st}
+												className={`h-2.5 w-2.5 shrink-0 rounded-full ${awaiting[s.path] ? "bg-accent" : (STATUS_DOT[st] ?? "bg-muted")}`}
 											/>
 										)}
 										<span className="min-w-0 flex-1">

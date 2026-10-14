@@ -31,6 +31,9 @@ type transcriptReset struct {
 	Status   string        `json:"status"`
 	Model    string        `json:"model"`
 	Thinking string        `json:"thinking"`
+	// Awaiting: dialog chrome on the pane at connect time. Omitted when
+	// false.
+	Awaiting bool `json:"awaiting,omitempty"`
 	// Meta names the session for the header: deep links have no list
 	// snapshot to look the title up in.
 	Meta *sessionHeader `json:"meta,omitempty"`
@@ -54,6 +57,9 @@ type transcriptStatus struct {
 	Status   string `json:"status"`
 	Model    string `json:"model"`
 	Thinking string `json:"thinking"`
+	// Awaiting: the agent sits in a blocking pi dialog while still
+	// reporting working. Omitted when false.
+	Awaiting bool `json:"awaiting,omitempty"`
 }
 
 // startSSE writes the event-stream headers and flushes them. The caller
@@ -102,6 +108,7 @@ func (a *app) apiStreamTranscript(w http.ResponseWriter, r *http.Request) {
 
 	prev := []uint32{}
 	status, model, thinking := "", "", ""
+	var lastAwaiting bool
 	var lastSend time.Time
 	for {
 		meta, ok := a.idx.Meta(key)
@@ -115,6 +122,7 @@ func (a *app) apiStreamTranscript(w http.ResponseWriter, r *http.Request) {
 		cur := itemFps(items)
 		badges := a.herdr.Badges(r.Context())
 		st := badges[meta.Path]
+		awaiting := a.awaiting.isAwaiting(meta.Path)
 		sent := false
 		if delta, ok := chatAppend(prev, items, cur); ok {
 			if len(delta) > 0 {
@@ -125,16 +133,16 @@ func (a *app) apiStreamTranscript(w http.ResponseWriter, r *http.Request) {
 				sent = true
 			}
 		} else {
-			if !send("reset", transcriptReset{Items: items, Status: st, Model: meta.Model, Thinking: meta.Thinking, Meta: headerOf(meta)}) {
+			if !send("reset", transcriptReset{Items: items, Status: st, Model: meta.Model, Thinking: meta.Thinking, Awaiting: awaiting, Meta: headerOf(meta)}) {
 				return
 			}
 			prev = cur
 			status, model, thinking = st, meta.Model, meta.Thinking
 			sent = true
 		}
-		if st != status || meta.Model != model || meta.Thinking != thinking {
-			status, model, thinking = st, meta.Model, meta.Thinking
-			if !send("status", transcriptStatus{Status: st, Model: meta.Model, Thinking: meta.Thinking}) {
+		if st != status || meta.Model != model || meta.Thinking != thinking || awaiting != lastAwaiting {
+			status, model, thinking, lastAwaiting = st, meta.Model, meta.Thinking, awaiting
+			if !send("status", transcriptStatus{Status: st, Model: meta.Model, Thinking: meta.Thinking, Awaiting: awaiting}) {
 				return
 			}
 			sent = true
@@ -166,14 +174,17 @@ func (a *app) apiStreamSessions(w http.ResponseWriter, r *http.Request) {
 	var pace pacer
 	var last []byte
 	for {
-		sessions, badges := a.snapshot(r)
+		sessions, badges, awaiting := a.snapshot(r)
 		if sessions == nil {
 			sessions = []pi.SessionMeta{}
 		}
 		if badges == nil {
 			badges = map[string]string{}
 		}
-		b, err := json.Marshal(sessionsWire{Sessions: sessions, Badges: badges})
+		if awaiting == nil {
+			awaiting = map[string]bool{}
+		}
+		b, err := json.Marshal(sessionsWire{Sessions: sessions, Badges: badges, Awaiting: awaiting})
 		if err != nil {
 			return
 		}

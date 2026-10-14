@@ -19,6 +19,7 @@ export type SessionMeta = {
 export type SessionsSnapshot = {
 	sessions: SessionMeta[];
 	badges: Record<string, string>;
+	awaiting: Record<string, boolean>;
 };
 
 export type StreamItem = {
@@ -37,11 +38,12 @@ export type TranscriptReset = {
 	status: string;
 	model: string;
 	thinking: string;
+	awaiting?: boolean;
 	meta?: { name: string; first_user: string; cwd: string } | null;
 };
 
 export type TranscriptAppend = { items: StreamItem[] };
-export type TranscriptStatus = { status: string; model: string; thinking: string };
+export type TranscriptStatus = { status: string; model: string; thinking: string; awaiting?: boolean };
 
 export async function getSessions(): Promise<SessionsSnapshot> {
 	const res = await fetch("/api/sessions");

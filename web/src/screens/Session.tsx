@@ -229,6 +229,14 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 						/>
 					)}
 					<span className="truncate text-[15px]">{title}</span>
+					{state.awaiting && (
+						<span
+							className="shrink-0 rounded-full border border-accent/60 px-2 py-0.5 text-[11px] text-accent"
+							title="pi waits on a dialog - open the Terminal"
+						>
+							input
+						</span>
+					)}
 				</div>
 			</header>
 			{/* tool strip */}
@@ -307,7 +315,12 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 					itemContent={(_, b) => <Block block={b} />}
 					components={{
 						Footer: () =>
-							isWaiting(state.status) ? (
+							state.awaiting ? (
+								<div className="flex items-center gap-2 px-3 py-2 text-[13px] text-accent">
+									<Spinner size={14} className="text-accent" />
+									Waiting for input — open Terminal
+								</div>
+							) : isWaiting(state.status) ? (
 								<div className="flex items-center gap-2 px-3 py-2 text-[13px] text-muted">
 									<Spinner
 										size={14}
