@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -11,10 +12,12 @@ import (
 
 // The awareness slice: while pi sits in a blocking extension dialog
 // (write review, questionnaire, settings menu, /model picker) herdr
-// still reports the agent as working, so the SPA cannot tell
-// "generating" from "waiting for you". herdr exposes no screen state,
-// so this detector polls working agents' panes at a slow cadence and
-// matches the chrome pi-tui paints around every blocking widget.
+// still reports the agent as working or done, so the SPA cannot tell
+// "generating" from "waiting for you". herdr exposes no dialog-open
+// state (its detection screen is a read surface, not an event), and pi
+// never reports blocked for a picker, so this detector polls agents'
+// panes at a slow cadence and matches the chrome pi-tui paints around
+// every blocking widget.
 //
 // pi shows one dialog at a time, so a single pattern hit is enough.
 
@@ -28,6 +31,13 @@ var (
 	// or bullet: "Enter to select · Ctrl+S to set as default ·
 	// Escape/Ctrl+C to cancel".
 	hintBarRe = regexp.MustCompile(`(?i)(enter|esc(ape)?|ctrl\+[a-z])[^.·•\n]{0,40}[·•][^.·\n]{0,60}(enter|esc(ape)?|ctrl\+[a-z])`)
+	// pi's own dialog hints are space-separated, with no middle dot, so
+	// hintBarRe never matches them (measured on pi 1.2, same strings
+	// herdr-web-ui pins in prompt.ts). The select/confirm menu reads
+	// "↑↓ navigate  enter select  escape/ctrl+c cancel"; the input line
+	// reads "enter submit  escape/ctrl+c cancel".
+	piMenuHintRe  = regexp.MustCompile(`(?i)\x{2191}\x{2193}\s+navigate\s+enter\s+select\s+escape/ctrl\+c\s+cancel`)
+	piInputHintRe = regexp.MustCompile(`(?i)enter\s+submit\s+escape/ctrl\+c\s+cancel`)
 	// The extension editor paints a lone "ctrl+g external editor" hint.
 	externalEditorRe = regexp.MustCompile(`(?i)external editor`)
 	// SelectList renders its position as a standalone "(n/m)" line.
@@ -35,6 +45,37 @@ var (
 	// ANSI styling around the chrome; strip before matching.
 	ansiRe = regexp.MustCompile("\x1b\\[[0-9;?]*[a-zA-Z]|\x1b\\][^\x07]*\x07")
 )
+
+// piHintAtEnd matches pi's hint discipline (their hintAtEnd): the hint
+// must sit at the END of the pane text, with at most a few lines of
+// pi's own footer (folder, context meter) below it. A dialog already
+// answered leaves its hint far above later content, which is what an
+// unanchored match would wrongly keep offering.
+func piHintAtEnd(plain string) bool {
+	lines := strings.Split(plain, "\n")
+	// Trim trailing empties first, so blank padding cannot push the hint
+	// out of the window.
+	end := len(lines)
+	for end > 0 && strings.TrimSpace(lines[end-1]) == "" {
+		end--
+	}
+	lines = lines[:end]
+	// The hint may sit a few rows above the bottom (pi paints its footer
+	// under every dialog), and a phone-width pane can wrap it, so test
+	// growing joins of the trailing lines.
+	const window = 6
+	start := end - window
+	if start < 0 {
+		start = 0
+	}
+	for i := start; i < end; i++ {
+		joined := strings.Join(lines[i:], " ")
+		if piMenuHintRe.MatchString(joined) || piInputHintRe.MatchString(joined) {
+			return true
+		}
+	}
+	return false
+}
 
 // dialogOpen reports whether a pane's recent text carries dialog
 // chrome. A cue, not a gate: a rare prose false positive only costs a
@@ -45,6 +86,7 @@ func dialogOpen(text string) bool {
 	}
 	plain := ansiRe.ReplaceAllString(text, "")
 	return hintBarRe.MatchString(plain) ||
+		piHintAtEnd(plain) ||
 		externalEditorRe.MatchString(plain) ||
 		selectCounterRe.MatchString(plain)
 }

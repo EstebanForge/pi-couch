@@ -2,13 +2,17 @@ package server
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/EstebanForge/couch-pi/internal/herdr"
 )
 
-// The chrome lines come from a live pi /model picker (2026-10-13 probe):
+// The chrome lines come from a live pi /model picker (2026-10-13 probe)
+// plus herdr-web-ui's measured pi 1.2 signatures (prompt.ts PI_*_RE):
+// the select/confirm menu and the input line paint space-separated
+// hints with no middle dot, so the generic hint-bar regex never saw them.
 //
 //	Enter to select · Ctrl+S to set as default · Escape/Ctrl+C to cancel
 func TestDialogOpenSignatures(t *testing.T) {
@@ -21,6 +25,11 @@ func TestDialogOpenSignatures(t *testing.T) {
 		{"model picker hint bar", modelPicker, true},
 		{"extension editor external hint", "some draft\n  ctrl+g external editor\n", true},
 		{"select counter", "  (3/25)", true},
+		{"pi select menu hint", "\x1b[2m↑↓ navigate  enter select  escape/ctrl+c cancel\x1b[0m", true},
+		{"pi input hint", "  enter submit  escape/ctrl+c cancel", true},
+		{"pi hint with footer below", "↑↓ navigate  enter select  escape/ctrl+c cancel\n~/Dev/EstebanForge/couch-pi\n55.5k/1.0M tokens", true},
+		{"buried answered hint", "↑↓ navigate  enter select  escape/ctrl+c cancel\n" + strings.Repeat("some later transcript line\n", 8), false},
+		{"prose mentions enter and cancel", "you can press enter to select an option or escape to cancel at any time", false},
 		{"plain transcript", "The user asks to reply with just ok.\n", false},
 		{"token footer", "↑55k ↓15 $0.008 5.5%/1.0M (auto)   (zai) glm-5.3-flash · high\n", false},
 		{"empty", "", false},
