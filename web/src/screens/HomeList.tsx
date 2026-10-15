@@ -1,4 +1,4 @@
-import { Panel } from "konsta/react";
+import { Fab, Panel } from "konsta/react";
 import { Fragment, useEffect, useState } from "react";
 import type { SessionsSnapshot } from "../api";
 import { relTime, short } from "../fmt";
@@ -6,6 +6,7 @@ import { navigate } from "../nav";
 import { type PushState, pushState, togglePush } from "../push";
 import { grouped, useSessions } from "../state/sessions";
 import { connectStream } from "../stream";
+import { NewSessionSheet } from "../components/NewSessionSheet";
 import { Spinner } from "../components/Spinner";
 import { STATUS_DOT, isWaiting } from "../status";
 
@@ -18,6 +19,7 @@ export default function HomeList() {
 	const [query, setQuery] = useState("");
 	const [size, setSize] = useState(LIST_WINDOW);
 	const [loadingMore, setLoadingMore] = useState(false);
+	const [createOpen, setCreateOpen] = useState(false);
 
 	// Grow the window one step per tap. The spinner must paint first
 	// and the step lands after a deliberate 500ms beat, so the load is
@@ -244,6 +246,24 @@ export default function HomeList() {
 			{/* Side menu: opens only from the home hamburger, no edge swipe,
 			    so it never fights the Android Back gesture. Empty but for
 			    settings until stage 8. */}
+			<NewSessionSheet opened={createOpen} onClose={() => setCreateOpen(false)} />
+			{/* position:fixed overlays escape root/body padding, so the FAB
+			    carries its own safe-area offset (the pb-safe-all rule) */}
+			<div
+				className="pb-safe-all fixed right-4 bottom-4 z-40"
+				style={{ position: "fixed", bottom: "calc(var(--safe-bottom, 0px) + 16px)", left: "auto", top: "auto" }}
+			>
+				<Fab
+					aria-label="New agent"
+					icon={
+						<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
+							<path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+						</svg>
+					}
+					onClick={() => setCreateOpen(true)}
+					colors={{ bgMaterial: "bg-primary", textMaterial: "text-primary-content", touchRipple: "touch-ripple-primary" }}
+				/>
+			</div>
 			<Panel
 				side="left"
 				opened={menuOpen}

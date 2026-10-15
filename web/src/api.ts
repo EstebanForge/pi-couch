@@ -65,6 +65,34 @@ export async function getSessions(): Promise<SessionsSnapshot> {
 	return (await res.json()) as SessionsSnapshot;
 }
 
+// --- new agent: folder picker and create ---
+
+export type DirsResponse = {
+	path: string;
+	parent?: string;
+	dirs: { name: string; path: string }[];
+	truncated?: boolean;
+	error?: string;
+};
+
+export async function getDirs(path?: string): Promise<DirsResponse> {
+	const q = path ? `?path=${encodeURIComponent(path)}` : "";
+	const res = await fetch(`/api/dirs${q}`);
+	if (!res.ok) throw new Error(`dirs ${res.status}`);
+	return (await res.json()) as DirsResponse;
+}
+
+export async function createAgent(cwd: string, prompt: string): Promise<{ key: string }> {
+	const res = await fetch("/api/agents", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ cwd, prompt }),
+	});
+	const body = (await res.json().catch(() => ({}))) as { key?: string; error?: string };
+	if (!res.ok || !body.key) throw new Error(body.error || `create ${res.status}`);
+	return { key: body.key };
+}
+
 // --- stage 4: changes, files, comments ---
 
 export type ChangeFile = {

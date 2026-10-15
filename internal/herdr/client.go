@@ -130,6 +130,49 @@ func (c *Client) WorkspaceClose(ctx context.Context, workspaceID string) error {
 	return err
 }
 
+// WorkspaceCreate opens a workspace and returns its id plus the root
+// pane id (the pane an agent starts in). focus stays false so the
+// desk's own focused pane is untouched. Params per protocol 22 schema:
+// label and cwd are nullable strings, focus defaults false.
+func (c *Client) WorkspaceCreate(ctx context.Context, label, cwd string) (string, string, error) {
+	res, err := c.call(ctx, "workspace.create", map[string]any{"label": label, "cwd": cwd, "focus": false})
+	if err != nil {
+		return "", "", err
+	}
+	var out struct {
+		Workspace struct {
+			WorkspaceID string `json:"workspace_id"`
+		} `json:"workspace"`
+		RootPane struct {
+			PaneID string `json:"pane_id"`
+		} `json:"root_pane"`
+	}
+	if err := json.Unmarshal(res, &out); err != nil {
+		return "", "", fmt.Errorf("workspace.create result: %w", err)
+	}
+	if out.Workspace.WorkspaceID == "" || out.RootPane.PaneID == "" {
+		return "", "", fmt.Errorf("workspace.create result missing workspace_id or root_pane")
+	}
+	return out.Workspace.WorkspaceID, out.RootPane.PaneID, nil
+}
+
+// AgentStart launches a pi (or other kind) agent in a pane. name, kind
+// and pane_id are required by the schema; timeout_ms is left out and
+// herdr's default applies.
+func (c *Client) AgentStart(ctx context.Context, name, kind, paneID string) (Agent, error) {
+	res, err := c.call(ctx, "agent.start", map[string]any{"name": name, "kind": kind, "pane_id": paneID})
+	if err != nil {
+		return Agent{}, err
+	}
+	var out struct {
+		Agent Agent `json:"agent"`
+	}
+	if err := json.Unmarshal(res, &out); err != nil {
+		return Agent{}, fmt.Errorf("agent.start result: %w", err)
+	}
+	return out.Agent, nil
+}
+
 // AgentWait blocks until the agent transitions into one of the until states
 // and returns the agent object. Verified against herdr 0.9.3: the call fires
 // on transitions into a state, not on state equality, so a re-armed watcher

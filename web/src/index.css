@@ -17,6 +17,7 @@
 @source "../node_modules/konsta/react/components/Button.js";
 @source "../node_modules/konsta/react/components/Dialog.js";
 @source "../node_modules/konsta/react/components/DialogButton.js";
+@source "../node_modules/konsta/react/components/Fab.js";
 @source "../node_modules/konsta/react/components/Icon.js";
 @source "../node_modules/konsta/react/components/Navbar.js";
 @source "../node_modules/konsta/react/components/NavbarBackLink.js";
@@ -26,6 +27,7 @@
 @source "../node_modules/konsta/shared/classes/AppClasses.js";
 @source "../node_modules/konsta/shared/classes/ButtonClasses.js";
 @source "../node_modules/konsta/shared/classes/DialogClasses.js";
+@source "../node_modules/konsta/shared/classes/FabClasses.js";
 @source "../node_modules/konsta/shared/classes/IconClasses.js";
 @source "../node_modules/konsta/shared/classes/NavbarBackLinkClasses.js";
 @source "../node_modules/konsta/shared/classes/NavbarClasses.js";
