@@ -185,14 +185,13 @@ func (ix *Index) parse(path, key string, st os.FileInfo) (SessionMeta, bool) {
 		return SessionMeta{}, false
 	}
 	defer f.Close()
-	h, err := ParseHeader(f)
-	if err != nil {
+	// One pass: header and entries come out of the same read. The old
+	// two-pass shape (ParseHeader, then Seek(0) + ParseEntries) read a
+	// growing session twice per meta miss.
+	h, entries, found := parseAll(f)
+	if !found {
 		return SessionMeta{}, false
 	}
-	if _, err := f.Seek(0, 0); err != nil {
-		return SessionMeta{}, false
-	}
-	entries := ParseEntries(f)
 
 	meta := SessionMeta{
 		Key:     key,
@@ -353,55 +352,79 @@ func (ix *Index) branchItems(key string, textLimit int) ([]ViewItem, error) {
 // appended since the previous call for this session. The offset always
 // sits on a newline boundary, so a line the writer has not finished is
 // picked up once it is complete, never duplicated.
+//
+// The cache check and the commit run under the lock, but the file read
+// and parse run OUTSIDE it: a slow full parse must never head-of-line
+// block the cachedMeta lookups that share the mutex. Concurrent callers
+// may parse the same delta twice; a commit only lands when the cache
+// still holds the state it was computed from, and after two lost races
+// the last write wins - the entries are level-triggered from file
+// bytes, so racing results are identical.
 func (ix *Index) tailEntries(key, path string, size int64) ([]Entry, error) {
-	ix.mu.Lock()
-	defer ix.mu.Unlock()
-	tc := ix.tail
-	if tc != nil && tc.key == key && tc.path == path {
-		if tc.offset == size {
-			return tc.entries, nil
+	for attempt := 0; ; attempt++ {
+		ix.mu.Lock()
+		tc := ix.tail
+		same := tc != nil && tc.key == key && tc.path == path
+		if same && tc.offset == size {
+			out := tc.entries
+			ix.mu.Unlock()
+			return out, nil
 		}
-		if tc.offset < size {
+		if same && tc.offset < size && attempt < 2 {
+			base := tc
+			ix.mu.Unlock()
 			f, err := os.Open(path)
 			if err != nil {
 				return nil, err
 			}
-			defer f.Close()
-			buf := make([]byte, size-tc.offset)
-			n, rerr := f.ReadAt(buf, tc.offset)
+			buf := make([]byte, size-base.offset)
+			n, rerr := f.ReadAt(buf, base.offset)
+			f.Close()
 			if rerr != nil && rerr != io.EOF {
 				return nil, rerr
 			}
 			buf = buf[:n]
 			if i := bytes.LastIndexByte(buf, '\n'); i >= 0 {
 				fresh := ParseEntries(bytes.NewReader(buf[:i+1]))
-				entries := make([]Entry, 0, len(tc.entries)+len(fresh))
-				entries = append(entries, tc.entries...)
+				entries := make([]Entry, 0, len(base.entries)+len(fresh))
+				entries = append(entries, base.entries...)
 				entries = append(entries, fresh...)
-				ix.tail = &tailCache{key: key, path: path, offset: tc.offset + int64(i+1), entries: entries}
-				return ix.tail.entries, nil
+				next := &tailCache{key: key, path: path, offset: base.offset + int64(i+1), entries: entries}
+				ix.mu.Lock()
+				if ix.tail == base { // nobody advanced the cache meanwhile
+					ix.tail = next
+					ix.mu.Unlock()
+					return next.entries, nil
+				}
+				ix.mu.Unlock()
+				continue // the cache moved under us: recompute from the newer state
 			}
 			// Nothing complete in the delta yet.
-			return tc.entries, nil
+			return base.entries, nil
 		}
+		ix.mu.Unlock()
+		// First view, a different session, a shrunk file, or a lost race on
+		// the delta path: full parse, then commit. Last write wins on a
+		// race, the same tolerance cachedMeta documents.
+		f, err := os.Open(path)
+		if err != nil {
+			return nil, err
+		}
+		data, err := io.ReadAll(f)
+		f.Close()
+		if err != nil {
+			return nil, err
+		}
+		consumed := int64(len(data))
+		if i := bytes.LastIndexByte(data, '\n'); i >= 0 && i != len(data)-1 {
+			consumed = int64(i + 1) // a torn trailing line waits for its newline
+		}
+		entries := ParseEntries(bytes.NewReader(data[:consumed]))
+		ix.mu.Lock()
+		ix.tail = &tailCache{key: key, path: path, offset: consumed, entries: entries}
+		ix.mu.Unlock()
+		return entries, nil
 	}
-	// First view, a different session, or a shrunk file: full parse.
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	data, err := io.ReadAll(f)
-	if err != nil {
-		return nil, err
-	}
-	consumed := int64(len(data))
-	if i := bytes.LastIndexByte(data, '\n'); i >= 0 && i != len(data)-1 {
-		consumed = int64(i + 1) // a torn trailing line waits for its newline
-	}
-	entries := ParseEntries(bytes.NewReader(data[:consumed]))
-	ix.tail = &tailCache{key: key, path: path, offset: consumed, entries: entries}
-	return entries, nil
 }
 
 func messageItems(e Entry, textLimit int) []ViewItem {

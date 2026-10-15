@@ -103,17 +103,18 @@ func (m *Message) Blocks() []Block {
 }
 
 // ParseHeader reads the session header from the first parseable line.
+// It stops reading at the header: a session can be many megabytes, and
+// the bytes after the header are parse()'s job.
 func ParseHeader(r io.Reader) (Header, error) {
 	var h Header
 	found := false
-	parseLines(r, func(line string) {
-		if found {
-			return
-		}
+	parseLines(r, func(line string) bool {
 		var x Header
 		if json.Unmarshal([]byte(line), &x) == nil && x.Type == "session" {
 			h, found = x, true
+			return false
 		}
+		return true
 	})
 	if !found {
 		return Header{}, io.ErrUnexpectedEOF
@@ -125,24 +126,53 @@ func ParseHeader(r io.Reader) (Header, error) {
 // a torn final line from a live writer must not fail the read.
 func ParseEntries(r io.Reader) []Entry {
 	var out []Entry
-	parseLines(r, func(line string) {
+	parseLines(r, func(line string) bool {
 		var e Entry
 		if json.Unmarshal([]byte(line), &e) == nil {
 			out = append(out, e)
 		}
+		return true
 	})
 	return out
 }
 
-// parseLines yields every non-empty line with no size cap. bufio.Scanner
-// dies on ErrTooLong and silently drops the rest of the file, so one huge
-// entry (a base64 image) would truncate the whole session.
-func parseLines(r io.Reader, fn func(line string)) {
+// parseAll decodes a session in one pass: the header and every entry
+// come out of a single read. The old two-pass shape (ParseHeader, then
+// Seek(0) + ParseEntries) read a growing session twice per meta miss.
+// Parity rules: the header line itself decodes as an entry, and only
+// unparseable lines are dropped.
+func parseAll(r io.Reader) (Header, []Entry, bool) {
+	var h Header
+	found := false
+	var out []Entry
+	parseLines(r, func(line string) bool {
+		var e Entry
+		if json.Unmarshal([]byte(line), &e) == nil {
+			out = append(out, e)
+			if !found && e.Type == "session" {
+				var x Header
+				if json.Unmarshal([]byte(line), &x) == nil {
+					h, found = x, true
+				}
+			}
+		}
+		return true
+	})
+	return h, out, found
+}
+
+// parseLines yields every non-empty line with no size cap; the callback
+// returns false to stop reading early. bufio.Scanner dies on ErrTooLong
+// and silently drops the rest of the file, so one huge entry (a base64
+// image) would truncate the whole session.
+func parseLines(r io.Reader, fn func(line string) bool) {
 	rd := bufio.NewReaderSize(r, 64*1024)
 	for {
 		line, err := rd.ReadString('\n')
 		if s := strings.TrimSpace(line); s != "" {
-			fn(s)
+			if !fn(s) {
+				return
+			}
 		}
 		if err != nil {
 			return
