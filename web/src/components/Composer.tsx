@@ -44,6 +44,9 @@ export function Composer(props: {
 	const fileInput = useRef<HTMLInputElement | null>(null);
 	const keyChain = useRef<Promise<unknown>>(Promise.resolve());
 	const nextId = useRef(1);
+	// One request per intent: a double-tap on send (or Alt+Enter while a
+	// send is in flight) must not POST twice - pi would queue both.
+	const sending = useRef(false);
 
 	useEffect(() => {
 		localStorage.setItem(draftStoreKey, text);
@@ -64,6 +67,8 @@ export function Composer(props: {
 	const canSend = hasText && !uploading;
 
 	const sendText = async (body: string, queued: boolean, draft?: string) => {
+		if (sending.current) return;
+		sending.current = true;
 		const id = props.addPending(body, queued);
 		// With attachments the body carries upload paths the textarea
 		// never held; only the text part can leave the box.
@@ -88,6 +93,7 @@ export function Composer(props: {
 			// Unknown: a duplicate prompt is worse than a lost one.
 			props.markPending(id, "unconfirmed");
 		}
+		sending.current = false;
 	};
 
 	const onSubmit = () => {
