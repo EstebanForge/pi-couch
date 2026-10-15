@@ -144,37 +144,40 @@ For a single-user, pi-only, one-binary tool these are rejected, not deferred:
 
 Fresh clone, full read of their pi path: `server/pi.ts`, `server/pi-tree.ts`, `server/pi-models.ts`, `server/prompt.ts` (pi dialog parse + answer), `server/conversation.ts`, `server/transcript-records.ts`, `server/conversation-monitor.ts`, `src/lib/promptAnswer.ts`, `src/lib/keyBar.ts`. Citations are `file(function)`. Focus per Esteban: techniques to mimic for pi, dialogs, and extension compatibility.
 
+Corrections 2026-10-15: an adversarial review pass (Claude session 808275a5, verified against both their source and ours) fixed several overstatements below — the 9.4 per-key claim, the 9.1 parse claim, the fail-closed cap, and the context_clear scope. The corrected text is authoritative.
+
 ### 9.1 Session-file engineering (`pi-tree.ts`) — beyond our internal/pi
 
-- The session tree is indexed as byte RANGES (`PiEntry {id, parent, start, end, type, role}`), and the active branch is projected to merged segments (`piBranchSegments`). The conversation, tool outputs, and images read ONLY the branch's bytes; side branches a `/tree` left behind are never parsed. We full-parse.
+- The session tree is indexed as byte RANGES (`PiEntry {id, parent, start, end, type, role}`), and the active branch is projected to merged segments (`piBranchSegments`). The INDEX still JSON.parses every line including side branches; it is the conversation, tool-output, and image READS that touch only the branch's bytes. We read everything.
 - Cache revalidation is `dev:ino` identity plus a 64-byte tail read before the scan offset (`piEntryIndex`, `readBefore`): appends reuse the index, a rewrite/truncation/same-path replacement rebuilds. We key on path+mtime+size only; dev:ino catches a file swapped in place.
-- An LRU of 4 file indexes with budgets (100k entries, 16MB per record, 32MB metadata) that fail CLOSED by throwing, caught to null (`addEntry`, `MAX_PI_*`). We hold exactly one tailCache session.
+- An LRU of 4 file indexes with budgets (100k entries, 16MB per record, 32MB metadata) that fail CLOSED by throwing, caught to null (`addEntry`, `MAX_PI_*`). We hold exactly one tailCache session. Trap, not feature: a session over 100k entries makes their chat UNAVAILABLE, not partial — wrong trade for a single-user tool; do not copy the caps.
 - Incremental extension reads 4MB chunks and carries `open` line fragments across chunk boundaries for multi-MB records (base64 images), joining once (`extendIndex`). Appends never re-scan; `scanned` always sits on a newline.
-- Leaf walk uses a `seen` set cycle guard and a byId map where later appends win — we have the cycle guard; their byId-last-wins closes a duplicate-id hole.
+- Leaf walk uses a `seen` set cycle guard and a byId map where later appends win — our `ActivePath` already overwrites byID last-wins and carries the cycle guard, so nothing to port here.
 
 ### 9.2 pi entry semantics we do not yet model (`transcript-records.ts`)
 
 - `piMessage` normalizes pi-family content-block spellings once: `toolCall`/`toolName`/`toolCallId`/`toolInput` vs `name`/`id`/`input`, `toolResult` `output`/`content`/`result`. Providers behind pi spell fields differently; normalize at the edge.
 - `display: false` entries (entry or message level) are not conversation. `custom_message` with `display: true` renders as a notice in the user's seat (`piNotice`), with `<system-notice>` envelopes stripped. Our census flattens customs; this is their rule.
-- `context_clear` custom entries are the `/clear` boundary: conversation pages AND tool-output/image reads start after the last clear (`isContextClear`, `activeHistoryText`). A ref that predates the clear must not answer.
+- `context_clear` custom entries are the `/clear` boundary: conversation pages AND tool-output reads start after the last clear (`isContextClear`, `activeHistoryText`); a ref that predates the clear must not answer. Scope notes: `context_clear` looks like an omp/OmO/gjc entry and plain pi may never write it (unverified); and `piTranscriptImage` does NOT honor it — only the tool-output read does.
 - Tool results carry inline base64 images. The wire carries only a position ref `pi:<callId>:<nth>`; bytes are fetched on demand from the branch (`piTranscriptImage`), never shipped with every poll. Refs validate against strict regexes before any read.
 - Whole tool output on demand by ref: branch-only read, 2MB cap, and a substring prefilter (`line.includes(needle)`) so JSON.parse runs only on lines that can hold the answer (`piToolOutput`). context_clear resets the result during the scan.
 - pi reports the session path before the file exists (first write lands with the first answer): `unwrittenSession` surfaces an "unwritten" placeholder session with the nearest existing in-store ancestor, so the UI shows the session as not-yet-started instead of missing (`pi.ts`). We discovered the birth-at-first-prompt fact live; they render it.
 
 ### 9.3 Dialog detection: the discipline our awaiting.go lacks (`prompt.ts`)
 
-- The screen comes from `herdr paneRead {source: "detection", format: "text"}` (`liveScreen`) — herdr's own detection screen, not our `recent` lines=8. Worth probing on our herdr build.
+- The screen comes from `herdr paneRead {source: "detection", format: "text"}` (`liveScreen`) — herdr's own detection screen, not our `recent` lines=8. Confirmed present in OUR herdr build: the protocol-22 schema enum reads `["visible","recent","recent_unwrapped","detection"]`. One open question before relying on it: herdr's `screen_detection_skipped` flag suggests detection can be skipped per pane and return empty — a poller that reads empty as "no dialog" would fail quietly, so test that first.
 - Four pi responders, each with its own hint: `pi-question` (`↑↓ navigate enter select escape/ctrl+c cancel`), `pi-confirm` (two rows Yes/No), `pi-input` (`enter submit escape/ctrl+c cancel` on a `›` line), `pi-model` (`Enter to select · Ctrl+S to set as default · Escape/Ctrl+C to cancel`). We match one generic hint-bar signature.
-- Hints anchor to the END of the screen with a footer allowance (`hintAtEnd`, `PI_FOOTER_LINES = 2`): pi keeps its folder+meter footer under every dialog, and a phone-width pane wraps the hint, so 1-3 line joins are tried. Anchoring is what keeps an ANSWERED, buried dialog from offering keys. Our match-any-line regex has no such discipline.
+- Hints anchor to the END of the screen with a footer allowance (`hintAtEnd`; join span 4 for pi's select/confirm/input, default 3 for `pi-model`): pi keeps its folder+meter footer under every dialog, and a phone-width pane wraps the hint. Anchoring is what keeps an ANSWERED, buried dialog from offering keys. Our match-any-line regex has no such discipline.
 - Wrapped rows join before parsing: `PI_WRAPPED_REST_RE` (a line one column in, no cursor) is the rest of the previous option; model-row tails (`[provider] · default` alone on a line) join back. Measured at 46 columns. Our detector never joins.
-- Row rules: every block line must be a single-label row (two-column lines void the read — the slash palette would run a command on a click); the cursor must sit on the FIRST row (`cursor !== 0` = moved by hand, no card); `/tree` is deliberately never answered (its `↑/↓ move` hint differs; answering would move branches with no undo). Yes/No reads as a confirmation and "No" is PRESSED, not escaped (`rejectWithEscapeIndex: null`) — Escape leaves pi's confirm unanswered.
-- pi never reports itself blocked for a dialog — their comment matches our ADR-0007 finding — so cards come from the screen alone, for pi as for the other agents.
+- Row rules: every block line must be a single-label row (two-column lines void the read — the slash palette would run a command on a click); the cursor must sit on the FIRST row for `pi-question`/`pi-confirm` and only before any keys are sent (`cursor !== 0` = moved by hand, no card; `pi-input` has no cursor rule); `/tree` is deliberately never answered (its `↑/↓ move` hint differs; answering would move branches with no undo). Yes/No reads as a confirmation and "No" is PRESSED, not escaped (`rejectWithEscapeIndex: null`) — Escape leaves pi's confirm unanswered.
+- pi never reports itself blocked for a dialog, so cards come from the screen alone. Nuance: pi DOES emit OSC 7501 `blocked`, but herdr does not consume it — same net effect as our ADR-0007 finding.
 
-### 9.4 Answering: per-keystroke screen verification (`prompt.ts` `answerKeys` + the answer route)
+### 9.4 Answering: stale-card protection, not per-key verification (`prompt.ts` `answerKeys` + the answer route)
 
-- Navigation is verified key by key: after each move, re-read the screen and confirm the dialog id and cursor position (`aimed()`) within a settle window polled at 50ms, before the next key. If the prompt vanished mid-answer ("nobody waits"), stop — nothing irreversible fires.
-- `pi-model` verifies the MODEL UNDER THE CURSOR by name before Enter (the catalogue scrolls under the cursor, so rows change on the way down; "a wrong model answers every later turn silently").
-- `pi-input`: no Enter before typing (pi's `›` line would submit empty), then `ctrl+k`, `ctrl+u` to clear pi's editor line (their measured 0.87.1 keys) before the text, then Enter.
+- Corrected: the per-keystroke settle polls (`onRow`, 50ms) run only for the LIST responders — Claude model and effort, Codex model, `fallback-gjc-menu`. NOT pi. pi's moves go out as a burst with a 30ms sleep between steps (`prompt.ts:3636`); there is ONE re-read before the first non-move key, and only when the cursor was moved. `pi-question` with zero moves gets no extra re-read; `pi-input` is never re-verified. (An earlier version of this section sold the per-key loop as pi's protection — wrong.)
+- What actually makes pi answering safe: prompts are content-hash id'd, a per-pane asking counter serializes answers, the answer route answers 409 `prompt_changed` when the on-screen id differs from the card's, and every irreversible key checks that somebody still waits. That stale-card discipline is the part worth copying.
+- `pi-model` answering verifies the MODEL UNDER THE CURSOR by name before Enter (the catalogue scrolls under the cursor, so rows change on the way down; "a wrong model answers every later turn silently"). Even so, our verdict: do NOT copy pi-model answering — the picker can save a default.
+- `pi-input`: no Enter before typing (pi's `›` line would submit empty), then `ctrl+k`, `ctrl+u` to clear pi's editor line (their measured 0.87.1 keys) before the text, then Enter. Our verdict: do not copy — it types into pi's editor blind.
 - Client side, the composer doubles as an answer surface: a typed number, exact label, or bound letter ("Yes, proceed (y)") answers the pending card; anything else is the custom text when the dialog allows one (`promptAnswer.ts answerFromText`). Our quick keys could adopt the number/letter mapping when a dialog pill is live.
 
 ### 9.5 pi model catalog (`pi-models.ts`)
@@ -186,13 +189,15 @@ Fresh clone, full read of their pi path: `server/pi.ts`, `server/pi-tree.ts`, `s
 
 - `ConversationMonitor`: one 250ms stat loop for all watched panes, resolution retried on 2s/5s backoff, identity salted with `dev:ino:size:mtimeMs:ctimeMs`; per-pane interest tracking, never a global parser.
 - Their key bar supports named keys up to F12 including PageUp/PageDown because their input path is a PTY; herdr send-keys has no page keys, so this stays unportable for us (matches the quick-keys decision).
-- `guardRe`: builds hint regexes where every space is optional, so a narrow pane's mid-word wrap cannot kill the match. A cheap upgrade for our awaiting.go signatures.
+- `guardRe`: builds hint regexes where every space is optional, so a narrow pane's mid-word wrap cannot kill the match — but it is used only for the CLAUDE hints. The pi hints use `\s+` joins, so a mid-word wrap would not match for pi anyway. Not a portable upgrade.
 - Answer-state hygiene: prompts are immutable objects with a parsed-side map (`parsedByPublicPrompt`); answers throw on prompts they were not produced from. Prevents answering a stale card.
 
-### 9.7 Candidate follow-ups for Couch Pi (proposals, awaiting Esteban)
+### 9.7 Adoption verdicts (post-review 2026-10-15)
 
-1. Probe `pane.read source:"detection"` on our herdr; if present, rebase awaiting.go on it with hintAtEnd end-anchoring, wrap joining, and guardRe spacing.
-2. Extend the dialog bridge UI: bridge gives kind+title (already shipped); add option rows from the screen with the per-key verify-then-fire answering route, esc-first for pi-input lines.
-3. Port the pi-tree techniques into internal/pi: dev:ino+tail revalidation, LRU(4) byte-budget index, branch-as-byte-segments projection (also fixes our full-parse meta cost), duplicate-id last-wins.
-4. Adopt their entry semantics: display:false filtering, context_clear boundaries, image refs with on-demand branch reads, normalized block spellings.
-5. Context ring from models.json with their no-guess rule.
+The five original candidates were reviewed adversarially and re-scoped:
+
+1. Detector hardening — ADOPTED (narrow): switch to `source:"detection"` where cheap, end-anchored hints with the footer allowance, and pi's real select/confirm/input signatures. Skip wrap-joining and the cursor rule (they only matter for parsing rows to answer). Our `hintBarRe` wants a `·` separator, so pi's space-separated select/confirm/input hints never match today.
+2. Answer cards — DEFERRED, confirm dialogs only, behind a stale-card id with 409 and a pre-fire re-read. Never pi-input (blind typing) or pi-model (can save a default).
+3. pi-tree engineering — ADOPTED only the cheap defects: the double full-file read in our `parse` path and the tail-cache lock held across IO. Skip LRU(4)/byte budgets/branch projection — they solve multi-agent scale we do not have, and the fail-closed caps would be a trap.
+4. Entry semantics — placeholder session ("unwritten") worth doing; `display:false` only after a census of real sessions; images/spellings/context_clear skipped for now.
+5. Context ring — DEFERRED. `models.json` covers custom providers only; cosmetic.

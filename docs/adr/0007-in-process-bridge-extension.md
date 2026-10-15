@@ -57,9 +57,19 @@ Rejected options:
   structured requests: technically reachable in-process, but it
   mutates undocumented internals of pi's runtime. Violates the
   API-only rule; rejected.
-- Direct bridge-to-Couch-Pi HTTP dial for the signal: unnecessary
-  transport when the herdr payload carries the label; kept only as a
-  noted fallback if a future herdr change drops the label.
+- Direct bridge-to-Couch-Pi HTTP dial for the signal: originally
+  rejected as an unnecessary transport.
+
+Amendment 2026-10-15: the live probe falsified the assumption behind
+that rejection. herdr's agent.list drops the reported label entirely
+(state_labels and title stay empty while agent_status flips to
+blocked), so the dialog title cannot travel through herdr at all. The
+bridge therefore ALSO fires a fire-and-forget HTTP dial to Couch Pi
+(POST /api/bridge/dialog with {phase, kind, title, session_path},
+COUCHPI_URL overridable) as the PRIMARY leg for kind and title, and
+herdr carries only the blocked status. This shipped in the bridge
+extension and internal/server/bridge.go; the ADR text above is kept
+for the record of what was originally assumed.
 
 ## Consequences
 
@@ -67,11 +77,14 @@ Rejected options:
   pi-me family confirms and editors, MCP prompts). Pickers and
   custom() overlays stay on the regex detector.
 - The extension must be installed per machine where dialogs should
-  surface. Without it, the regex detector still works.
+  surface. Without it, herdr's blocked status still surfaces (via the
+  herdr:blocked mapping) but the phone gets no kind or title, and the
+  regex detector is the only signal left.
 - pi version coupling is narrow: two event names. The bridge
   feature-detects (no events, no signal) and degrades silently.
 - herdr mapping dependency: herdr's managed integration (v9) turns
-  herdr:blocked into agent status. If herdr changes that, the regex
-  detector is the safety net.
+  herdr:blocked into agent status but drops the label; the title rides
+  the bridge's direct dial instead. If herdr changes the status
+  mapping, the regex detector is the safety net.
 - The phone answer path stays keystrokes. No structured answer channel
   exists under the API-only rule.
