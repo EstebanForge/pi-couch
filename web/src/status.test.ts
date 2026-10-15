@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { STATUS_DOT, isWaiting } from "./status";
+import { isWaiting, STATUS_DOT } from "./status";
 
 describe("isWaiting", () => {
 	it("marks working and blocked as waiting", () => {

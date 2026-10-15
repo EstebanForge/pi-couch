@@ -164,7 +164,10 @@ export default function ChangesScreen({ sessionKey }: { sessionKey: string }) {
 		: undefined;
 
 	return (
-		<div className="mx-auto flex min-h-dvh max-w-3xl flex-col" style={{ paddingBottom: "var(--safe-bottom, 0px)", paddingTop: "64px" }}>
+		<div
+			className="mx-auto flex min-h-dvh max-w-3xl flex-col"
+			style={{ paddingBottom: "var(--safe-bottom, 0px)", paddingTop: "64px" }}
+		>
 			<Navbar
 				left={
 					back ? (

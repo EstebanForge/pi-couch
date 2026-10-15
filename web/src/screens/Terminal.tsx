@@ -198,7 +198,10 @@ export default function TerminalScreen({ sessionKey }: { sessionKey: string }) {
 	const back = () => history.back();
 
 	return (
-		<div className="mx-auto flex min-h-dvh max-w-3xl flex-col" style={{ paddingBottom: "var(--safe-bottom, 0px)", paddingTop: "64px" }}>
+		<div
+			className="mx-auto flex min-h-dvh max-w-3xl flex-col"
+			style={{ paddingBottom: "var(--safe-bottom, 0px)", paddingTop: "64px" }}
+		>
 			<Navbar
 				left={<NavbarBackLink onClick={back} />}
 				title="Terminal"

@@ -41,11 +41,21 @@ export const useSessions = create<SessionsState>((set) => ({
 		set({ status: "loading", error: "" });
 		try {
 			const snap = await getSessions();
-			set({ sessions: snap.sessions, badges: snap.badges, awaiting: snap.awaiting ?? {}, status: "ok" });
+			set({
+				sessions: snap.sessions,
+				badges: snap.badges,
+				awaiting: snap.awaiting ?? {},
+				status: "ok",
+			});
 		} catch (e) {
 			set({ status: "error", error: e instanceof Error ? e.message : "load failed" });
 		}
 	},
 	apply: (snap) =>
-		set({ sessions: snap.sessions, badges: snap.badges, awaiting: snap.awaiting ?? {}, status: "ok" }),
+		set({
+			sessions: snap.sessions,
+			badges: snap.badges,
+			awaiting: snap.awaiting ?? {},
+			status: "ok",
+		}),
 }));

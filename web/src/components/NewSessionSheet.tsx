@@ -1,6 +1,6 @@
 import { Sheet } from "konsta/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { createAgent, getDirs, type DirsResponse } from "../api";
+import { createAgent, type DirsResponse, getDirs } from "../api";
 import { navigate } from "../nav";
 import { useSessions } from "../state/sessions";
 import { Spinner } from "./Spinner";
@@ -44,7 +44,9 @@ export function NewSessionSheet({ opened, onClose }: { opened: boolean; onClose:
 	}, [opened, load]);
 
 	const dirs = (browse?.dirs ?? []).filter(
-		(d) => (showHidden || !d.name.startsWith(".")) && d.name.toLowerCase().includes(filter.toLowerCase()),
+		(d) =>
+			(showHidden || !d.name.startsWith(".")) &&
+			d.name.toLowerCase().includes(filter.toLowerCase()),
 	);
 
 	const create = (cwd: string) => {
@@ -69,7 +71,9 @@ export function NewSessionSheet({ opened, onClose }: { opened: boolean; onClose:
 			className="pb-safe-all bg-base-200"
 		>
 			<div className="flex max-h-[80dvh] flex-col gap-2 p-3">
-				<div className="text-[13px] font-semibold tracking-wider text-muted uppercase">New agent</div>
+				<div className="text-[13px] font-semibold tracking-wider text-muted uppercase">
+					New agent
+				</div>
 
 				{recent.length > 0 && (
 					<div className="flex flex-wrap gap-1">

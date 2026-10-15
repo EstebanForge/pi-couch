@@ -6,16 +6,9 @@ import { useId } from "react";
 // prefers-reduced-motion renders the static blocks with no animation.
 
 const REDUCED =
-	typeof matchMedia === "function" &&
-	matchMedia("(prefers-reduced-motion: reduce)").matches;
+	typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-export function Spinner({
-	size = 14,
-	className = "",
-}: {
-	size?: number;
-	className?: string;
-}) {
+export function Spinner({ size = 14, className = "" }: { size?: number; className?: string }) {
 	const uid = useId();
 	const id = (n: string) => `${uid}${n}`;
 	const begin = (n: string) => `${id(n)}.end`;

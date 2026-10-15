@@ -11,5 +11,4 @@ export const STATUS_DOT: Record<string, string> = {
 
 // Waiting = the agent is mid-turn (working) or paused for our input
 // (blocked). Both get the spinner, not a static dot.
-export const isWaiting = (status: string): boolean =>
-	status === "working" || status === "blocked";
+export const isWaiting = (status: string): boolean => status === "working" || status === "blocked";

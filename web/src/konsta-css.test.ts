@@ -38,7 +38,9 @@ describe("konsta css pruning", () => {
 		expect(names.size).toBeGreaterThan(0);
 		const classesDir = join(here, "..", "node_modules", "konsta", "shared", "classes");
 		for (const name of names) {
-			expect(css, `${name}: missing components/${name}.js @source`).toContain(`components/${name}.js`);
+			expect(css, `${name}: missing components/${name}.js @source`).toContain(
+				`components/${name}.js`,
+			);
 			if (readdirSync(classesDir).includes(`${name}Classes.js`)) {
 				expect(css, `${name}: missing classes/${name}Classes.js @source`).toContain(
 					`classes/${name}Classes.js`,

@@ -2,7 +2,14 @@
 // reset/append/status; every reduction is a pure function here so the
 // logic is unit-testable without a DOM.
 
-import type { BridgeDialog, StreamItem, Todo, TranscriptAppend, TranscriptReset, TranscriptStatus } from "../api";
+import type {
+	BridgeDialog,
+	StreamItem,
+	Todo,
+	TranscriptAppend,
+	TranscriptReset,
+	TranscriptStatus,
+} from "../api";
 
 export type PendingMsg = {
 	id: number;
@@ -109,9 +116,7 @@ export function reduceStatus(s: DriverState, p: TranscriptStatus): DriverState {
 // results, bash, custom) into one collapsible row: the biggest scroll
 // length win on a 360px phone. Speech (user/text) and markers stay solo.
 // Blocks render collapsed; the reader opens them on demand.
-export type WorkBlock =
-	| { type: "item"; item: StreamItem }
-	| { type: "block"; items: StreamItem[] };
+export type WorkBlock = { type: "item"; item: StreamItem } | { type: "block"; items: StreamItem[] };
 
 const FOLDABLE = new Set(["thinking", "tool_call", "tool_result", "bash", "custom"]);
 

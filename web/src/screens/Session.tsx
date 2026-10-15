@@ -15,7 +15,6 @@ import { Spinner } from "../components/Spinner";
 import { navigate } from "../nav";
 import { TOOLS, toolEnabled } from "../session-tools";
 import { useSessions } from "../state/sessions";
-import { STATUS_DOT, isWaiting } from "../status";
 import {
 	addPending,
 	type DriverState,
@@ -28,6 +27,7 @@ import {
 	removePending,
 	type WorkBlock,
 } from "../state/transcript";
+import { isWaiting, STATUS_DOT } from "../status";
 import { connectStream, type StreamStatus } from "../stream";
 
 const LIMIT = 400; // client-side tail cap; the server re-resets past it
@@ -171,8 +171,7 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 	const blocks = useMemo(() => {
 		const q = query?.trim().toLowerCase();
 		const items = q ? state.items.filter((it) => it.text.toLowerCase().includes(q)) : state.items;
-		if (items.length > LIMIT)
-			return groupWorkBlocks(items.slice(items.length - LIMIT));
+		if (items.length > LIMIT) return groupWorkBlocks(items.slice(items.length - LIMIT));
 		return groupWorkBlocks(items);
 	}, [state.items, query]);
 
@@ -205,7 +204,10 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 	};
 
 	return (
-		<div className="flex h-dvh flex-col bg-base-100" style={{ paddingBottom: "var(--safe-bottom, 0px)" }}>
+		<div
+			className="flex h-dvh flex-col bg-base-100"
+			style={{ paddingBottom: "var(--safe-bottom, 0px)" }}
+		>
 			<header className="flex h-11 shrink-0 items-center gap-1 border-b border-base-300 px-1">
 				<button
 					type="button"
@@ -461,7 +463,9 @@ function TodoRow({ todo }: { todo: Todo }) {
 			{active ? (
 				<Spinner size={11} className="shrink-0 text-primary" />
 			) : (
-				<span className={`shrink-0 ${done ? "text-success" : "text-muted"}`}>{done ? "✓" : "○"}</span>
+				<span className={`shrink-0 ${done ? "text-success" : "text-muted"}`}>
+					{done ? "✓" : "○"}
+				</span>
 			)}
 			<span className="min-w-0 truncate">{todo.subject}</span>
 		</li>

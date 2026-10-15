@@ -22,7 +22,12 @@ const keys = (rows: SessionMeta[]) => rows.map((s) => s.key);
 
 describe("grouped", () => {
 	it("floats working and blocked above the rest, keeping recency inside groups", () => {
-		const rows = [meta("a", "2026-01-04T00:00:00Z"), meta("b", "2026-01-03T00:00:00Z"), meta("c", "2026-01-02T00:00:00Z"), meta("d", "2026-01-01T00:00:00Z")];
+		const rows = [
+			meta("a", "2026-01-04T00:00:00Z"),
+			meta("b", "2026-01-03T00:00:00Z"),
+			meta("c", "2026-01-02T00:00:00Z"),
+			meta("d", "2026-01-01T00:00:00Z"),
+		];
 		const badges = { "/p/b": "working", "/p/d": "blocked" };
 		expect(keys(grouped(rows, badges))).toEqual(["b", "d", "a", "c"]);
 	});
