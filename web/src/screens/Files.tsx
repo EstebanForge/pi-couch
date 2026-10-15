@@ -155,7 +155,7 @@ export default function FilesScreen({ sessionKey }: { sessionKey: string }) {
 				)}
 			</main>
 
-			{toast && <Toast opened={true} title={toast} />}
+			{toast && <Toast opened={true}>{toast}</Toast>}
 		</div>
 	);
 }

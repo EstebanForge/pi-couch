@@ -6,8 +6,9 @@
 import { Sheet, Toast } from "konsta/react";
 import { useEffect, useRef, useState } from "react";
 import { getModels, sendKeys, sendPrompt, setModel, setThinking, uploadImage } from "../api";
-import { ESC_SETTLE_MS, QUICK_KEYS, type QuickKey } from "../chat/quick-keys";
-import { effectiveEnterSends, quickKeysEnabled } from "../prefs";
+import { type Dictation, dictationSupported, startDictation } from "../chat/dictate";
+import { ESC_SETTLE_MS, orderKeys, type QuickKey } from "../chat/quick-keys";
+import { effectiveEnterSends, quickKeyOrder, quickKeysEnabled } from "../prefs";
 import { Spinner } from "./Spinner";
 
 const MAX_FILES = 10;
@@ -47,6 +48,52 @@ export function Composer(props: {
 	// One request per intent: a double-tap on send (or Alt+Enter while a
 	// send is in flight) must not POST twice - pi would queue both.
 	const sending = useRef(false);
+	// Dictation: browser speech recognition, finals commit into the
+	// draft. The mic hides where the API is missing (some WebViews).
+	const [listening, setListening] = useState(false);
+	const dictation = useRef<Dictation | null>(null);
+	useEffect(
+		() => () => {
+			dictation.current?.stop();
+		},
+		[],
+	);
+	const toggleDictation = () => {
+		if (listening) {
+			dictation.current?.stop();
+			dictation.current = null;
+			setListening(false);
+			return;
+		}
+		const handle = startDictation({
+			onFinal: (t) => setText((prev) => (prev ? `${prev} ${t}` : t)),
+			onEnd: () => {
+				dictation.current = null;
+				setListening(false);
+				// An end that lands almost immediately after start means no
+				// microphone or a blocked engine: tell the user instead of
+				// silently doing nothing. A real session ending is quiet.
+				if (Date.now() - startedAt < 600) {
+					setToast("Dictation unavailable");
+					setTimeout(() => setToast(""), 2200);
+				}
+			},
+			onError: () => {
+				dictation.current = null;
+				setListening(false);
+				setToast("Dictation unavailable");
+				setTimeout(() => setToast(""), 2200);
+			},
+		});
+		if (!handle) {
+			setToast("Dictation unavailable");
+			setTimeout(() => setToast(""), 2200);
+			return;
+		}
+		const startedAt = Date.now();
+		dictation.current = handle;
+		setListening(true);
+	};
 
 	useEffect(() => {
 		localStorage.setItem(draftStoreKey, text);
@@ -277,7 +324,7 @@ export function Composer(props: {
 					className="relative flex gap-2 overflow-x-auto px-2 pt-2 pb-1"
 					style={{ scrollbarWidth: "none", touchAction: "manipulation", userSelect: "none" }}
 				>
-					{QUICK_KEYS.map((k) => {
+					{orderKeys(quickKeyOrder()).map((k) => {
 						const enabled =
 							k.action.kind === "queue"
 								? runQueueEnabled(status, hasText)
@@ -402,6 +449,20 @@ export function Composer(props: {
 						spellCheck={false}
 						className="max-h-[50vh] min-h-[44px] w-full min-w-0 flex-1 resize-none rounded-xl bg-base-100 px-3 py-2.5 text-[16px] outline-none"
 					/>
+					{dictationSupported() && (
+						<button
+							type="button"
+							aria-label={listening ? "Stop dictation" : "Start dictation"}
+							onClick={toggleDictation}
+							className={`mb-0.5 grid h-11 w-11 shrink-0 place-items-center rounded-full text-[16px] active:scale-95 ${
+								listening
+									? "animate-pulse bg-accent/20 text-accent ring-1 ring-accent/60"
+									: "bg-base-300 text-muted"
+							}`}
+						>
+							🎙
+						</button>
+					)}
 					<button
 						type="button"
 						disabled={!canSend}
@@ -481,7 +542,7 @@ export function Composer(props: {
 				</div>
 			</Sheet>
 
-			<Toast opened={toast !== ""} title={toast} />
+			<Toast opened={toast !== ""}>{toast}</Toast>
 		</>
 	);
 }

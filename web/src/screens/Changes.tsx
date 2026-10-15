@@ -329,7 +329,7 @@ export default function ChangesScreen({ sessionKey }: { sessionKey: string }) {
 				</div>
 			</Sheet>
 
-			{toast && <Toast opened={true} title={toast} />}
+			{toast && <Toast opened={true}>{toast}</Toast>}
 		</div>
 	);
 }

@@ -6,6 +6,7 @@ export type EnterSendsPref = "auto" | "send" | "newline";
 
 const ENTER_KEY = "couch-pi.enterSends";
 const KEYS_KEY = "couch-pi.quickKeys";
+const ORDER_KEY = "couch-pi.keyOrder";
 
 function store(): Storage | null {
 	return typeof localStorage === "undefined" ? null : localStorage;
@@ -34,6 +35,24 @@ export function setQuickKeysEnabled(on: boolean): void {
 		return;
 	}
 	store()?.setItem(KEYS_KEY, "0");
+}
+
+/** The stored quick-key id order, or null for the default. Garbage
+ * reads as null; non-strings inside the array are dropped. */
+export function quickKeyOrder(): string[] | null {
+	const raw = store()?.getItem(ORDER_KEY);
+	if (!raw) return null;
+	try {
+		const v: unknown = JSON.parse(raw);
+		if (!Array.isArray(v)) return null;
+		return v.filter((x): x is string => typeof x === "string");
+	} catch {
+		return null;
+	}
+}
+
+export function setQuickKeyOrder(ids: string[]): void {
+	store()?.setItem(ORDER_KEY, JSON.stringify(ids));
 }
 
 /** Effective Enter behavior: the pref wins; "auto" falls back to the

@@ -5,12 +5,15 @@
 // stays rejected like everywhere else (material look fights dracula).
 import { Navbar, NavbarBackLink, Segmented, SegmentedButton, Toggle } from "konsta/react";
 import { useState } from "react";
+import { orderKeys, QUICK_KEYS } from "../chat/quick-keys";
 import {
 	type EnterSendsPref,
 	effectiveEnterSends,
 	enterSendsPref,
+	quickKeyOrder,
 	quickKeysEnabled,
 	setEnterSendsPref,
+	setQuickKeyOrder,
 	setQuickKeysEnabled,
 } from "../prefs";
 
@@ -23,6 +26,19 @@ const ENTER_CHOICES: { value: EnterSendsPref; label: string; hint: string }[] = 
 export default function SettingsScreen() {
 	const [enter, setEnter] = useState<EnterSendsPref>(enterSendsPref);
 	const [keys, setKeys] = useState(quickKeysEnabled);
+	const [order, setOrder] = useState(() => orderKeys(quickKeyOrder()).map((k) => k.id));
+
+	// move swaps one key past its neighbor and persists the whole id
+	// list; the strip re-reads it at mount.
+	const move = (id: string, dir: -1 | 1) => {
+		const i = order.indexOf(id);
+		const j = i + dir;
+		if (i < 0 || j < 0 || j >= order.length) return;
+		const next = [...order];
+		[next[i], next[j]] = [next[j], next[i]];
+		setOrder(next);
+		setQuickKeyOrder(next);
+	};
 
 	return (
 		<div className="min-h-dvh bg-base-100 text-base-content">
@@ -78,6 +94,41 @@ export default function SettingsScreen() {
 					</div>
 					<p className="px-1 pt-2 text-xs text-muted">
 						Esc, Enter, arrows and the dialog keys above the composer.
+					</p>
+					<div className="mt-3 overflow-hidden rounded-xl border border-muted/40">
+						{order.map((id, i) => (
+							<div
+								key={id}
+								className={`flex items-center justify-between px-3 py-1 ${i > 0 ? "border-t border-muted/20" : ""}`}
+							>
+								<span className="text-[15px]">
+									{QUICK_KEYS.find((k) => k.id === id)?.label ?? id}
+								</span>
+								<span className="flex gap-1">
+									<button
+										type="button"
+										aria-label={`Move ${id} up`}
+										disabled={i === 0}
+										onClick={() => move(id, -1)}
+										className="min-h-[36px] min-w-[44px] rounded-lg bg-base-300 px-3 text-base-content active:scale-95 disabled:opacity-30"
+									>
+										↑
+									</button>
+									<button
+										type="button"
+										aria-label={`Move ${id} down`}
+										disabled={i === order.length - 1}
+										onClick={() => move(id, 1)}
+										className="min-h-[36px] min-w-[44px] rounded-lg bg-base-300 px-3 text-base-content active:scale-95 disabled:opacity-30"
+									>
+										↓
+									</button>
+								</span>
+							</div>
+						))}
+					</div>
+					<p className="px-1 pt-2 text-xs text-muted">
+						Order the keys with the arrows; sessions pick it up on the next visit.
 					</p>
 				</section>
 			</div>

@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	effectiveEnterSends,
 	enterSendsPref,
+	quickKeyOrder,
 	quickKeysEnabled,
 	setEnterSendsPref,
+	setQuickKeyOrder,
 	setQuickKeysEnabled,
 } from "./prefs";
 
@@ -53,5 +55,15 @@ describe("prefs", () => {
 		setEnterSendsPref("auto");
 		// no matchMedia in the node test env: auto falls back to false
 		expect(effectiveEnterSends()).toBe(false);
+	});
+
+	it("roundtrips the key order and rejects garbage", () => {
+		expect(quickKeyOrder()).toBeNull();
+		setQuickKeyOrder(["down", "esc"]);
+		expect(quickKeyOrder()).toEqual(["down", "esc"]);
+		backing.set("couch-pi.keyOrder", "{broken");
+		expect(quickKeyOrder()).toBeNull();
+		backing.set("couch-pi.keyOrder", JSON.stringify(["esc", 42, "up"]));
+		expect(quickKeyOrder()).toEqual(["esc", "up"]);
 	});
 });

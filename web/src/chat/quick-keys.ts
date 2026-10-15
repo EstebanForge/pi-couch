@@ -44,3 +44,21 @@ export const QUICK_KEYS: QuickKey[] = [
 
 // After an Esc, wait before the next key: herdr's lone-Esc finding.
 export const ESC_SETTLE_MS = 150;
+
+// orderKeys applies a stored id order (the settings screen's reorder):
+// stored ids first in stored order, then any key the stored list omits
+// in default order - so a new key always appears without a settings
+// visit - and unknown stored ids vanish. Null stored means default.
+export function orderKeys(stored: string[] | null): QuickKey[] {
+	if (!stored) return QUICK_KEYS;
+	const byId = new Map(QUICK_KEYS.map((k) => [k.id, k]));
+	const out: QuickKey[] = [];
+	for (const id of stored) {
+		const k = byId.get(id);
+		if (k) {
+			out.push(k);
+			byId.delete(id);
+		}
+	}
+	return [...out, ...byId.values()];
+}
