@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -70,12 +71,53 @@ type tailCache struct {
 	path    string
 	offset  int64 // bytes consumed so far, always at a newline boundary
 	entries []Entry
+	id      fileID
+	tail    []byte // up to 64 bytes ending at offset, the revalidation window
 }
 
 type metaCache struct {
 	mtime time.Time
 	size  int64
+	id    fileID
 	meta  SessionMeta
+}
+
+// fileID identifies a file beyond path+mtime+size, the cheap part of
+// herdr-web-ui's dev:ino revalidation: a same-path replacement gets a
+// fresh inode even when mtime and size match. The zero value means the
+// platform has no raw stat and identity falls back to mtime+size.
+type fileID struct {
+	dev uint64
+	ino uint64
+}
+
+func statID(st os.FileInfo) fileID {
+	if sys, ok := st.Sys().(*syscall.Stat_t); ok {
+		return fileID{dev: sys.Dev, ino: sys.Ino}
+	}
+	return fileID{}
+}
+
+// windowAt reads up to 64 bytes ending at off.
+func windowAt(f *os.File, off int64) ([]byte, error) {
+	start := off - 64
+	if start < 0 {
+		start = 0
+	}
+	buf := make([]byte, off-start)
+	if _, err := f.ReadAt(buf, start); err != nil && err != io.EOF {
+		return nil, err
+	}
+	return buf, nil
+}
+
+func tailWindow(path string, size int64) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return windowAt(f, size)
 }
 
 func NewIndex(root string) *Index {
@@ -166,7 +208,7 @@ func (ix *Index) cachedMeta(path string) (SessionMeta, bool) {
 	ix.mu.Lock()
 	c, ok := ix.cache[key]
 	ix.mu.Unlock()
-	if ok && c.mtime.Equal(st.ModTime()) && c.size == st.Size() {
+	if ok && c.id == statID(st) && c.mtime.Equal(st.ModTime()) && c.size == st.Size() {
 		return c.meta, true
 	}
 	meta, ok := ix.parse(path, key, st)
@@ -174,7 +216,7 @@ func (ix *Index) cachedMeta(path string) (SessionMeta, bool) {
 		return SessionMeta{}, false
 	}
 	ix.mu.Lock()
-	ix.cache[key] = metaCache{mtime: st.ModTime(), size: st.Size(), meta: meta}
+	ix.cache[key] = metaCache{mtime: st.ModTime(), size: st.Size(), id: statID(st), meta: meta}
 	ix.mu.Unlock()
 	return meta, true
 }
@@ -315,7 +357,7 @@ func (ix *Index) branchItems(key string, textLimit int) ([]ViewItem, error) {
 	if err != nil {
 		return nil, err
 	}
-	entries, err := ix.tailEntries(key, meta.Path, st.Size())
+	entries, err := ix.tailEntries(key, meta.Path, st)
 	if err != nil {
 		return nil, err
 	}
@@ -353,6 +395,12 @@ func (ix *Index) branchItems(key string, textLimit int) ([]ViewItem, error) {
 // sits on a newline boundary, so a line the writer has not finished is
 // picked up once it is complete, never duplicated.
 //
+// Revalidation is content-based, the cheap part of herdr-web-ui's
+// approach: the file's inode must match the cached one, and the 64
+// bytes ending at the cached offset must be unchanged. That catches
+// in-place same-size rewrites and same-path replacements that fool
+// mtime+size, at the cost of one 64-byte pread per call.
+//
 // The cache check and the commit run under the lock, but the file read
 // and parse run OUTSIDE it: a slow full parse must never head-of-line
 // block the cachedMeta lookups that share the mutex. Concurrent callers
@@ -360,36 +408,53 @@ func (ix *Index) branchItems(key string, textLimit int) ([]ViewItem, error) {
 // still holds the state it was computed from, and after two lost races
 // the last write wins - the entries are level-triggered from file
 // bytes, so racing results are identical.
-func (ix *Index) tailEntries(key, path string, size int64) ([]Entry, error) {
-	for attempt := 0; ; attempt++ {
+func (ix *Index) tailEntries(key, path string, st os.FileInfo) ([]Entry, error) {
+	size := st.Size()
+	for attempt := 0; attempt < 3; attempt++ {
 		ix.mu.Lock()
 		tc := ix.tail
-		same := tc != nil && tc.key == key && tc.path == path
+		same := tc != nil && tc.key == key && tc.path == path && tc.id == statID(st)
 		if same && tc.offset == size {
 			out := tc.entries
 			ix.mu.Unlock()
+			if win, err := tailWindow(path, size); err != nil || !bytes.Equal(win, tc.tail) {
+				break // the bytes above the end changed in place: full reparse
+			}
 			return out, nil
 		}
-		if same && tc.offset < size && attempt < 2 {
+		if same && tc.offset < size {
 			base := tc
 			ix.mu.Unlock()
 			f, err := os.Open(path)
 			if err != nil {
 				return nil, err
 			}
+			if win, werr := windowAt(f, base.offset); werr != nil {
+				f.Close()
+				break // unreadable mid-check: the full parse below decides
+			} else if !bytes.Equal(win, base.tail) {
+				f.Close()
+				break // an in-place edit above the delta invalidates the tail
+			}
 			buf := make([]byte, size-base.offset)
 			n, rerr := f.ReadAt(buf, base.offset)
-			f.Close()
 			if rerr != nil && rerr != io.EOF {
+				f.Close()
 				return nil, rerr
 			}
 			buf = buf[:n]
 			if i := bytes.LastIndexByte(buf, '\n'); i >= 0 {
+				nextOffset := base.offset + int64(i+1)
+				nwin, nerr := windowAt(f, nextOffset)
+				f.Close()
+				if nerr != nil {
+					break // shrank under us: the full parse decides
+				}
 				fresh := ParseEntries(bytes.NewReader(buf[:i+1]))
 				entries := make([]Entry, 0, len(base.entries)+len(fresh))
 				entries = append(entries, base.entries...)
 				entries = append(entries, fresh...)
-				next := &tailCache{key: key, path: path, offset: base.offset + int64(i+1), entries: entries}
+				next := &tailCache{key: key, path: path, offset: nextOffset, entries: entries, id: statID(st), tail: nwin}
 				ix.mu.Lock()
 				if ix.tail == base { // nobody advanced the cache meanwhile
 					ix.tail = next
@@ -399,32 +464,42 @@ func (ix *Index) tailEntries(key, path string, size int64) ([]Entry, error) {
 				ix.mu.Unlock()
 				continue // the cache moved under us: recompute from the newer state
 			}
+			f.Close()
 			// Nothing complete in the delta yet.
 			return base.entries, nil
 		}
 		ix.mu.Unlock()
-		// First view, a different session, a shrunk file, or a lost race on
-		// the delta path: full parse, then commit. Last write wins on a
-		// race, the same tolerance cachedMeta documents.
-		f, err := os.Open(path)
-		if err != nil {
-			return nil, err
-		}
-		data, err := io.ReadAll(f)
-		f.Close()
-		if err != nil {
-			return nil, err
-		}
-		consumed := int64(len(data))
-		if i := bytes.LastIndexByte(data, '\n'); i >= 0 && i != len(data)-1 {
-			consumed = int64(i + 1) // a torn trailing line waits for its newline
-		}
-		entries := ParseEntries(bytes.NewReader(data[:consumed]))
-		ix.mu.Lock()
-		ix.tail = &tailCache{key: key, path: path, offset: consumed, entries: entries}
-		ix.mu.Unlock()
-		return entries, nil
+		break
+		// First view, a different session, a shrunk or replaced file, an
+		// in-place rewrite, or a lost race on the delta path: full parse.
 	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	data, err := io.ReadAll(f)
+	f.Close()
+	if err != nil {
+		return nil, err
+	}
+	consumed := int64(len(data))
+	wstart := consumed - 64
+	if wstart < 0 {
+		wstart = 0
+	}
+	if i := bytes.LastIndexByte(data, '\n'); i >= 0 && i != len(data)-1 {
+		consumed = int64(i + 1) // a torn trailing line waits for its newline
+		wstart = consumed - 64
+		if wstart < 0 {
+			wstart = 0
+		}
+	}
+	win := append([]byte(nil), data[wstart:consumed]...)
+	entries := ParseEntries(bytes.NewReader(data[:consumed]))
+	ix.mu.Lock()
+	ix.tail = &tailCache{key: key, path: path, offset: consumed, entries: entries, id: statID(st), tail: win}
+	ix.mu.Unlock()
+	return entries, nil
 }
 
 func messageItems(e Entry, textLimit int) []ViewItem {
