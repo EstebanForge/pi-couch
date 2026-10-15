@@ -197,7 +197,7 @@ Corrections 2026-10-15: an adversarial review pass (Claude session 808275a5, ver
 The five original candidates were reviewed adversarially and re-scoped:
 
 1. Detector hardening — ADOPTED (narrow): switch to `source:"detection"` where cheap, end-anchored hints with the footer allowance, and pi's real select/confirm/input signatures. Skip wrap-joining and the cursor rule (they only matter for parsing rows to answer). Our `hintBarRe` wants a `·` separator, so pi's space-separated select/confirm/input hints never match today.
-2. Answer cards — DEFERRED, confirm dialogs only, behind a stale-card id with 409 and a pre-fire re-read. Never pi-input (blind typing) or pi-model (can save a default).
+2. Answer cards — SHIPPED 2026-10-15 (a429cb5 confirm answering, 97b39a1 select answering): confirm cards press enter or down+enter behind the stale-card id with 409 and a pre-fire re-read; select cards read the option rows off the pane, walk the cursor down-only, and re-verify the cursor on the target row before enter. Never pi-input (blind typing) and never the TUI-drawn model picker (can save a default) — only real `ctx.ui` dialogs the bridge reports.
 3. pi-tree engineering — ADOPTED only the cheap defects: the double full-file read in our `parse` path and the tail-cache lock held across IO. Skip LRU(4)/byte budgets/branch projection — they solve multi-agent scale we do not have, and the fail-closed caps would be a trap.
-4. Entry semantics — placeholder session ("unwritten") worth doing; `display:false` only after a census of real sessions; images/spellings/context_clear skipped for now.
+4. Entry semantics — placeholder session ("unwritten") SHIPPED; `display:false` census done 2026-10-15: 2 entries ever across 649 local session files, filtering rejected; images/spellings/context_clear skipped for now.
 5. Context ring — DEFERRED. `models.json` covers custom providers only; cosmetic.
