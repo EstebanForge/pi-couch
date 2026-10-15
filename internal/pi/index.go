@@ -260,6 +260,9 @@ type ViewItem struct {
 	Redacted   bool   `json:"redacted,omitempty"`
 	DurationMs int64  `json:"duration_ms,omitempty"`
 	Images     int    `json:"images,omitempty"`
+	// Truncated marks items whose text the render path shortened (tool
+	// output and bash); the full text stays fetchable via FullItem.
+	Truncated bool `json:"truncated,omitempty"`
 	// Seq is the item's position on the active branch, stable across
 	// tail cuts and cache rereads, so stream clients can key rows by it.
 	Seq int `json:"seq"`
@@ -267,17 +270,55 @@ type ViewItem struct {
 
 // Transcript renders the tail of a session's active branch.
 func (ix *Index) Transcript(key string, limit int) (SessionMeta, []ViewItem, error) {
+	items, err := ix.branchItems(key, renderLimit)
+	if err != nil {
+		return SessionMeta{}, nil, err
+	}
 	meta, ok := ix.Meta(key)
 	if !ok {
 		return meta, nil, fmt.Errorf("session %q not found", key)
 	}
+	if limit > 0 && len(items) > limit {
+		items = items[len(items)-limit:]
+	}
+	return meta, items, nil
+}
+
+// FullItem returns one transcript item with no render truncation, so
+// the client can show whole tool output on demand.
+func (ix *Index) FullItem(key string, seq int) (SessionMeta, ViewItem, error) {
+	items, err := ix.branchItems(key, 0)
+	if err != nil {
+		return SessionMeta{}, ViewItem{}, err
+	}
+	meta, ok := ix.Meta(key)
+	if !ok {
+		return meta, ViewItem{}, fmt.Errorf("session %q not found", key)
+	}
+	for _, it := range items {
+		if it.Seq == seq {
+			return meta, it, nil
+		}
+	}
+	return meta, ViewItem{}, fmt.Errorf("item %d not found in %q", seq, key)
+}
+
+// renderLimit is the per-item text cap the transcript render path
+// applies; FullItem passes 0 for none.
+const renderLimit = 400
+
+func (ix *Index) branchItems(key string, textLimit int) ([]ViewItem, error) {
+	meta, ok := ix.Meta(key)
+	if !ok {
+		return nil, fmt.Errorf("session %q not found", key)
+	}
 	st, err := os.Stat(meta.Path)
 	if err != nil {
-		return meta, nil, err
+		return nil, err
 	}
 	entries, err := ix.tailEntries(key, meta.Path, st.Size())
 	if err != nil {
-		return meta, nil, err
+		return nil, err
 	}
 	path := ActivePath(entries)
 	// Seq numbers the full branch before any tail cut, so a client sees
@@ -294,7 +335,7 @@ func (ix *Index) Transcript(key string, limit int) (SessionMeta, []ViewItem, err
 	for _, e := range path {
 		switch {
 		case e.Message != nil:
-			bump(messageItems(e))
+			bump(messageItems(e, textLimit))
 		case e.Type == "compaction":
 			bump([]ViewItem{{Kind: "marker", Text: fmt.Sprintf("Context compacted (%d tokens before)", e.TokensBefore)}})
 		case e.Type == "model_change":
@@ -305,10 +346,7 @@ func (ix *Index) Transcript(key string, limit int) (SessionMeta, []ViewItem, err
 			bump([]ViewItem{{Kind: "custom", Text: "custom: " + truncate(e.CustomType, 40)}})
 		}
 	}
-	if limit > 0 && len(items) > limit {
-		items = items[len(items)-limit:]
-	}
-	return meta, items, nil
+	return items, nil
 }
 
 // tailEntries returns the session's entries, parsing only the bytes
@@ -366,9 +404,17 @@ func (ix *Index) tailEntries(key, path string, size int64) ([]Entry, error) {
 	return entries, nil
 }
 
-func messageItems(e Entry) []ViewItem {
+func messageItems(e Entry, textLimit int) []ViewItem {
 	m := e.Message
 	var out []ViewItem
+	limit := func(s string) (string, bool) {
+		if textLimit <= 0 {
+			return s, false
+		}
+		// Compare source length: truncate() also flattens newlines, so a
+		// changed string does not mean the render actually cut text.
+		return truncate(s, textLimit), len([]rune(s)) > textLimit
+	}
 	switch m.Role {
 	case "user":
 		it := ViewItem{Kind: "user"}
@@ -404,7 +450,7 @@ func messageItems(e Entry) []ViewItem {
 		it := ViewItem{Kind: "tool_result", ToolName: m.ToolName, IsError: m.IsError, DurationMs: m.DurationMs}
 		for _, b := range m.Blocks() {
 			if b.Type == "text" {
-				it.Text = truncate(b.Text, 400)
+				it.Text, it.Truncated = limit(b.Text)
 				break
 			}
 		}
@@ -412,9 +458,13 @@ func messageItems(e Entry) []ViewItem {
 	case "bashExecution":
 		// decoded through Content as text; command lives in custom fields
 		// per docs; render whatever text is available.
-		out = append(out, ViewItem{Kind: "bash", Text: truncate(firstText(m), 400)})
+		it := ViewItem{Kind: "bash"}
+		it.Text, it.Truncated = limit(firstText(m))
+		out = append(out, it)
 	case "custom":
-		out = append(out, ViewItem{Kind: "custom", Text: truncate(firstText(m), 400)})
+		it := ViewItem{Kind: "custom"}
+		it.Text, it.Truncated = limit(firstText(m))
+		out = append(out, it)
 	}
 	return out
 }

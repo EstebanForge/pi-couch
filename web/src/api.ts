@@ -30,6 +30,9 @@ export type StreamItem = {
 	redacted?: boolean;
 	duration_ms?: number;
 	images?: number;
+	/** The render path shortened this item's text; fetch the whole thing
+	 * via getItemText. */
+	truncated?: boolean;
 	seq: number;
 };
 
@@ -112,6 +115,13 @@ export async function getChanges(key: string): Promise<ChangesList> {
 	const res = await fetch(`/api/sessions/${encodeURIComponent(key)}/changes`);
 	if (!res.ok) throw new Error(`changes ${res.status}`);
 	return (await res.json()) as ChangesList;
+}
+
+/** One transcript item's untruncated text (tool output, bash). */
+export async function getItemText(key: string, seq: number): Promise<string> {
+	const res = await fetch(`/api/sessions/${encodeURIComponent(key)}/items/${seq}`);
+	if (!res.ok) throw new Error(`item ${res.status}`);
+	return ((await res.json()) as { text: string }).text;
 }
 
 export async function getDiff(key: string, file: string): Promise<ChangesDiff> {

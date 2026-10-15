@@ -1,7 +1,7 @@
 import { Dialog, DialogButton } from "konsta/react";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Virtuoso } from "react-virtuoso";
-import type { StreamItem, Todo } from "../api";
+import { getItemText, type StreamItem, type Todo } from "../api";
 import {
 	closeSession,
 	stopSession,
@@ -64,7 +64,31 @@ function itemKey(b: WorkBlock): string {
 	return b.type === "item" ? `s${b.item.seq}` : `b${b.items[0].seq}`;
 }
 
-function itemRow(it: StreamItem, expanded: boolean) {
+/** Truncated tool output and bash text expand in place: the fetch
+ * returns the whole thing once and it stays for the component's life. */
+function FullText({ k, it }: { k: string; it: StreamItem }) {
+	const [full, setFull] = useState<string | null>(null);
+	const [failed, setFailed] = useState(false);
+	if (full !== null) {
+		return <div className="max-h-72 overflow-y-auto whitespace-pre-wrap text-muted">{full}</div>;
+	}
+	return (
+		<>
+			<div className="whitespace-pre-wrap text-muted">{it.text}</div>
+			<button
+				type="button"
+				onClick={() => {
+					getItemText(k, it.seq).then(setFull).catch(() => setFailed(true));
+				}}
+				className="text-[11px] text-accent underline-offset-2 active:scale-[0.98]"
+			>
+				{failed ? "could not load" : "show all"}
+			</button>
+		</>
+	);
+}
+
+function itemRow(it: StreamItem, expanded: boolean, sessionKey: string) {
 	switch (it.kind) {
 		case "user":
 			return (
@@ -100,19 +124,31 @@ function itemRow(it: StreamItem, expanded: boolean) {
 			);
 		case "tool_result":
 			return (
-				<div className="px-3 py-0.5 pl-10 text-[12px] whitespace-pre-wrap text-muted">
-					{expanded ? it.text : <span className="line-clamp-1">{it.text}</span>}
+				<div className="px-3 py-0.5 pl-10 text-[12px]">
+					{it.truncated ? (
+						<FullText k={sessionKey} it={it} />
+					) : expanded ? (
+						<div className="whitespace-pre-wrap text-muted">{it.text}</div>
+					) : (
+						<span className="line-clamp-1 text-muted">{it.text}</span>
+					)}
 				</div>
 			);
 		default:
-			return <div className="px-3 py-0.5 text-[12px] text-muted">{it.text}</div>;
+			return it.truncated ? (
+				<div className="px-3 py-0.5 text-[12px]">
+					<FullText k={sessionKey} it={it} />
+				</div>
+			) : (
+				<div className="px-3 py-0.5 text-[12px] text-muted">{it.text}</div>
+			);
 	}
 }
 
-function Block({ block }: { block: WorkBlock; working?: boolean }) {
+function Block({ block, sessionKey }: { block: WorkBlock; sessionKey: string }) {
 	const [override, setOverride] = useState<boolean | null>(null);
 	if (block.type === "item") {
-		return itemRow(block.item, true);
+		return itemRow(block.item, true, sessionKey);
 	}
 	// Steps stay collapsed unless the reader opens them; the live stream
 	// already carries the Working marker, so auto-expansion is noise.
@@ -134,7 +170,7 @@ function Block({ block }: { block: WorkBlock; working?: boolean }) {
 			{open && (
 				<div className="mt-0.5 border-l border-base-300 pl-1">
 					{block.items.map((it) => (
-						<div key={it.seq}>{itemRow(it, true)}</div>
+						<div key={it.seq}>{itemRow(it, true, sessionKey)}</div>
 					))}
 				</div>
 			)}
@@ -314,7 +350,7 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 					}}
 					initialTopMostItemIndex={Math.max(0, blocks.length - 1)}
 					className="h-full"
-					itemContent={(_, b) => <Block block={b} />}
+					itemContent={(_, b) => <Block block={b} sessionKey={sessionKey} />}
 					components={{
 						Footer: () =>
 							state.dialog || state.awaiting ? (
