@@ -130,10 +130,24 @@ func (a *app) apiStreamTranscript(w http.ResponseWriter, r *http.Request) {
 	var lastTodos []pi.Todo
 	var lastDialog BridgeDialog
 	var lastSend time.Time
+	placeholder := false
 	for {
 		meta, ok := a.idx.Meta(key)
 		if !ok {
-			return
+			// pi reports a session's path at agent start, before the first
+			// write lands the jsonl. Hold the window open with one empty
+			// reset instead of returning, so a fresh agent's transcript is
+			// never a dead window; a bogus key just idles on heartbeats.
+			if !placeholder {
+				if !send("reset", transcriptReset{Items: []pi.ViewItem{}}) {
+					return
+				}
+				placeholder = true
+			}
+			if !pace.wait(r.Context(), ticks) {
+				return
+			}
+			continue
 		}
 		_, items, err := a.idx.Transcript(key, limit)
 		if err != nil {
@@ -143,9 +157,11 @@ func (a *app) apiStreamTranscript(w http.ResponseWriter, r *http.Request) {
 		badges := a.herdr.Badges(r.Context())
 		st := badges[meta.Path]
 		awaiting := a.awaiting.isAwaiting(meta.Path)
-		dialog, hasDialog := a.bridgeDialog(meta.Path)
+		dialog, hasDialog := a.dialogFor(meta.Path, st)
+		forceReset := placeholder
+		placeholder = false
 		sent := false
-		if delta, ok := chatAppend(prev, items, cur); ok {
+		if delta, ok := chatAppend(prev, items, cur); ok && !forceReset {
 			if len(delta) > 0 {
 				if !send("append", transcriptAppend{Items: delta}) {
 					return

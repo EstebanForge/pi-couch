@@ -280,3 +280,56 @@ func TestJSONSessionsStream(t *testing.T) {
 		t.Fatalf("second snapshot sessions=%d, want 2", len(snap2.Sessions))
 	}
 }
+
+// pi reports a session's path at agent start, before the first write
+// lands the jsonl. The stream must hold that window open with an empty
+// reset instead of returning, then deliver a full reset with meta once
+// the file appears - a fresh agent's transcript is never a dead window.
+func TestTranscriptStreamUnwrittenSession(t *testing.T) {
+	_, sub, h := streamTestApp(t)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/api/stream/transcript/s2", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	frames := readFrames(t, resp.Body)
+
+	f := waitFrame(t, frames, 5*time.Second, "reset")
+	var rs transcriptReset
+	if err := json.Unmarshal([]byte(f.data), &rs); err != nil {
+		t.Fatal(err)
+	}
+	if len(rs.Items) != 0 || rs.Meta != nil {
+		t.Fatalf("placeholder reset items=%d meta=%+v, want empty", len(rs.Items), rs.Meta)
+	}
+
+	// The placeholder fires once, not per tick: the next frame is the
+	// full reset after the file appears, never a second empty one.
+	path := filepath.Join(sub, "s2.jsonl")
+	writeLines(t, path, sessHeader, userLine("a", "", "first"))
+	f = waitFrame(t, frames, 8*time.Second, "reset")
+	var rs2 transcriptReset
+	if err := json.Unmarshal([]byte(f.data), &rs2); err != nil {
+		t.Fatal(err)
+	}
+	if len(rs2.Items) != 1 || rs2.Meta == nil || rs2.Meta.Name != "" {
+		t.Fatalf("full reset items=%d meta=%+v", len(rs2.Items), rs2.Meta)
+	}
+	// No third frame: the placeholder fired exactly once. Nothing is
+	// growing and the heartbeat is 15s away, so 2s of silence proves it.
+	select {
+	case f, ok := <-frames:
+		if ok {
+			t.Fatalf("unexpected frame after full reset: %s %s", f.name, f.data)
+		}
+		t.Fatal("stream ended early")
+	case <-time.After(2 * time.Second):
+	}
+}

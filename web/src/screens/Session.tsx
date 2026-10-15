@@ -1,15 +1,18 @@
 import { Dialog, DialogButton } from "konsta/react";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Virtuoso } from "react-virtuoso";
-import { getItemText, type StreamItem, type Todo } from "../api";
 import {
 	closeSession,
+	getItemText,
+	type StreamItem,
 	stopSession,
+	type Todo,
 	type TranscriptAppend,
 	type TranscriptReset,
 	type TranscriptStatus,
 } from "../api";
 import { Composer } from "../components/Composer";
+import { DialogActions } from "../components/DialogActions";
 import { Markdown } from "../components/Markdown";
 import { Spinner } from "../components/Spinner";
 import { navigate } from "../nav";
@@ -78,7 +81,9 @@ function FullText({ k, it }: { k: string; it: StreamItem }) {
 			<button
 				type="button"
 				onClick={() => {
-					getItemText(k, it.seq).then(setFull).catch(() => setFailed(true));
+					getItemText(k, it.seq)
+						.then(setFull)
+						.catch(() => setFailed(true));
 				}}
 				className="text-[11px] text-accent underline-offset-2 active:scale-[0.98]"
 			>
@@ -113,13 +118,29 @@ function itemRow(it: StreamItem, expanded: boolean, sessionKey: string) {
 				</div>
 			);
 		case "tool_call":
-		case "bash":
 			return (
 				<div className="flex gap-2 px-3 py-0.5 text-[13px]">
 					<span className="shrink-0 rounded bg-base-300 px-1.5 font-mono text-[11px] text-accent">
 						{it.tool_name || it.kind}
 					</span>
 					<span className="truncate text-muted">{it.text}</span>
+				</div>
+			);
+		case "bash":
+			// Bash output is the one truncated row the show-all affordance
+			// skipped; it gets the same fetch-once expansion as tool results.
+			return (
+				<div className="px-3 py-0.5 pl-10 text-[12px]">
+					{it.truncated ? (
+						<FullText k={sessionKey} it={it} />
+					) : (
+						<div className="flex gap-2 text-[13px]">
+							<span className="shrink-0 rounded bg-base-300 px-1.5 font-mono text-[11px] text-accent">
+								{it.tool_name || it.kind}
+							</span>
+							<span className="truncate text-muted">{it.text}</span>
+						</div>
+					)}
 				</div>
 			);
 		case "tool_result":
@@ -276,6 +297,7 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 					)}
 				</div>
 			</header>
+			{state.dialog && <DialogActions k={sessionKey} dialog={state.dialog} />}
 			{state.todos.length > 0 && <TodosCard todos={state.todos} />}
 			{/* tool strip */}
 			<div

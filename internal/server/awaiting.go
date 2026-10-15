@@ -134,7 +134,10 @@ func (d *awaitingDetector) tick(ctx context.Context) {
 		if a.Session == nil || a.PaneID == "" {
 			continue
 		}
-		pr, err := d.hc.PaneRead(ctx, a.PaneID, "recent", 8)
+		// source detection is herdr's own visible-screen read (live-
+		// verified 2026-10-15): the tail of what pi paints now, never
+		// scrollback, so an answered dialog buried above cannot match.
+		pr, err := d.hc.PaneRead(ctx, a.PaneID, "detection", 8)
 		if err != nil {
 			continue
 		}
