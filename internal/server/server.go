@@ -176,6 +176,7 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("POST /api/sessions/{key}/stop", a.apiStop)
 	mux.HandleFunc("POST /api/sessions/{key}/close", a.apiClose)
 	mux.HandleFunc("POST /api/sessions/{key}/prompt", a.apiPrompt)
+	mux.HandleFunc("POST /api/sessions/{key}/dialog/answer", a.apiDialogAnswer)
 	mux.HandleFunc("POST /api/sessions/{key}/model", a.apiModel)
 	mux.HandleFunc("POST /api/sessions/{key}/thinking", a.apiThinking)
 	mux.HandleFunc("POST /api/bridge/dialog", a.apiBridgeDialog)

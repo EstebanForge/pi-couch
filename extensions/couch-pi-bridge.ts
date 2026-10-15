@@ -1,15 +1,21 @@
-// couch-pi bridge: surface pi's blocking dialogs as herdr blocked state.
+// couch-pi bridge: surface pi's blocking dialogs as herdr blocked state,
+// and carry each dialog's kind and title to Couch Pi by direct dial so
+// the phone can show which dialog pi waits on (herdr drops the label).
 //
 // API-only by design (ADR-0007): this extension listens to pi's typed
-// ui_prompt_start / ui_prompt_end extension events and re-emits them on
+// ui_prompt_start / ui_prompt_end extension events, re-emits them on
 // pi's event bus as the herdr:blocked event that herdr's own managed
 // integration (herdr-agent-state.ts) already consumes and forwards via
-// pane.report_agent. It never mutates pi objects, never answers
-// dialogs, and degrades silently when events are absent.
+// pane.report_agent, and POSTs {phase, kind, title, id, session_path} to
+// Couch Pi's /api/bridge/dialog. The id is generated here per dialog so
+// the phone's answer endpoint can refuse keys into a replaced dialog.
+// It never mutates pi objects, never answers dialogs by itself, and
+// degrades silently when events are absent.
 //
 // Install: symlink this file into ~/.pi/agent/extensions/.
 
 declare const process: { env: Record<string, string | undefined> };
+declare const crypto: { randomUUID?: () => string };
 
 type PromptKind = "select" | "confirm" | "input" | "editor" | "custom";
 
@@ -37,8 +43,17 @@ const PANE_ID = process.env.HERDR_PANE_ID;
 // the server is up, and vanish by TTL when it is not.
 const COUCHPI_URL = process.env.COUCHPI_URL || "http://127.0.0.1:8090";
 
-function dial(phase: "start" | "end", kind: string, title: string | undefined, sessionPath: string | undefined): void {
-	const body = JSON.stringify({ phase, kind, title, session_path: sessionPath });
+function newDialogID(): string {
+	try {
+		if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+	} catch {
+		// fall through to the counter below
+	}
+	return `d-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function dial(phase: "start" | "end", kind: string, title: string | undefined, sessionPath: string | undefined, id: string | undefined): void {
+	const body = JSON.stringify({ phase, kind, title, id, session_path: sessionPath });
 	try {
 		fetch(`${COUCHPI_URL}/api/bridge/dialog`, {
 			method: "POST",
@@ -60,6 +75,7 @@ export default function couchPiBridge(pi: ExtensionAPI) {
 	let tui = false;
 	let depth = 0;
 	let sessionPath: string | undefined;
+	let dialogID: string | undefined;
 
 	pi.on("session_start", (_event, ctx) => {
 		tui = ctx?.mode === "tui";
@@ -75,7 +91,10 @@ export default function couchPiBridge(pi: ExtensionAPI) {
 				active: true,
 				label: event.title || event.kind,
 			});
-			dial("start", event.kind, event.title, sessionPath);
+			// pi enforces one dialog at a time, so the id belongs to the
+			// outermost prompt - the one the server's entry describes.
+			dialogID = newDialogID();
+			dial("start", event.kind, event.title, sessionPath, dialogID);
 		}
 	});
 	pi.on("ui_prompt_end", () => {
@@ -85,7 +104,8 @@ export default function couchPiBridge(pi: ExtensionAPI) {
 		depth -= 1;
 		if (depth === 0) {
 			pi.events.emit("herdr:blocked", { active: false });
-			dial("end", "", undefined, sessionPath);
+			dial("end", "", undefined, sessionPath, dialogID);
+			dialogID = undefined;
 		}
 	});
 }
