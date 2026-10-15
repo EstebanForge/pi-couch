@@ -35,8 +35,9 @@ type transcriptReset struct {
 	// Awaiting: dialog chrome on the pane at connect time. Omitted when
 	// false.
 	Awaiting bool `json:"awaiting,omitempty"`
-	// Dialog is the bridge extension's open pi dialog, if any.
-	Dialog *BridgeDialog `json:"dialog,omitempty"`
+	// Dialog is the bridge extension's open pi dialog, if any, with
+	// the screen menu merged in for select kinds.
+	Dialog *dialogWire `json:"dialog,omitempty"`
 	// Todos is the extension todo checklist, latest state. Nil when the
 	// session never ran the todo extension.
 	Todos []pi.Todo `json:"todos,omitempty"`
@@ -66,18 +67,51 @@ type transcriptStatus struct {
 	// Awaiting: the agent sits in a blocking pi dialog while still
 	// reporting working. Omitted when false.
 	Awaiting bool `json:"awaiting,omitempty"`
-	// Dialog carries kind and title of the bridge-reported open dialog.
-	Dialog *BridgeDialog `json:"dialog,omitempty"`
+	// Dialog carries the bridge-reported open dialog, with the screen
+	// menu merged in for select kinds.
+	Dialog *dialogWire `json:"dialog,omitempty"`
 	// Todos re-sent whenever the checklist changes.
 	Todos []pi.Todo `json:"todos,omitempty"`
 }
 
-// dialogPtr hands the stream frames a nil when no dialog is open.
-func dialogPtr(d BridgeDialog, ok bool) *BridgeDialog {
+// dialogWire is the open pi dialog as the phone sees it: the bridge
+// entry's identity, plus the option rows parsed off the pane when the
+// dialog is a select. The cursor rides along so the card can highlight
+// where pi's selection sits.
+type dialogWire struct {
+	ID      string   `json:"id,omitempty"`
+	Kind    string   `json:"kind"`
+	Title   string   `json:"title"`
+	Options []string `json:"options,omitempty"`
+	Cursor  int      `json:"cursor"`
+}
+
+// dialogWireFor composes the bridge entry with the detector's screen
+// menu. Options attach to select kinds only: a confirm card needs no
+// rows, and the model picker's TUI-drawn rows must never become answer
+// buttons (answering there saves a default).
+func (a *app) dialogWireFor(path string, d BridgeDialog, ok bool) *dialogWire {
 	if !ok {
 		return nil
 	}
-	return &d
+	w := &dialogWire{ID: d.ID, Kind: d.Kind, Title: d.Title}
+	if d.Kind == "select" {
+		if m := a.awaiting.menu(path); m != nil {
+			w.Options = m.Options
+			w.Cursor = m.Cursor
+		}
+	}
+	return w
+}
+
+// dialogEqual compares wire dialogs so the status event fires when the
+// options or cursor move, not only when the bridge entry changes.
+func dialogEqual(a, b *dialogWire) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.ID == b.ID && a.Kind == b.Kind && a.Title == b.Title &&
+		a.Cursor == b.Cursor && slices.Equal(a.Options, b.Options)
 }
 
 // startSSE writes the event-stream headers and flushes them. The caller
@@ -128,7 +162,7 @@ func (a *app) apiStreamTranscript(w http.ResponseWriter, r *http.Request) {
 	status, model, thinking := "", "", ""
 	var lastAwaiting bool
 	var lastTodos []pi.Todo
-	var lastDialog BridgeDialog
+	var lastDialog *dialogWire
 	var lastSend time.Time
 	placeholder := false
 	for {
@@ -158,6 +192,7 @@ func (a *app) apiStreamTranscript(w http.ResponseWriter, r *http.Request) {
 		st := badges[meta.Path]
 		awaiting := a.awaiting.isAwaiting(meta.Path)
 		dialog, hasDialog := a.dialogFor(meta.Path, st)
+		dw := a.dialogWireFor(meta.Path, dialog, hasDialog)
 		forceReset := placeholder
 		placeholder = false
 		sent := false
@@ -170,17 +205,17 @@ func (a *app) apiStreamTranscript(w http.ResponseWriter, r *http.Request) {
 				sent = true
 			}
 		} else {
-			if !send("reset", transcriptReset{Items: items, Status: st, Model: meta.Model, Thinking: meta.Thinking, Awaiting: awaiting, Dialog: dialogPtr(dialog, hasDialog), Todos: meta.Todos, Meta: headerOf(meta)}) {
+			if !send("reset", transcriptReset{Items: items, Status: st, Model: meta.Model, Thinking: meta.Thinking, Awaiting: awaiting, Dialog: dw, Todos: meta.Todos, Meta: headerOf(meta)}) {
 				return
 			}
 			prev = cur
 			status, model, thinking = st, meta.Model, meta.Thinking
 			sent = true
 		}
-		if st != status || meta.Model != model || meta.Thinking != thinking || awaiting != lastAwaiting || !slices.Equal(meta.Todos, lastTodos) || dialog != lastDialog {
+		if st != status || meta.Model != model || meta.Thinking != thinking || awaiting != lastAwaiting || !slices.Equal(meta.Todos, lastTodos) || !dialogEqual(dw, lastDialog) {
 			status, model, thinking, lastAwaiting, lastTodos = st, meta.Model, meta.Thinking, awaiting, meta.Todos
-			lastDialog = dialog
-			if !send("status", transcriptStatus{Status: st, Model: meta.Model, Thinking: meta.Thinking, Awaiting: awaiting, Todos: meta.Todos, Dialog: dialogPtr(dialog, hasDialog)}) {
+			lastDialog = dw
+			if !send("status", transcriptStatus{Status: st, Model: meta.Model, Thinking: meta.Thinking, Awaiting: awaiting, Todos: meta.Todos, Dialog: dw}) {
 				return
 			}
 			sent = true

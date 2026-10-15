@@ -39,7 +39,14 @@ export type StreamItem = {
 export type Todo = { id: number; subject: string; status: string; active_form?: string };
 
 /** An open blocking pi dialog, reported by the couch-pi bridge extension. */
-export type BridgeDialog = { id?: string; kind: string; title: string };
+export type BridgeDialog = {
+	id?: string;
+	kind: string;
+	title: string;
+	/** select kinds only: the option rows parsed off the pane. */
+	options?: string[];
+	cursor?: number;
+};
 
 export type TranscriptReset = {
 	items: StreamItem[];
@@ -221,7 +228,7 @@ export const sendPrompt = (key: string, text: string) =>
 /** Answer an open pi confirm dialog: yes presses enter, no presses
  * down+enter. ok:false carries the in-band refusal (changed, notfound,
  * send failed) and the caller hides its buttons. */
-export const answerDialog = (key: string, id: string, answer: "yes" | "no") =>
+export const answerDialog = (key: string, id: string, answer: string) =>
 	postJSONBody(`/api/sessions/${encodeURIComponent(key)}/dialog/answer`, { id, answer });
 export const setModel = (key: string, pattern: string) =>
 	postJSONBody(`/api/sessions/${encodeURIComponent(key)}/model`, { pattern });

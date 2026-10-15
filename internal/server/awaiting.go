@@ -91,6 +91,71 @@ func dialogOpen(text string) bool {
 		selectCounterRe.MatchString(plain)
 }
 
+// menuState is a parsed select menu: the option rows pi-tui paints
+// above the hint, and which row the cursor sits on.
+type menuState struct {
+	Options []string
+	Cursor  int
+}
+
+// parseMenu extracts a select menu from a pane read. pi-tui SelectList
+// paints the selected row as "→ option" and the rest as "  option",
+// with the menu hint below the block. Only the real hint anchors a
+// parse: the model picker's "Enter to select · Ctrl+S" hint draws the
+// same rows but is NOT a ctx.ui dialog, and answering it could save a
+// default. A phone-width pane wraps long options; a non-prefix line
+// inside the block continues the row above it.
+func parseMenu(text string) *menuState {
+	plain := ansiRe.ReplaceAllString(text, "")
+	lines := strings.Split(plain, "\n")
+	hint := -1
+	for i := len(lines) - 1; i >= 0; i-- {
+		if piMenuHintRe.MatchString(lines[i]) {
+			hint = i
+			break
+		}
+	}
+	if hint < 0 {
+		return nil
+	}
+	end := hint
+	for end > 0 && strings.TrimSpace(lines[end-1]) == "" {
+		end--
+	}
+	start := end
+	for start > 0 && strings.TrimSpace(lines[start-1]) != "" {
+		start--
+	}
+	var m menuState
+	for i := start; i < end; i++ {
+		l := lines[i]
+		switch {
+		case strings.HasPrefix(l, "→"):
+			m.Options = append(m.Options, strings.TrimSpace(strings.TrimPrefix(l, "→")))
+			m.Cursor = len(m.Options) - 1
+		case strings.HasPrefix(l, "  ") && strings.TrimSpace(l) != "":
+			m.Options = append(m.Options, strings.TrimSpace(l))
+		case len(m.Options) > 0:
+			m.Options[len(m.Options)-1] += " " + strings.TrimSpace(l)
+		}
+	}
+	if len(m.Options) == 0 {
+		return nil
+	}
+	return &m
+}
+
+// aimSteps is the down-key count from the cursor row to the target.
+// pi's SelectList wraps, and only downward travel is verified before
+// the enter below, so the walk is always downward even when up would
+// be shorter.
+func aimSteps(cursor, target, n int) int {
+	if n <= 0 {
+		return 0
+	}
+	return (target - cursor + n) % n
+}
+
 // awaitingDetector keeps a path-keyed map of agents whose pane shows
 // dialog chrome. Every agent with a pane is read: the model picker and
 // some extension dialogs park pi while herdr reports plain done or
@@ -100,12 +165,19 @@ type awaitingDetector struct {
 	hc   paneSource
 	poll time.Duration
 
-	mu       sync.Mutex
-	awaiting map[string]bool
+	mu   sync.Mutex
+	pane map[string]paneState
+}
+
+// paneState is one agent's dialog awareness: the pill cue and, when the
+// chrome is a real select menu, its parsed option rows.
+type paneState struct {
+	awaiting bool
+	menu     *menuState
 }
 
 func newAwaitingDetector(hc paneSource, poll time.Duration) *awaitingDetector {
-	return &awaitingDetector{hc: hc, poll: poll, awaiting: map[string]bool{}}
+	return &awaitingDetector{hc: hc, poll: poll, pane: map[string]paneState{}}
 }
 
 // run drives the detector until ctx is done.
@@ -129,7 +201,7 @@ func (d *awaitingDetector) tick(ctx context.Context) {
 	if err != nil {
 		return // dead socket: keep the last state, retry next tick
 	}
-	next := map[string]bool{}
+	next := map[string]paneState{}
 	for _, a := range agents {
 		if a.Session == nil || a.PaneID == "" {
 			continue
@@ -141,12 +213,23 @@ func (d *awaitingDetector) tick(ctx context.Context) {
 		if err != nil {
 			continue
 		}
-		if dialogOpen(pr.Text) {
-			next[a.Session.Value] = true
+		var st paneState
+		if pr.Text != "" {
+			plain := ansiRe.ReplaceAllString(pr.Text, "")
+			st.awaiting = hintBarRe.MatchString(plain) ||
+				piHintAtEnd(plain) ||
+				externalEditorRe.MatchString(plain) ||
+				selectCounterRe.MatchString(plain)
+			if piMenuHintRe.MatchString(plain) {
+				st.menu = parseMenu(pr.Text)
+			}
+		}
+		if st.awaiting {
+			next[a.Session.Value] = st
 		}
 	}
 	d.mu.Lock()
-	d.awaiting = next
+	d.pane = next
 	d.mu.Unlock()
 }
 
@@ -156,10 +239,21 @@ func (d *awaitingDetector) isAwaiting(path string) bool {
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return d.awaiting[path]
+	return d.pane[path].awaiting
 }
 
-// snapshot copies the map for the sessions wire; always non-nil.
+// menu returns the parsed select menu for a session path, or nil.
+func (d *awaitingDetector) menu(path string) *menuState {
+	if d == nil {
+		return nil
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.pane[path].menu
+}
+
+// snapshot copies the awaiting flags for the sessions wire; always
+// non-nil.
 func (d *awaitingDetector) snapshot() map[string]bool {
 	out := map[string]bool{}
 	if d == nil {
@@ -167,8 +261,8 @@ func (d *awaitingDetector) snapshot() map[string]bool {
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	for k, v := range d.awaiting {
-		out[k] = v
+	for k, v := range d.pane {
+		out[k] = v.awaiting
 	}
 	return out
 }

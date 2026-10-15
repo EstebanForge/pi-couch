@@ -103,8 +103,14 @@ func TestDialogAnswerValidation(t *testing.T) {
 	if code, _ := answer("/api/sessions/s1/dialog/answer", `{`); code != http.StatusBadRequest {
 		t.Errorf("bad json: code=%d, want 400", code)
 	}
-	if code, _ := answer("/api/sessions/s1/dialog/answer", `{"id":"x","answer":"maybe"}`); code != http.StatusBadRequest {
-		t.Errorf("bad answer: code=%d, want 400", code)
+	if code, _ := answer("/api/sessions/s1/dialog/answer", `{"id":"x","answer":""}`); code != http.StatusBadRequest {
+		t.Errorf("empty answer: code=%d, want 400", code)
+	}
+	// Any non-empty answer is a potential select option now, so an
+	// unknown word passes the body check and dies on the bridge entry
+	// instead.
+	if code, body := answer("/api/sessions/s1/dialog/answer", `{"id":"x","answer":"maybe"}`); code != http.StatusConflict || body["error"] != "changed" {
+		t.Errorf("bad answer: code=%d body=%v, want 409 changed", code, body)
 	}
 	// Unknown session.
 	if code, _ := answer("/api/sessions/nope/dialog/answer", `{"id":"x","answer":"yes"}`); code != http.StatusNotFound {
