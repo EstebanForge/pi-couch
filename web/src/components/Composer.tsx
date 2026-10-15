@@ -7,6 +7,7 @@ import { Sheet, Toast } from "konsta/react";
 import { useEffect, useRef, useState } from "react";
 import { getModels, sendKeys, sendPrompt, setModel, setThinking, uploadImage } from "../api";
 import { ESC_SETTLE_MS, QUICK_KEYS, type QuickKey } from "../chat/quick-keys";
+import { effectiveEnterSends, quickKeysEnabled } from "../prefs";
 import { Spinner } from "./Spinner";
 
 const MAX_FILES = 10;
@@ -265,33 +266,35 @@ export function Composer(props: {
 	return (
 		<>
 			{/* quick keys strip */}
-			<div
-				className="relative flex gap-2 overflow-x-auto px-2 pt-2 pb-1"
-				style={{ scrollbarWidth: "none", touchAction: "manipulation", userSelect: "none" }}
-			>
-				{QUICK_KEYS.map((k) => {
-					const enabled =
-						k.action.kind === "queue"
-							? runQueueEnabled(status, hasText)
-							: k.enabled(status, hasText);
-					return (
-						<button
-							key={k.id}
-							type="button"
-							disabled={!enabled}
-							onPointerDown={(e) => e.preventDefault()}
-							onMouseDown={(e) => e.preventDefault()}
-							onClick={() => (k.action.kind === "queue" ? runQueue() : runKey(k))}
-							className={`h-11 min-w-[44px] shrink-0 rounded-lg border border-base-300 border-b-2 border-b-base-300/70 bg-base-200 px-2 font-mono text-[13px] active:scale-95 ${
-								enabled ? "text-base-content" : "text-muted/40"
-							}`}
-						>
-							{k.label}
-						</button>
-					);
-				})}
-				<div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-base-100 to-transparent" />
-			</div>
+			{quickKeysEnabled() && (
+				<div
+					className="relative flex gap-2 overflow-x-auto px-2 pt-2 pb-1"
+					style={{ scrollbarWidth: "none", touchAction: "manipulation", userSelect: "none" }}
+				>
+					{QUICK_KEYS.map((k) => {
+						const enabled =
+							k.action.kind === "queue"
+								? runQueueEnabled(status, hasText)
+								: k.enabled(status, hasText);
+						return (
+							<button
+								key={k.id}
+								type="button"
+								disabled={!enabled}
+								onPointerDown={(e) => e.preventDefault()}
+								onMouseDown={(e) => e.preventDefault()}
+								onClick={() => (k.action.kind === "queue" ? runQueue() : runKey(k))}
+								className={`h-11 min-w-[44px] shrink-0 rounded-lg border border-base-300 border-b-2 border-b-base-300/70 bg-base-200 px-2 font-mono text-[13px] active:scale-95 ${
+									enabled ? "text-base-content" : "text-muted/40"
+								}`}
+							>
+								{k.label}
+							</button>
+						);
+					})}
+					<div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-base-100 to-transparent" />
+				</div>
+			)}
 
 			{notice && (
 				<button
@@ -334,13 +337,7 @@ export function Composer(props: {
 								}`}
 							>
 								<span className="flex min-w-0 items-center gap-1">
-									{f.path ? (
-										"✓"
-									) : f.error ? (
-										"✕"
-									) : (
-										<Spinner size={10} className="text-muted" />
-									)}
+									{f.path ? "✓" : f.error ? "✕" : <Spinner size={10} className="text-muted" />}
 									<span className="truncate">{f.name}</span>
 								</span>
 								<button
@@ -489,5 +486,5 @@ function runQueueEnabled(status: string, hasText: boolean): boolean {
 
 // Enter sends on fine pointers; touch keeps Enter as a newline.
 function enterSends(): boolean {
-	return window.matchMedia("(pointer: fine)").matches;
+	return effectiveEnterSends();
 }

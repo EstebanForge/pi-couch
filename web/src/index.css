@@ -22,6 +22,11 @@
 @source "../node_modules/konsta/react/components/Navbar.js";
 @source "../node_modules/konsta/react/components/NavbarBackLink.js";
 @source "../node_modules/konsta/react/components/Panel.js";
+@source "../node_modules/konsta/react/components/Segmented.js";
+@source "../node_modules/konsta/react/components/SegmentedButton.js";
+@source "../node_modules/konsta/react/components/Sheet.js";
+@source "../node_modules/konsta/react/components/Toast.js";
+@source "../node_modules/konsta/react/components/Toggle.js";
 @source "../node_modules/konsta/react/components/Sheet.js";
 @source "../node_modules/konsta/react/components/Toast.js";
 @source "../node_modules/konsta/shared/classes/AppClasses.js";
@@ -32,7 +37,10 @@
 @source "../node_modules/konsta/shared/classes/NavbarBackLinkClasses.js";
 @source "../node_modules/konsta/shared/classes/NavbarClasses.js";
 @source "../node_modules/konsta/shared/classes/PanelClasses.js";
+@source "../node_modules/konsta/shared/classes/SegmentedClasses.js";
 @source "../node_modules/konsta/shared/classes/SheetClasses.js";
+@source "../node_modules/konsta/shared/classes/ToastClasses.js";
+@source "../node_modules/konsta/shared/classes/ToggleClasses.js";
 @source "../node_modules/konsta/shared/classes/ToastClasses.js";
 @source "../node_modules/konsta/shared/touch-ripple-class.js";
 

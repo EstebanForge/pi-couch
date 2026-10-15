@@ -5,6 +5,7 @@ import ChangesScreen from "./screens/Changes";
 import FilesScreen from "./screens/Files";
 import HomeScreen from "./screens/HomeList";
 import SessionScreen from "./screens/Session";
+import SettingsScreen from "./screens/Settings";
 
 // xterm is a third of the bundle and only the terminal screen needs
 // it, so it ships as its own chunk fetched on first visit.
@@ -35,6 +36,9 @@ function Screen() {
 	if (m) {
 		const key = decodeURIComponent(m[1]);
 		return <SessionScreen key={key} sessionKey={key} />;
+	}
+	if (path === "/settings") {
+		return <SettingsScreen />;
 	}
 	return <HomeScreen />;
 }

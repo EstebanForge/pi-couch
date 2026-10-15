@@ -1,14 +1,14 @@
 import { Fab, Panel } from "konsta/react";
 import { Fragment, useEffect, useState } from "react";
 import type { SessionsSnapshot } from "../api";
+import { NewSessionSheet } from "../components/NewSessionSheet";
+import { Spinner } from "../components/Spinner";
 import { relTime, short } from "../fmt";
 import { navigate } from "../nav";
 import { type PushState, pushState, togglePush } from "../push";
 import { grouped, useSessions } from "../state/sessions";
+import { isWaiting, STATUS_DOT } from "../status";
 import { connectStream } from "../stream";
-import { NewSessionSheet } from "../components/NewSessionSheet";
-import { Spinner } from "../components/Spinner";
-import { STATUS_DOT, isWaiting } from "../status";
 
 const LIST_WINDOW = 7;
 const WINDOW_STEP = 5;
@@ -81,47 +81,50 @@ export default function HomeList() {
 	};
 
 	return (
-		<div className="mx-auto flex min-h-dvh max-w-3xl flex-col" style={{ paddingBottom: "var(--safe-bottom, 0px)" }}>
+		<div
+			className="mx-auto flex min-h-dvh max-w-3xl flex-col"
+			style={{ paddingBottom: "var(--safe-bottom, 0px)" }}
+		>
 			<header
 				className="fixed inset-x-0 top-0 z-30 bg-base-300/95 backdrop-blur"
 				style={{ paddingTop: "var(--safe-top, 0px)" }}
 			>
 				<div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-3">
-				<button
-					type="button"
-					aria-label="Menu"
-					onClick={() => setMenuOpen(true)}
-					className="grid h-11 w-11 place-items-center rounded-xl text-muted"
-				>
-					<svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
-						<path
-							d="M3 5h14M3 10h14M3 15h14"
-							stroke="currentColor"
-							strokeWidth="2"
-							strokeLinecap="round"
-						/>
-					</svg>
-				</button>
-				<h1 className="text-lg font-semibold">Couch Pi</h1>
-				<span className="ml-auto text-sm text-muted">
-					{status === "ok" ? `${sessions.length}` : ""}
-				</span>
-				{push !== "unsupported" && (
 					<button
 						type="button"
-						aria-label={push === "on" ? "Notifications on" : "Notifications off"}
-						title={push === "on" ? "Notifications on" : "Notifications off"}
-						onClick={flipPush}
-						className={`grid h-11 w-11 place-items-center rounded-xl ${push === "on" ? "text-warning" : "text-muted"}`}
+						aria-label="Menu"
+						onClick={() => setMenuOpen(true)}
+						className="grid h-11 w-11 place-items-center rounded-xl text-muted"
 					>
-						<svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+						<svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
 							<path
-								d="M12 3a6 6 0 0 0-6 6v3.2l-1.6 3.2a.7.7 0 0 0 .6 1h14a.7.7 0 0 0 .6-1L18 12.2V9a6 6 0 0 0-6-6Zm-2 15a2 2 0 0 0 4 0"
-								fill="currentColor"
+								d="M3 5h14M3 10h14M3 15h14"
+								stroke="currentColor"
+								strokeWidth="2"
+								strokeLinecap="round"
 							/>
-							</svg>
+						</svg>
 					</button>
-				)}
+					<h1 className="text-lg font-semibold">Couch Pi</h1>
+					<span className="ml-auto text-sm text-muted">
+						{status === "ok" ? `${sessions.length}` : ""}
+					</span>
+					{push !== "unsupported" && (
+						<button
+							type="button"
+							aria-label={push === "on" ? "Notifications on" : "Notifications off"}
+							title={push === "on" ? "Notifications on" : "Notifications off"}
+							onClick={flipPush}
+							className={`grid h-11 w-11 place-items-center rounded-xl ${push === "on" ? "text-warning" : "text-muted"}`}
+						>
+							<svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+								<path
+									d="M12 3a6 6 0 0 0-6 6v3.2l-1.6 3.2a.7.7 0 0 0 .6 1h14a.7.7 0 0 0 .6-1L18 12.2V9a6 6 0 0 0-6-6Zm-2 15a2 2 0 0 0 4 0"
+									fill="currentColor"
+								/>
+							</svg>
+						</button>
+					)}
 				</div>
 			</header>
 
@@ -209,7 +212,10 @@ export default function HomeList() {
 										className="flex w-full items-center gap-3 rounded-2xl bg-base-200 px-4 py-3 text-left active:scale-[0.99]"
 									>
 										{isWaiting(st) && st === "working" ? (
-											<Spinner size={13} className={awaiting[s.path] ? "text-accent" : "text-primary"} />
+											<Spinner
+												size={13}
+												className={awaiting[s.path] ? "text-accent" : "text-primary"}
+											/>
 										) : (
 											<span
 												title={awaiting[s.path] ? `${st} · waiting for input` : st}
@@ -251,17 +257,31 @@ export default function HomeList() {
 			    carries its own safe-area offset (the pb-safe-all rule) */}
 			<div
 				className="pb-safe-all fixed right-4 bottom-4 z-40"
-				style={{ position: "fixed", bottom: "calc(var(--safe-bottom, 0px) + 16px)", left: "auto", top: "auto" }}
+				style={{
+					position: "fixed",
+					bottom: "calc(var(--safe-bottom, 0px) + 16px)",
+					left: "auto",
+					top: "auto",
+				}}
 			>
 				<Fab
 					aria-label="New agent"
 					icon={
 						<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
-							<path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+							<path
+								d="M12 5v14M5 12h14"
+								stroke="currentColor"
+								strokeWidth="2"
+								strokeLinecap="round"
+							/>
 						</svg>
 					}
 					onClick={() => setCreateOpen(true)}
-					colors={{ bgMaterial: "bg-primary", textMaterial: "text-primary-content", touchRipple: "touch-ripple-primary" }}
+					colors={{
+						bgMaterial: "bg-primary",
+						textMaterial: "text-primary-content",
+						touchRipple: "touch-ripple-primary",
+					}}
 				/>
 			</div>
 			<Panel
@@ -272,14 +292,14 @@ export default function HomeList() {
 			>
 				{/* fixed-position overlay escapes the body safe-area inset,
 				    so the content carries its own top offset */}
-				<div
-					className="p-4"
-					style={{ paddingTop: "calc(var(--safe-top, 0px) + 1rem)" }}
-				>
+				<div className="p-4" style={{ paddingTop: "calc(var(--safe-top, 0px) + 1rem)" }}>
 					<p className="px-2 pb-2 text-xs uppercase tracking-widest text-muted">Menu</p>
 					<button
 						type="button"
-						onClick={() => setMenuOpen(false)}
+						onClick={() => {
+							setMenuOpen(false);
+							navigate("/settings", { dir: "fwd" });
+						}}
 						className="flex w-full items-center gap-3 rounded-xl px-2 py-3 text-left text-[15px] active:scale-[0.99]"
 					>
 						<svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true">
