@@ -59,6 +59,7 @@ Boundaries:
 
 ## Conventions and gotchas
 
+- Before building any UI element, check whether Konsta already ships a component for it (web/node_modules/konsta/react/components/). Use the Konsta component when one fits the screen; when rejecting one, record the reason in the commit or report. Never hand-build what the framework already provides.
 - Konsta CSS is pruned per component: web/src/index.css carries explicit `@source` lines for every konsta/react import, and konsta-css.test.ts fails the build when an import has no entry. Tailwind generates nothing for class strings it never scans, so a missing entry means the component renders unstyled. Nested dependencies count: DialogButton wraps Button, NavbarBackLink uses Icon.
 - Tolerant jsonl parsing: unknown entry types never crash the parser. Buffer partial lines until the newline before parsing.
 - Verify parser shapes against real session files at M0, not guesses.
