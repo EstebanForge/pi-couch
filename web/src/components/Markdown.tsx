@@ -1,6 +1,6 @@
+import { type ReactNode, useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { useEffect, useState, type ReactNode } from "react";
 
 /** Assistant text renders as markdown (GFM). Raw HTML never renders:
  * there is no rehype-raw, so tags arrive as escaped plain text. User
@@ -41,6 +41,7 @@ function CodeFold({ text, lang, node }: { text: string; lang?: string; node: Rea
 	const body =
 		open && html !== null ? (
 			<pre>
+				{/* biome-ignore lint/security/noDangerouslySetInnerHtml: highlight.js output is escaped code, never raw HTML */}
 				<code className="hljs" dangerouslySetInnerHTML={{ __html: html }} />
 			</pre>
 		) : (

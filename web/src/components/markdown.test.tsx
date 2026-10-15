@@ -32,34 +32,37 @@ describe("Markdown", () => {
 	});
 });
 
-	it("neutralizes non-http link schemes", () => {
-		const html = renderToString(
-			<Markdown text={"[x](javascript:alert(1))\n\n[y](data:text/html,hi)\n\n[z](file:///etc/passwd)"} />,
-		);
-		expect(html).not.toContain("<a href=\"javascript:");
-		expect(html).not.toContain("<a href=\"data:");
-		expect(html).not.toContain("<a href=\"file:");
-		// The link text stays visible as plain content.
-		expect(html).toContain('<span class="text-muted">x</span>');
-		expect(html).toContain('<span class="text-muted">z</span>');
-	});
+it("neutralizes non-http link schemes", () => {
+	const html = renderToString(
+		<Markdown
+			text={"[x](javascript:alert(1))\n\n[y](data:text/html,hi)\n\n[z](file:///etc/passwd)"}
+		/>,
+	);
+	expect(html).not.toContain('<a href="javascript:');
+	expect(html).not.toContain('<a href="data:');
+	expect(html).not.toContain('<a href="file:');
+	// The link text stays visible as plain content.
+	expect(html).toContain('<span class="text-muted">x</span>');
+	expect(html).toContain('<span class="text-muted">z</span>');
+});
 
-	it("keeps mailto links clickable", () => {
-		const html = renderToString(<Markdown text="[me](mailto:a@b.c)" />);
-		expect(html).toContain('href="mailto:a@b.c"');
-		expect(html).toContain('target="_blank"');
-	});
+it("keeps mailto links clickable", () => {
+	const html = renderToString(<Markdown text="[me](mailto:a@b.c)" />);
+	expect(html).toContain('href="mailto:a@b.c"');
+	expect(html).toContain('target="_blank"');
+});
 
-	it("folds long code fences behind a header", () => {
-		const long = Array.from({ length: 15 }, (_, i) => `line ${i}`).join("\n");
-		const html = renderToString(<Markdown text={"```js\n" + long + "\n```"} />);
-		const flat = html.replace(/<!--.*?-->/g, "");
-		expect(flat).toContain("js · 16 lines"); // fence + trailing newline
-		expect(flat).not.toContain("line 14"); // body stays collapsed
-	});
+it("folds long code fences behind a header", () => {
+	const long = Array.from({ length: 15 }, (_, i) => `line ${i}`).join("\n");
+	const fence = "```";
+	const html = renderToString(<Markdown text={`${fence}js\n${long}\n${fence}`} />);
+	const out = html.replace(/<!--.*?-->/g, "");
+	expect(out).toContain("js · 16 lines"); // fence + trailing newline
+	expect(out).not.toContain("line 14"); // body stays collapsed
+});
 
-	it("renders short fences open with no fold chrome", () => {
-		const html = renderToString(<Markdown text={"```js\nconst a = 1;\n```"} />);
-		expect(html).toContain("<pre>");
-		expect(html).not.toContain("· 2 lines");
-	});
+it("renders short fences open with no fold chrome", () => {
+	const html = renderToString(<Markdown text={"```js\nconst a = 1;\n```"} />);
+	expect(html).toContain("<pre>");
+	expect(html).not.toContain("· 2 lines");
+});

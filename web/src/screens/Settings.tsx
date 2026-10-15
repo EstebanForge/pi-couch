@@ -6,12 +6,12 @@
 import { Navbar, NavbarBackLink, Segmented, SegmentedButton, Toggle } from "konsta/react";
 import { useState } from "react";
 import {
+	type EnterSendsPref,
 	effectiveEnterSends,
 	enterSendsPref,
 	quickKeysEnabled,
 	setEnterSendsPref,
 	setQuickKeysEnabled,
-	type EnterSendsPref,
 } from "../prefs";
 
 const ENTER_CHOICES: { value: EnterSendsPref; label: string; hint: string }[] = [
@@ -31,7 +31,10 @@ export default function SettingsScreen() {
 				title="Settings"
 				style={{ position: "fixed", top: "var(--safe-top, 0px)", left: 0, right: 0, zIndex: 30 }}
 			/>
-			<div className="mx-auto flex min-h-dvh max-w-3xl flex-col gap-6 px-3 pt-[80px]" style={{ paddingBottom: "var(--safe-bottom, 0px)" }}>
+			<div
+				className="mx-auto flex min-h-dvh max-w-3xl flex-col gap-6 px-3 pt-[80px]"
+				style={{ paddingBottom: "var(--safe-bottom, 0px)" }}
+			>
 				<section>
 					<h2 className="px-1 pb-2 text-xs uppercase tracking-widest text-muted">Enter key</h2>
 					<Segmented
@@ -52,7 +55,9 @@ export default function SettingsScreen() {
 							</SegmentedButton>
 						))}
 					</Segmented>
-					<p className="px-1 pt-2 text-xs text-muted">{ENTER_CHOICES.find((c) => c.value === enter)?.hint}</p>
+					<p className="px-1 pt-2 text-xs text-muted">
+						{ENTER_CHOICES.find((c) => c.value === enter)?.hint}
+					</p>
 					<p className="px-1 pt-1 text-xs text-muted">
 						Current effective behavior: Enter {effectiveEnterSends() ? "sends" : "adds a newline"}.
 					</p>
@@ -71,7 +76,9 @@ export default function SettingsScreen() {
 							colors={{ checkedBgMaterial: "bg-primary" }}
 						/>
 					</div>
-					<p className="px-1 pt-2 text-xs text-muted">Esc, Enter, arrows and the dialog keys above the composer.</p>
+					<p className="px-1 pt-2 text-xs text-muted">
+						Esc, Enter, arrows and the dialog keys above the composer.
+					</p>
 				</section>
 			</div>
 		</div>

@@ -65,6 +65,7 @@ export default function HomeList() {
 		);
 	});
 	// A fresh search starts a fresh window.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the effect must re-run when the needle changes even though it does not read it
 	useEffect(() => {
 		setSize(LIST_WINDOW);
 	}, [needle]);

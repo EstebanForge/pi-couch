@@ -11,7 +11,7 @@ let backing: Map<string, string>;
 beforeEach(() => {
 	backing = new Map();
 	(globalThis as Record<string, unknown>).localStorage = {
-		getItem: (k: string) => (backing.has(k) ? backing.get(k)! : null),
+		getItem: (k: string) => backing.get(k) ?? null,
 		setItem: (k: string, v: string) => void backing.set(k, v),
 		removeItem: (k: string) => void backing.delete(k),
 	};
