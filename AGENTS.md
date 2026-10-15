@@ -18,7 +18,7 @@ Couch Pi: phone-first web client for the pi coding agents on this server. Shows 
 
 - Plain pi sessions only: jsonl trees under `~/.pi/agent/sessions/`. No pi-durable, no RPC children, no guests (ADR-0001).
 - herdr is the only driver. Every start, steer, stop, resume goes through herdr's socket API. Protocol 22 is pinned; adapt on change. Abort is Ctrl-C via send-keys, not an API verb (ADR-0001).
-- Stack: one Go binary, stdlib `net/http` routing, and a React 19 + Vite + Tailwind 4 + Konsta SPA served from `go:embed`. The templ pages, Datastar and the daisyUI CDN died at the stage-7 cutover (ADR-0006 supersedes ADR-0002). No web framework on the server; node is a build-time dependency only.
+- Stack: one Go binary, stdlib `net/http` routing, and a React 19 + Vite + Tailwind 4 + Konsta SPA served from `go:embed`. The templ pages, Datastar and the daisyUI CDN died at the stage-7 cutover (ADR-0006 supersedes ADR-0002). No web framework on the server; node is a build-time dependency only. ADR-0007 amends ADR-0001 for the dialog-sensor bridge extension.
 - Android install surface: thin Kotlin WebView APK. One Activity, no IPC bridge, no bundled assets, no FCM; sideloaded, not the PWA install flow (ADR-0003).
 - Security: server binds 127.0.0.1 only, fronted by `tailscale serve`. The tailnet is the boundary; no extra auth layer. Never widen this without a new ADR.
 
@@ -38,7 +38,7 @@ Verified (M0):
 - Push slice: VAPID keys and subscriptions live under `~/.local/state/couch-pi/` (`vapid.json` 0600, `push-subs.json`). `GET /api/push/key`, `POST /api/push/subscribe|unsubscribe`; `/sw.js`, `/manifest.webmanifest` and the icons come from the SPA embed (`web/public/`).
 - Dialog bridge plugin (needed for dialog titles, per ADR-0007): `ln -sf <repo>/extensions/couch-pi-bridge.ts ~/.pi/agent/extensions/couch-pi-bridge.ts` on every machine whose agents should surface dialogs. The repo file is the source of truth; pi loads it at agent start, so agents started before the install (or before an edit) run the old code until restarted. Without the plugin nothing breaks: herdr still flips to blocked via the pane regex in `internal/server/awaiting.go`, but the phone shows no dialog kind or title (and blocked detection for `ctx.ui` dialogs then rides the regex only). `COUCHPI_URL` overrides the default `http://127.0.0.1:8090` dial target.
 
-Pins: fsnotify v1.10.1, webpush-go v1.4.0; the web stack pins live in web/package.json (React 19.3, Vite 8.3, Tailwind 4.3, Konsta 5.5, xterm 5.5, react-markdown 10.1, remark-gfm 4.0). herdr socket framing is NDJSON: `{"id","method","params"}` in, one compact JSON line out.
+Pins: fsnotify v1.10.1, webpush-go v1.4.0; the web stack pins live in web/package.json (React 19.3, Vite 8.3, Tailwind 4.3, Konsta 5.5, xterm 5.5, react-markdown 10.1, remark-gfm 4.0, highlight.js 11.12). herdr socket framing is NDJSON: `{"id","method","params"}` in, one compact JSON line out.
 
 ## Architecture (planned, per PLAN.md)
 
@@ -46,11 +46,11 @@ Pins: fsnotify v1.10.1, webpush-go v1.4.0; the web stack pins live in web/packag
 - herdr client: socket at `~/.config/herdr/herdr.sock`, request envelope from `herdr api schema`; CLI fallback where the socket is fiddly.
 - Terminal bridge: herdr socket only. `pane.read` in `ansi` format polled on a 1 s tick into xterm.js; keystrokes out via `pane.send_input`. No PTY bridge, no cgo: the socket has no attach method and no output push (m0-findings).
 - Git service: repo discovery by pruned scan, diffs via exec git.
-- State: comments and UI prefs in a plain JSON file per session. Push subscriptions and the VAPID key live in the store state dir. No database.
+- State: comments in a plain JSON file per session; UI preferences (enter-send behavior, quick keys) in browser localStorage per device. Push subscriptions and the VAPID key live in the store state dir. No database.
 - Push watcher: one `agent.wait` goroutine per live herdr agent (until idle, blocked, done), 15 s reconcile, 5 s re-arm pause, 2 s stability re-check, same-status dedupe (ADR-0005).
 - Dialog sensor: extensions/couch-pi-bridge.ts (symlink into ~/.pi/agent/extensions) listens to pi's ui_prompt events, flips herdr to blocked, and POSTs kind + title to /api/bridge/dialog so the phone shows which dialog waits (ADR-0007). pi's codebase is never modified; APIs only.
-- Web client: server-rendered HTML, Datastar SSE patches, one TS island. Mobile-first, dark default.
-- Native door: views stay separate from streams (JSON POST commands; SSE accepts raw JSON beside Datastar patches; terminal WS is raw bytes plus JSON resize frames) so a Kotlin client plugs in with no server rework.
+- Web client: the React SPA is the whole site. JSON feeds live under `/api` and `/api/stream/*` (sessions, transcript with `seq`, changes; the raw terminal byte stream stays under `/stream/terminal/{key}`), and every command is a JSON POST under `/api`. Assistant text renders markdown: link allowlist (http, https, mailto), code fences over 12 lines folded, highlight.js 11.12 lazy-loaded as its own chunk. Tool text caps at 400 runes with `GET /api/sessions/{key}/items/{seq}` fetching the whole item. New agents start from the phone: the home FAB opens a sheet over `GET /api/dirs` (browser jailed to the user's home, symlinks rejected on escape) and `POST /api/agents` (herdr workspace create, agent start, launch wait, first prompt; answers `{key}`). The settings screen stores enter-send and quick-keys preferences in localStorage.
+- Native door: JSON commands, JSON SSE feeds, and the raw terminal byte stream stay separate surfaces so a Kotlin client plugs in with no server rework.
 
 Boundaries:
 
