@@ -57,7 +57,9 @@ func herdrFake(t *testing.T, sessPath *string, sends *int32, failFirst bool) str
 				switch m.Method {
 				case "agent.list":
 					b, _ := json.Marshal(*sessPath)
-					resp = `{"id":"x","result":{"agents":[{"name":"pi","agent":"pi","agent_status":"blocked","pane_id":"p1","workspace_id":"w1","agent_session":{"kind":"path","value":` + string(b) + `}}]}}`
+					resp = `{"id":"x","result":{"agents":[{"name":"pi","agent":"pi","agent_status":"blocked","pane_id":"p1","workspace_id":"w1","terminal_title_stripped":"pi - s1:running...","agent_session":{"kind":"path","value":` + string(b) + `}}]}}`
+				case "workspace.list":
+					resp = `{"id":"x","result":{"type":"workspace_list","workspaces":[{"workspace_id":"w1","label":"Forge","number":1}]}}`
 				case "pane.read":
 					resp = `{"id":"x","result":{"read":{"pane_id":"p1","source":"screen","format":"ansi","text":"` + menuScreen + `","revision":1}}}`
 				case "pane.send_input":

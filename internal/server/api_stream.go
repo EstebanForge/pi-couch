@@ -247,17 +247,20 @@ func (a *app) apiStreamSessions(w http.ResponseWriter, r *http.Request) {
 	var pace pacer
 	var last []byte
 	for {
-		sessions, badges, awaiting := a.snapshot(r)
+		sessions, badges, driven, awaiting := a.snapshot(r)
 		if sessions == nil {
 			sessions = []pi.SessionMeta{}
 		}
 		if badges == nil {
 			badges = map[string]string{}
 		}
+		if driven == nil {
+			driven = map[string]herdr.DrivenInfo{}
+		}
 		if awaiting == nil {
 			awaiting = map[string]bool{}
 		}
-		b, err := json.Marshal(sessionsWire{Sessions: sessions, Badges: badges, Awaiting: awaiting})
+		b, err := json.Marshal(sessionsWire{Sessions: sessions, Badges: badges, Driven: driven, Awaiting: awaiting})
 		if err != nil {
 			return
 		}

@@ -17,12 +17,15 @@ import (
 
 // Agent mirrors the herdr agent object fields Couch Pi consumes.
 type Agent struct {
-	Name        string           `json:"name"`
-	Agent       string           `json:"agent"`
-	AgentStatus string           `json:"agent_status"`
-	PaneID      string           `json:"pane_id"`
-	WorkspaceID string           `json:"workspace_id"`
-	Session     *AgentSessionRef `json:"agent_session"`
+	Name        string `json:"name"`
+	Agent       string `json:"agent"`
+	AgentStatus string `json:"agent_status"`
+	PaneID      string `json:"pane_id"`
+	WorkspaceID string `json:"workspace_id"`
+	// TerminalTitle is herdr's stripped pane title; it churns with run
+	// state, so it is a live indicator, not a stable name.
+	TerminalTitle string           `json:"terminal_title_stripped"`
+	Session       *AgentSessionRef `json:"agent_session"`
 }
 
 // AgentSessionRef carries the pi session file path once a prompt ran.
@@ -93,6 +96,45 @@ func (c *Client) Badges(ctx context.Context) map[string]string {
 		if a.Session != nil && a.Session.Value != "" && a.AgentStatus != "" {
 			out[a.Session.Value] = a.AgentStatus
 		}
+	}
+	return out
+}
+
+// DrivenInfo is what the phone shows about the agent driving a session.
+type DrivenInfo struct {
+	Status string `json:"status"`
+	Title  string `json:"title,omitempty"`
+	Label  string `json:"label,omitempty"`
+}
+
+// Driven maps pi session file paths to the live agent driving them,
+// with the workspace label joined in. A dead socket degrades to an
+// empty map, like Badges.
+func (c *Client) Driven(ctx context.Context) map[string]DrivenInfo {
+	out := map[string]DrivenInfo{}
+	agents, err := c.Agents(ctx)
+	if err != nil {
+		return out
+	}
+	labels := map[string]string{}
+	if raw, err := c.call(ctx, "workspace.list", map[string]any{}); err == nil {
+		var res struct {
+			Workspaces []struct {
+				WorkspaceID string `json:"workspace_id"`
+				Label       string `json:"label"`
+			} `json:"workspaces"`
+		}
+		if json.Unmarshal(raw, &res) == nil {
+			for _, w := range res.Workspaces {
+				labels[w.WorkspaceID] = w.Label
+			}
+		}
+	}
+	for _, a := range agents {
+		if a.Session == nil || a.Session.Value == "" || a.AgentStatus == "" {
+			continue
+		}
+		out[a.Session.Value] = DrivenInfo{Status: a.AgentStatus, Title: a.TerminalTitle, Label: labels[a.WorkspaceID]}
 	}
 	return out
 }

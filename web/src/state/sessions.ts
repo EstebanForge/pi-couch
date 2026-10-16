@@ -24,6 +24,7 @@ export function grouped(
 type SessionsState = {
 	sessions: SessionsSnapshot["sessions"];
 	badges: SessionsSnapshot["badges"];
+	driven: SessionsSnapshot["driven"];
 	awaiting: SessionsSnapshot["awaiting"];
 	status: Status;
 	error: string;
@@ -34,6 +35,7 @@ type SessionsState = {
 export const useSessions = create<SessionsState>((set) => ({
 	sessions: [],
 	badges: {},
+	driven: {},
 	awaiting: {},
 	status: "idle",
 	error: "",
@@ -44,6 +46,7 @@ export const useSessions = create<SessionsState>((set) => ({
 			set({
 				sessions: snap.sessions,
 				badges: snap.badges,
+				driven: snap.driven ?? {},
 				awaiting: snap.awaiting ?? {},
 				status: "ok",
 			});
@@ -55,6 +58,7 @@ export const useSessions = create<SessionsState>((set) => ({
 		set({
 			sessions: snap.sessions,
 			badges: snap.badges,
+			driven: snap.driven ?? {},
 			awaiting: snap.awaiting ?? {},
 			status: "ok",
 		}),

@@ -1,9 +1,9 @@
 import { Fab, Panel } from "konsta/react";
 import { Fragment, useEffect, useState } from "react";
-import type { SessionsSnapshot } from "../api";
+import { type SessionsSnapshot, getVersion } from "../api";
 import { NewSessionSheet } from "../components/NewSessionSheet";
 import { Spinner } from "../components/Spinner";
-import { relTime, short } from "../fmt";
+import { relTime, short, tildify } from "../fmt";
 import { navigate } from "../nav";
 import { type PushState, pushState, togglePush } from "../push";
 import { grouped, useSessions } from "../state/sessions";
@@ -14,12 +14,17 @@ const LIST_WINDOW = 7;
 const WINDOW_STEP = 5;
 
 export default function HomeList() {
-	const { sessions, badges, awaiting, status, error, load, apply } = useSessions();
+	const { sessions, badges, driven, awaiting, status, error, load, apply } = useSessions();
 	const [menuOpen, setMenuOpen] = useState(false);
 	const [query, setQuery] = useState("");
 	const [size, setSize] = useState(LIST_WINDOW);
 	const [loadingMore, setLoadingMore] = useState(false);
 	const [createOpen, setCreateOpen] = useState(false);
+	const [version, setVersion] = useState<string | null>(null);
+
+	useEffect(() => {
+		getVersion().then(setVersion).catch(() => {});
+	}, []);
 
 	// Grow the window one step per tap. The spinner must paint first
 	// and the step lands after a deliberate 500ms beat, so the load is
@@ -228,8 +233,11 @@ export default function HomeList() {
 												{short(s.name || s.first_user || s.key, 60)}
 											</span>
 											<span className="block truncate text-xs text-muted">
-												{short(s.cwd, 48)} · {relTime(s.mtime)}
+												{driven[s.path]?.label && <>{driven[s.path].label} · </>}{short(tildify(s.cwd), 48)} · {relTime(s.mtime)}
 											</span>
+											{driven[s.path]?.title && (
+												<span className="block truncate text-[11px] text-muted/70">{driven[s.path].title}</span>
+											)}
 										</span>
 									</button>
 								</li>
@@ -293,7 +301,10 @@ export default function HomeList() {
 			>
 				{/* fixed-position overlay escapes the body safe-area inset,
 				    so the content carries its own top offset */}
-				<div className="p-4" style={{ paddingTop: "calc(var(--safe-top, 0px) + 1rem)" }}>
+				<div
+					className="flex h-full flex-col p-4"
+					style={{ paddingTop: "calc(var(--safe-top, 0px) + 1rem)" }}
+				>
 					<p className="px-2 pb-2 text-xs uppercase tracking-widest text-muted">Menu</p>
 					<button
 						type="button"
@@ -311,6 +322,7 @@ export default function HomeList() {
 						</svg>
 						Settings
 					</button>
+					<p className="mt-auto px-2 pt-3 text-xs text-muted">Couch Pi {version ?? "…"}</p>
 				</div>
 			</Panel>
 		</div>

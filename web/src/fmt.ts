@@ -12,3 +12,7 @@ export function short(text: string, max: number): string {
 	const line = text.split("\n", 1)[0].trim();
 	return line.length > max ? `${line.slice(0, max - 1)}…` : line;
 }
+
+export function tildify(path: string): string {
+	return path.replace(/^\/home\/esteban(?=\/|$)/, "~");
+}

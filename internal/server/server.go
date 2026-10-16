@@ -161,6 +161,7 @@ func (a *app) routes() http.Handler {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = w.Write([]byte("ok\n"))
 	})
+	mux.HandleFunc("GET /api/version", a.apiVersion)
 
 	// The React SPA is the whole site; the templ pages died at cutover.
 	mux.Handle("GET /", web.App())
@@ -200,30 +201,36 @@ func (a *app) routes() http.Handler {
 type sessionsWire struct {
 	Sessions []pi.SessionMeta  `json:"sessions"`
 	Badges   map[string]string `json:"badges"`
+	// Driven carries the live driver state per session path: status,
+	// pane title and workspace label, empty for undriven sessions.
+	Driven map[string]herdr.DrivenInfo `json:"driven"`
 	// Awaiting marks sessions whose agent sits in a blocking pi dialog
 	// (write review, questionnaire). Keyed by session path like badges.
 	Awaiting map[string]bool `json:"awaiting"`
 }
 
 func (a *app) apiSessions(w http.ResponseWriter, r *http.Request) {
-	sessions, badges, awaiting := a.snapshot(r)
+	sessions, badges, driven, awaiting := a.snapshot(r)
 	if sessions == nil {
 		sessions = []pi.SessionMeta{}
 	}
 	if badges == nil {
 		badges = map[string]string{}
 	}
-	writeJSON(w, http.StatusOK, sessionsWire{Sessions: sessions, Badges: badges, Awaiting: awaiting})
+	if driven == nil {
+		driven = map[string]herdr.DrivenInfo{}
+	}
+	writeJSON(w, http.StatusOK, sessionsWire{Sessions: sessions, Badges: badges, Driven: driven, Awaiting: awaiting})
 }
 
-func (a *app) snapshot(r *http.Request) ([]pi.SessionMeta, map[string]string, map[string]bool) {
+func (a *app) snapshot(r *http.Request) ([]pi.SessionMeta, map[string]string, map[string]herdr.DrivenInfo, map[string]bool) {
 	sessions, err := a.idx.List()
 	if err != nil {
 		a.logger.Error("session list", "err", err)
 		sessions = nil
 	}
 	badges := a.herdr.Badges(r.Context())
-	return sessions, badges, a.awaiting.snapshot()
+	return sessions, badges, a.herdr.Driven(r.Context()), a.awaiting.snapshot()
 }
 
 // promptAgent drives the JSON prompt endpoint: submit the text to the

@@ -4,7 +4,8 @@
 // the session. Konsta supplies the controls (Segmented, Toggle); List
 // stays rejected like everywhere else (material look fights dracula).
 import { Navbar, NavbarBackLink, Segmented, SegmentedButton, Toggle } from "konsta/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { getVersion } from "../api";
 import { orderKeys, QUICK_KEYS } from "../chat/quick-keys";
 import {
 	type EnterSendsPref,
@@ -27,6 +28,11 @@ export default function SettingsScreen() {
 	const [enter, setEnter] = useState<EnterSendsPref>(enterSendsPref);
 	const [keys, setKeys] = useState(quickKeysEnabled);
 	const [order, setOrder] = useState(() => orderKeys(quickKeyOrder()).map((k) => k.id));
+	const [version, setVersion] = useState<string | null>(null);
+
+	useEffect(() => {
+		getVersion().then(setVersion).catch(() => {});
+	}, []);
 
 	// move swaps one key past its neighbor and persists the whole id
 	// list; the strip re-reads it at mount.
@@ -131,6 +137,8 @@ export default function SettingsScreen() {
 						Order the keys with the arrows; sessions pick it up on the next visit.
 					</p>
 				</section>
+
+				<p className="pt-2 text-center text-xs text-muted">Couch Pi {version ?? "…"}</p>
 			</div>
 		</div>
 	);

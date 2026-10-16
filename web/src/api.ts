@@ -16,9 +16,16 @@ export type SessionMeta = {
 	thinking: string;
 };
 
+export type DriveInfo = {
+	status: string;
+	title?: string;
+	label?: string;
+};
+
 export type SessionsSnapshot = {
 	sessions: SessionMeta[];
 	badges: Record<string, string>;
+	driven: Record<string, DriveInfo>;
 	awaiting: Record<string, boolean>;
 };
 
@@ -73,6 +80,13 @@ export async function getSessions(): Promise<SessionsSnapshot> {
 	const res = await fetch("/api/sessions");
 	if (!res.ok) throw new Error(`sessions ${res.status}`);
 	return (await res.json()) as SessionsSnapshot;
+}
+
+export async function getVersion(): Promise<string> {
+	const res = await fetch("/api/version");
+	if (!res.ok) throw new Error(`version ${res.status}`);
+	const out = (await res.json()) as { version: string };
+	return out.version;
 }
 
 // --- new agent: folder picker and create ---

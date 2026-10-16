@@ -38,6 +38,11 @@ describe("wire contract goldens", () => {
 			expect(s).toHaveProperty(k);
 		}
 		expect(typeof snap.badges).toBe("object");
+		expect(typeof snap.driven).toBe("object");
+		const d = Object.values(snap.driven)[0];
+		if (d) {
+			expect(typeof d.status).toBe("string");
+		}
 	});
 
 	it("transcript reset matches the client type", () => {
