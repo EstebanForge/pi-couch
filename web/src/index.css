@@ -92,6 +92,14 @@
 	padding-bottom: calc(var(--safe-bottom, 0px) + env(safe-area-inset-bottom, 0px));
 }
 
+/* Konsta bakes min-h-screen into .k-app; combined with the body safe-area
+   padding that makes every page taller than the viewport, so the document
+   scrolls and Chrome paints a scrollbar plus a status-bar scrim. Body
+   min-height already keeps short pages full-viewport. */
+.k-app {
+	min-height: 0;
+}
+
 /* Screen slides: forward pushes in from the right, back reverses. */
 @media (prefers-reduced-motion: no-preference) {
 	html[data-nav="fwd"]::view-transition-old(root) {

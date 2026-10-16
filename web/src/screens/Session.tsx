@@ -260,10 +260,15 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 		navigate("/", { dir: "back" });
 	};
 
+	// Fixed root: out of document flow, so focus scroll and flicks can
+	// never drag the header under the status bar.
 	return (
 		<div
-			className="flex h-dvh flex-col bg-base-100"
-			style={{ paddingBottom: "var(--safe-bottom, 0px)" }}
+			className="fixed inset-x-0 bottom-0 flex flex-col bg-base-100"
+			style={{
+				top: "var(--safe-top, 0px)",
+				paddingBottom: "var(--safe-bottom, 0px)",
+			}}
 		>
 			<header className="flex h-11 shrink-0 items-center gap-1 border-b border-base-300 px-1">
 				<button
