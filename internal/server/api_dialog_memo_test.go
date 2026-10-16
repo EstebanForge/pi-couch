@@ -25,7 +25,19 @@ const menuScreen = "Allow edit?  ❯ Yes  No  ↑↓ navigate enter select escap
 // request so the test can wire it after the socket exists. *sends
 // counts send_input calls; failFirst makes exactly the first
 // send_input return an error.
-func herdrFake(t *testing.T, sessPath *string, sends *int32, failFirst bool) string {
+// fakeHerdrOpts configures the in-process herdr socket double; zero
+// value suffices for the common read-only flow.
+type fakeHerdrOpts struct {
+	sessPath       *string
+	sends          *int32  // pane.send_input count
+	prompts        *int32  // agent.prompt count
+	lastPrompt     *string // agent.prompt target name
+	failFirstSend  bool
+	failFirstStart bool
+}
+
+func herdrFake(t *testing.T, o fakeHerdrOpts) string {
+	var startFails int32
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "herdr.sock")
@@ -47,8 +59,9 @@ func herdrFake(t *testing.T, sessPath *string, sends *int32, failFirst bool) str
 					return
 				}
 				var m struct {
-					ID     string `json:"id"`
-					Method string `json:"method"`
+					ID     string          `json:"id"`
+					Method string          `json:"method"`
+					Params json.RawMessage `json:"params"`
 				}
 				if json.Unmarshal(line, &m) != nil {
 					return
@@ -56,15 +69,35 @@ func herdrFake(t *testing.T, sessPath *string, sends *int32, failFirst bool) str
 				var resp string
 				switch m.Method {
 				case "agent.list":
-					b, _ := json.Marshal(*sessPath)
+					b, _ := json.Marshal(*o.sessPath)
 					resp = `{"id":"x","result":{"agents":[{"name":"pi","agent":"pi","agent_status":"blocked","pane_id":"p1","workspace_id":"w1","terminal_title_stripped":"pi - s1:running...","agent_session":{"kind":"path","value":` + string(b) + `}}]}}`
+				case "pane.split":
+					resp = `{"id":"x","result":{"type":"pane_info","pane":{"pane_id":"p1","workspace_id":"w1"}}}`
 				case "workspace.list":
 					resp = `{"id":"x","result":{"type":"workspace_list","workspaces":[{"workspace_id":"w1","label":"Forge","number":1}]}}`
+				case "agent.start":
+					if o.failFirstStart && atomic.CompareAndSwapInt32(&startFails, 0, 1) {
+						resp = `{"id":"x","error":{"message":"agent target pane p1 is not an available shell"}}`
+					} else {
+						resp = `{"id":"x","result":{"type":"ok"}}`
+					}
+				case "agent.prompt":
+					var p struct {
+						Target string `json:"target"`
+					}
+					_ = json.Unmarshal(m.Params, &p)
+					if o.prompts != nil {
+						atomic.AddInt32(o.prompts, 1)
+					}
+					if o.lastPrompt != nil {
+						*o.lastPrompt = p.Target
+					}
+					resp = `{"id":"x","result":{"type":"ok"}}`
 				case "pane.read":
 					resp = `{"id":"x","result":{"read":{"pane_id":"p1","source":"screen","format":"ansi","text":"` + menuScreen + `","revision":1}}}`
 				case "pane.send_input":
-					n := atomic.AddInt32(sends, 1)
-					if failFirst && n == 1 {
+					n := atomic.AddInt32(o.sends, 1)
+					if o.failFirstSend && n == 1 {
 						resp = `{"id":"x","error":{"message":"pane gone"}}`
 					} else {
 						resp = `{"id":"x","result":{"type":"ok"}}`
@@ -119,7 +152,7 @@ func bridgeReal(t *testing.T, a *app, sessPath string) {
 func TestDialogAnswerMemoDedupesDoubleTap(t *testing.T) {
 	var sends int32
 	var sessPath string
-	sock := herdrFake(t, &sessPath, &sends, false)
+	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath, sends: &sends})
 	a, sub, h := streamTestAppWithHerdr(t, sock)
 	sessPath = filepath.Join(sub, "s1.jsonl")
 	bridgeReal(t, a, sessPath)
@@ -151,7 +184,7 @@ func TestDialogAnswerMemoDedupesDoubleTap(t *testing.T) {
 func TestDialogAnswerMemoReleasesOnSendFailure(t *testing.T) {
 	var sends int32
 	var sessPath string
-	sock := herdrFake(t, &sessPath, &sends, true)
+	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath, sends: &sends, failFirstSend: true})
 	a, sub, h := streamTestAppWithHerdr(t, sock)
 	sessPath = filepath.Join(sub, "s1.jsonl")
 	bridgeReal(t, a, sessPath)

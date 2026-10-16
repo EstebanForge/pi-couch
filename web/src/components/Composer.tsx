@@ -9,6 +9,7 @@ import { getModels, sendKeys, sendPrompt, setModel, setThinking, uploadImage } f
 import { type Dictation, dictationSupported, startDictation } from "../chat/dictate";
 import { dispositionFor } from "../chat/disposition";
 import { ESC_SETTLE_MS, orderKeys, type QuickKey } from "../chat/quick-keys";
+import { useSheetBack } from "../nav";
 import { effectiveEnterSends, quickKeyOrder, quickKeysEnabled } from "../prefs";
 import { Spinner } from "./Spinner";
 
@@ -28,6 +29,7 @@ export function Composer(props: {
 	markPending: (id: number, state: "sent" | "queued" | "unconfirmed") => void;
 	removePending: (id: number) => void;
 	requestClose: () => void;
+	sendAgent?: (body: string, queued: boolean) => Promise<{ ok: boolean; error?: string }>;
 }) {
 	const { sessionKey, status } = props;
 	const draftStoreKey = `couch-pi.draft.${sessionKey}`;
@@ -36,6 +38,7 @@ export function Composer(props: {
 	const [notice, setNotice] = useState("");
 	const [toast, setToast] = useState("");
 	const [sheet, setSheet] = useState<"none" | "model" | "thinking">("none");
+	useSheetBack(sheet !== "none", () => setSheet("none"));
 	const [modelQuery, setModelQuery] = useState("");
 	const [modelRows, setModelRows] = useState<string[]>([]);
 	const [modelMark, setModelMark] = useState(false);
@@ -123,7 +126,9 @@ export function Composer(props: {
 		const acked = draft ?? body;
 		let outcome: "ok" | "fail" | "unknown" = "unknown";
 		try {
-			const r = await sendPrompt(sessionKey, body, queued ? "followUp" : undefined);
+			const r = props.sendAgent
+				? await props.sendAgent(body, queued)
+				: await sendPrompt(sessionKey, body, queued ? "followUp" : undefined);
 			outcome = r.ok ? "ok" : "fail";
 			if (!r.ok)
 				setNotice(r.error === "notdriven" ? "No driver runs this session." : "Send failed.");

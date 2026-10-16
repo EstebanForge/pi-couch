@@ -13,7 +13,7 @@ import (
 func TestSessionsCarriesDrivenInfo(t *testing.T) {
 	var sends int32
 	var sessPath string
-	sock := herdrFake(t, &sessPath, &sends, false)
+	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath, sends: &sends})
 	a, sub, h := streamTestAppWithHerdr(t, sock)
 	sessPath = filepath.Join(sub, "s1.jsonl")
 

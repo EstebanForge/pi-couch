@@ -7,6 +7,7 @@ export type EnterSendsPref = "auto" | "send" | "newline";
 const ENTER_KEY = "couch-pi.enterSends";
 const KEYS_KEY = "couch-pi.quickKeys";
 const ORDER_KEY = "couch-pi.keyOrder";
+const QUICK_PATH_KEY = "couch-pi.quickPath";
 
 function store(): Storage | null {
 	return typeof localStorage === "undefined" ? null : localStorage;
@@ -53,6 +54,21 @@ export function quickKeyOrder(): string[] | null {
 
 export function setQuickKeyOrder(ids: string[]): void {
 	store()?.setItem(ORDER_KEY, JSON.stringify(ids));
+}
+
+/** Quick agent: the fixed folder the home FAB's speed dial starts an
+ * agent in (pi runs there with no prompt). Empty until configured in
+ * Settings. */
+export function quickPath(): string {
+	return store()?.getItem(QUICK_PATH_KEY) ?? "";
+}
+
+export function setQuickPath(path: string): void {
+	if (path.trim()) {
+		store()?.setItem(QUICK_PATH_KEY, path.trim());
+		return;
+	}
+	store()?.removeItem(QUICK_PATH_KEY);
 }
 
 /** Effective Enter behavior: the pref wins; "auto" falls back to the

@@ -1,8 +1,9 @@
 import { Sheet } from "konsta/react";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { createAgent, type DirsResponse, getDirs } from "../api";
-import { navigate } from "../nav";
+import { useEffect, useMemo, useState } from "react";
+import { createAgent } from "../api";
+import { navigate, useSheetBack } from "../nav";
 import { useSessions } from "../state/sessions";
+import { DirBrowser } from "./DirBrowser";
 import { Spinner } from "./Spinner";
 
 // The new-agent flow behind the home FAB: recent folders as chips,
@@ -12,10 +13,9 @@ import { Spinner } from "./Spinner";
 const MAX_CHIPS = 8;
 
 export function NewSessionSheet({ opened, onClose }: { opened: boolean; onClose: () => void }) {
+	useSheetBack(opened, onClose);
 	const sessions = useSessions((s) => s.sessions);
-	const [browse, setBrowse] = useState<DirsResponse | null>(null);
-	const [filter, setFilter] = useState("");
-	const [showHidden, setShowHidden] = useState(false);
+	const [pickedPath, setPickedPath] = useState("");
 	const [prompt, setPrompt] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState("");
@@ -33,21 +33,9 @@ export function NewSessionSheet({ opened, onClose }: { opened: boolean; onClose:
 		return out;
 	}, [sessions]);
 
-	const load = useCallback((path?: string) => {
-		getDirs(path)
-			.then(setBrowse)
-			.catch(() => setError("Cannot list folders"));
-	}, []);
-
 	useEffect(() => {
-		if (opened) load();
-	}, [opened, load]);
-
-	const dirs = (browse?.dirs ?? []).filter(
-		(d) =>
-			(showHidden || !d.name.startsWith(".")) &&
-			d.name.toLowerCase().includes(filter.toLowerCase()),
-	);
+		if (!opened) setPickedPath("");
+	}, [opened]);
 
 	const create = (cwd: string) => {
 		if (!prompt.trim() || busy) return;
@@ -92,54 +80,7 @@ export function NewSessionSheet({ opened, onClose }: { opened: boolean; onClose:
 					</div>
 				)}
 
-				<div className="flex items-center gap-1">
-					{browse?.parent && (
-						<button
-							type="button"
-							disabled={busy}
-							onClick={() => load(browse.parent)}
-							className="min-h-[36px] rounded-lg px-2 text-[13px] text-accent active:scale-95"
-						>
-							↑
-						</button>
-					)}
-					<div className="min-w-0 flex-1 truncate text-[12px] text-muted" title={browse?.path}>
-						{browse?.path.replace(/^\/home\/[^/]+/, "~")}
-					</div>
-					<button
-						type="button"
-						onClick={() => setShowHidden(!showHidden)}
-						className={`min-h-[36px] rounded-lg px-2 text-[12px] ${showHidden ? "text-accent" : "text-muted"}`}
-					>
-						hidden
-					</button>
-				</div>
-
-				<input
-					type="text"
-					value={filter}
-					onChange={(e) => setFilter(e.target.value)}
-					placeholder="Filter folders…"
-					className="min-h-[36px] rounded-xl border border-muted/40 bg-transparent px-3 text-[16px] outline-none focus:border-primary/60"
-				/>
-
-				<div className="max-h-48 min-h-24 overflow-y-auto">
-					{dirs.map((d) => (
-						<button
-							key={d.path}
-							type="button"
-							disabled={busy}
-							onClick={() => load(d.path)}
-							className="block w-full truncate rounded-lg px-2 py-2 text-left text-[14px] active:scale-[0.98] hover:bg-base-300"
-						>
-							{d.name}
-						</button>
-					))}
-					{browse?.truncated && (
-						<div className="px-2 py-1 text-[11px] text-muted">Showing the first 500 folders</div>
-					)}
-					{browse?.error && <div className="px-2 py-1 text-[12px] text-error">{browse.error}</div>}
-				</div>
+				<DirBrowser onPathChange={setPickedPath} disabled={busy} />
 
 				<textarea
 					value={prompt}
@@ -153,8 +94,8 @@ export function NewSessionSheet({ opened, onClose }: { opened: boolean; onClose:
 
 				<button
 					type="button"
-					disabled={busy || !browse || !prompt.trim()}
-					onClick={() => browse && create(browse.path)}
+					disabled={busy || !pickedPath || !prompt.trim()}
+					onClick={() => create(pickedPath)}
 					className="flex min-h-[44px] items-center justify-center gap-2 rounded-xl bg-primary font-semibold text-primary-content disabled:opacity-50"
 				>
 					{busy && <Spinner size={14} />}

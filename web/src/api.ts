@@ -107,14 +107,70 @@ export async function getDirs(path?: string): Promise<DirsResponse> {
 }
 
 export async function createAgent(cwd: string, prompt: string): Promise<{ key: string }> {
+	return postAgent({ cwd, prompt });
+}
+
+export async function createAgentInWorkspace(
+	workspaceId: string,
+	prompt: string,
+): Promise<{ key: string }> {
+	return postAgent({ workspace_id: workspaceId, prompt });
+}
+
+// The Quick flow: reuse the labeled workspace or create it at cwd.
+// A promptless create answers {key:"", agent:<name>} — the chat
+// screen prompts the agent by name until pi writes its session file.
+export async function createQuickAgent(
+	label: string,
+	cwd: string,
+): Promise<{ key: string; agent?: string }> {
+	return postAgent({ label, cwd });
+}
+
+export async function sendAgentPrompt(name: string, text: string): Promise<void> {
+	const res = await fetch(`/api/agents/${encodeURIComponent(name)}/prompt`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ text }),
+	});
+	if (!res.ok) {
+		const data = (await res.json().catch(() => ({}))) as { error?: string };
+		throw new Error(data.error ?? `prompt ${res.status}`);
+	}
+}
+
+export async function agentSession(name: string): Promise<string> {
+	const res = await fetch(`/api/agents/${encodeURIComponent(name)}/session`);
+	if (!res.ok) return "";
+	const data = (await res.json().catch(() => ({}))) as { key?: string };
+	return data.key ?? "";
+}
+
+async function postAgent(body: Record<string, string>): Promise<{ key: string; agent?: string }> {
 	const res = await fetch("/api/agents", {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ cwd, prompt }),
+		body: JSON.stringify(body),
 	});
-	const body = (await res.json().catch(() => ({}))) as { key?: string; error?: string };
-	if (!res.ok || !body.key) throw new Error(body.error || `create ${res.status}`);
-	return { key: body.key };
+	const data = (await res.json().catch(() => ({}))) as {
+		key?: string;
+		agent?: string;
+		error?: string;
+	};
+	if (!res.ok) throw new Error(data.error || `create ${res.status}`);
+	return { key: data.key ?? "", agent: data.agent };
+}
+
+export type Workspace = {
+	workspace_id: string;
+	label: string;
+	number: number;
+};
+
+export async function getWorkspaces(): Promise<Workspace[]> {
+	const res = await fetch("/api/workspaces");
+	if (!res.ok) throw new Error(`workspaces ${res.status}`);
+	return (await res.json()) as Workspace[];
 }
 
 // --- stage 4: changes, files, comments ---

@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import { flushSync } from "react-dom";
 
 // Tiny path router: real URLs, push for forward, replace for sideways hops,
@@ -93,11 +93,63 @@ export function navigate(to: string, opts: { replace?: boolean; dir?: Dir } = {}
 		if (opts.replace) history.replaceState({ i: cur }, "", href(to));
 		else history.pushState({ i: ++seq }, "", href(to));
 		cur = typeof history.state?.i === "number" ? history.state.i : cur;
+		onMarker = false;
 		notify();
 	});
 }
 
+// Sheets and overlays push one marker history entry, so the Android
+// back gesture closes them instead of leaving the screen. Marker
+// pops never reach the router: closing a sheet is component state,
+// not navigation. The stack handles nesting; ids tell an effect
+// whether its own marker was already popped by the gesture.
+let markerSeq = 0;
+const markerStack: number[] = [];
+const poppedMarkers = new Set<number>();
+const sheetClosers = new Set<() => void>();
+let onMarker = false;
+
+export function useSheetBack(opened: boolean, close: () => void): void {
+	const ref = useRef(close);
+	ref.current = close;
+	useEffect(() => {
+		if (!opened) return;
+		const id = ++markerSeq;
+		markerStack.push(id);
+		history.pushState({ i: cur, sheet: id }, "", href(getPath()));
+		onMarker = true;
+		const closer = () => ref.current();
+		sheetClosers.add(closer);
+		return () => {
+			sheetClosers.delete(closer);
+			// The gesture already popped the marker. A programmatic close
+			// (backdrop, confirm) strips the marker in place — replaceState,
+			// never history.back(): a back here is async and would land
+			// after a sibling sheet's push in the same commit, popping the
+			// wrong marker. A navigation above the marker leaves it stale;
+			// it dies as a no-op on a later Back.
+			if (poppedMarkers.delete(id)) return;
+			if (onMarker && history.state?.sheet === id) {
+				markerStack.pop();
+				history.replaceState({ i: cur }, "", href(getPath()));
+				onMarker = false;
+			}
+		};
+	}, [opened]);
+}
+
 window.addEventListener("popstate", (e) => {
+	if (onMarker) {
+		const id = markerStack.pop();
+		if (typeof id === "number") poppedMarkers.add(id);
+		for (const close of sheetClosers) close();
+		onMarker = e.state?.sheet !== undefined;
+		return;
+	}
+	if (e.state?.sheet !== undefined) {
+		onMarker = true;
+		return;
+	}
 	const next = typeof e.state?.i === "number" ? e.state.i : cur;
 	const dir: Dir = next < cur ? "back" : "fwd";
 	cur = next;

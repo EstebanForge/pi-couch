@@ -3,19 +3,23 @@
 // the composer reads at mount), so they follow the browser/device, not
 // the session. Konsta supplies the controls (Segmented, Toggle); List
 // stays rejected like everywhere else (material look fights dracula).
-import { Navbar, NavbarBackLink, Segmented, SegmentedButton, Toggle } from "konsta/react";
+import { Navbar, NavbarBackLink, Segmented, SegmentedButton, Sheet, Toggle } from "konsta/react";
 import { useEffect, useState } from "react";
 import { getVersion } from "../api";
 import { orderKeys, QUICK_KEYS } from "../chat/quick-keys";
+import { DirBrowser } from "../components/DirBrowser";
+import { useSheetBack } from "../nav";
 import {
 	type EnterSendsPref,
 	effectiveEnterSends,
 	enterSendsPref,
 	quickKeyOrder,
 	quickKeysEnabled,
+	quickPath,
 	setEnterSendsPref,
 	setQuickKeyOrder,
 	setQuickKeysEnabled,
+	setQuickPath,
 } from "../prefs";
 
 const ENTER_CHOICES: { value: EnterSendsPref; label: string; hint: string }[] = [
@@ -28,10 +32,16 @@ export default function SettingsScreen() {
 	const [enter, setEnter] = useState<EnterSendsPref>(enterSendsPref);
 	const [keys, setKeys] = useState(quickKeysEnabled);
 	const [order, setOrder] = useState(() => orderKeys(quickKeyOrder()).map((k) => k.id));
+	const [qPath, setQPath] = useState(quickPath);
+	const [pickerOpen, setPickerOpen] = useState(false);
+	useSheetBack(pickerOpen, () => setPickerOpen(false));
+	const [picked, setPicked] = useState("");
 	const [version, setVersion] = useState<string | null>(null);
 
 	useEffect(() => {
-		getVersion().then(setVersion).catch(() => {});
+		getVersion()
+			.then(setVersion)
+			.catch(() => {});
 	}, []);
 
 	// move swaps one key past its neighbor and persists the whole id
@@ -138,8 +148,54 @@ export default function SettingsScreen() {
 					</p>
 				</section>
 
+				<section>
+					<h2 className="px-1 pb-2 text-xs uppercase tracking-widest text-muted">Quick agent</h2>
+					<button
+						type="button"
+						onClick={() => {
+							setPicked(qPath);
+							setPickerOpen(true);
+						}}
+						className="flex min-h-[48px] w-full items-center justify-between rounded-xl border border-muted/40 px-3 text-left active:scale-[0.99]"
+					>
+						<span className="truncate text-[15px]">
+							{qPath ? qPath.replace(/^\/home\/[^/]+/, "~") : "Choose a folder…"}
+						</span>
+						<span className="ml-2 shrink-0 text-[12px] text-muted">browse</span>
+					</button>
+					<p className="px-1 pt-2 text-xs text-muted">
+						The home FAB's Quick agent starts pi here without asking. Each tap adds one agent to the
+						Quick workspace at this folder.
+					</p>
+				</section>
+
 				<p className="pt-2 text-center text-xs text-muted">Couch Pi {version ?? "…"}</p>
 			</div>
+
+			<Sheet
+				opened={pickerOpen}
+				onBackdropClick={() => setPickerOpen(false)}
+				className="pb-safe-all bg-base-200"
+			>
+				<div className="flex max-h-[80dvh] flex-col gap-2 p-3">
+					<div className="text-[13px] font-semibold tracking-wider text-muted uppercase">
+						Quick agent folder
+					</div>
+					<DirBrowser onPathChange={setPicked} />
+					<button
+						type="button"
+						disabled={!picked}
+						onClick={() => {
+							setQPath(picked);
+							setQuickPath(picked);
+							setPickerOpen(false);
+						}}
+						className="flex min-h-[44px] items-center justify-center rounded-xl bg-primary font-semibold text-primary-content disabled:opacity-50"
+					>
+						Use this folder
+					</button>
+				</div>
+			</Sheet>
 		</div>
 	);
 }

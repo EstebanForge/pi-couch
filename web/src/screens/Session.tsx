@@ -2,9 +2,11 @@ import { Dialog, DialogButton } from "konsta/react";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Virtuoso } from "react-virtuoso";
 import {
+	agentSession,
 	closeSession,
 	getItemText,
 	type StreamItem,
+	sendAgentPrompt,
 	stopSession,
 	type Todo,
 	type TranscriptAppend,
@@ -15,7 +17,7 @@ import { Composer } from "../components/Composer";
 import { DialogActions } from "../components/DialogActions";
 import { Markdown } from "../components/Markdown";
 import { Spinner } from "../components/Spinner";
-import { navigate } from "../nav";
+import { navigate, useSheetBack } from "../nav";
 import { TOOLS, toolEnabled } from "../session-tools";
 import { useSessions } from "../state/sessions";
 import {
@@ -200,11 +202,18 @@ function Block({ block, sessionKey }: { block: WorkBlock; sessionKey: string }) 
 }
 
 export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
+	// A leading "~" marks a promptless agent chat: no session file
+	// exists yet, prompts go to herdr by agent name and the screen
+	// swaps to the real session once pi writes the jsonl at turn start.
+	const pendingAgent = sessionKey.startsWith("~") ? sessionKey.slice(1) : "";
+	const [awaitUpgrade, setAwaitUpgrade] = useState(false);
 	const [state, dispatch] = useReducer(driver, emptyDriver);
 	const [conn, setConn] = useState<StreamStatus>("connecting");
 	const [query, setQuery] = useState<string | null>(null);
 	const [overflow, setOverflow] = useState(false);
 	const [confirmClose, setConfirmClose] = useState(false);
+	useSheetBack(overflow, () => setOverflow(false));
+	useSheetBack(confirmClose, () => setConfirmClose(false));
 	const [notice, setNotice] = useState("");
 	const pinned = useRef(true);
 	const scroller = useRef<HTMLDivElement | null>(null);
@@ -212,6 +221,7 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 	const taBlur = useRef<HTMLTextAreaElement | null>(null);
 
 	useEffect(() => {
+		if (pendingAgent) return;
 		const stream = connectStream(`/api/stream/transcript/${encodeURIComponent(sessionKey)}`, {
 			onStatus: setConn,
 			onEvent: (name, data) => {
@@ -223,7 +233,19 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 			},
 		});
 		return () => stream.close();
-	}, [sessionKey]);
+	}, [sessionKey, pendingAgent]);
+
+	// The upgrade poll: pi writes the session jsonl at turn start, so
+	// the first prompt makes the real key appear under the agent name.
+	useEffect(() => {
+		if (!pendingAgent || !awaitUpgrade) return;
+		const iv = setInterval(() => {
+			void agentSession(pendingAgent).then((key) => {
+				if (key) navigate(`/sessions/${encodeURIComponent(key)}`, { replace: true });
+			});
+		}, 1200);
+		return () => clearInterval(iv);
+	}, [pendingAgent, awaitUpgrade]);
 
 	const blocks = useMemo(() => {
 		const q = query?.trim().toLowerCase();
@@ -235,6 +257,7 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 	const meta = useSessions((s) => s.sessions.find((x) => x.key === sessionKey));
 	const firstUser = state.items.find((it) => it.kind === "user")?.text.slice(0, 60);
 	const title =
+		pendingAgent ||
 		state.header?.name ||
 		state.header?.first_user ||
 		meta?.name ||
@@ -245,6 +268,10 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 
 	const runStop = async () => {
 		setOverflow(false);
+		if (pendingAgent) {
+			setNotice("Not started yet.");
+			return;
+		}
 		const r = await stopSession(sessionKey);
 		if (!r.ok) setNotice(r.error === "notdriven" ? "No driver runs this session." : "Stop failed.");
 	};
@@ -252,6 +279,10 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 	const runClose = async () => {
 		setOverflow(false);
 		setConfirmClose(false);
+		if (pendingAgent) {
+			navigate("/", { dir: "back" });
+			return;
+		}
 		const r = await closeSession(sessionKey);
 		if (!r.ok) {
 			setNotice(r.error === "notdriven" ? "No driver runs this session." : "Close failed.");
@@ -350,6 +381,12 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 			)}
 			{notice && <div className="bg-warning/20 px-3 py-1 text-center text-[12px]">{notice}</div>}
 
+			{pendingAgent && state.items.length === 0 && (
+				<div className="flex flex-1 items-center justify-center px-6 text-center text-[13px] text-muted">
+					pi is running here. Send the first prompt to start the transcript.
+				</div>
+			)}
+
 			<div
 				ref={scroller}
 				className="min-h-0 flex-1"
@@ -436,6 +473,18 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 				status={state.status}
 				model={state.model}
 				thinking={state.thinking}
+				sendAgent={
+					pendingAgent
+						? (body) =>
+								sendAgentPrompt(pendingAgent, body).then(
+									() => {
+										setAwaitUpgrade(true);
+										return { ok: true as const };
+									},
+									(e: Error) => ({ ok: false as const, error: e.message }),
+								)
+						: undefined
+				}
 				addPending={(text, queued) => {
 					const id = nextPendingId();
 					dispatch({ t: "add-pending", id, text, queued });

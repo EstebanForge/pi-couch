@@ -302,6 +302,53 @@ func (c *Client) PaneSendInput(ctx context.Context, paneID, text string, keys []
 	return err
 }
 
+// Workspace is one herdr workspace from workspace.list.
+type Workspace struct {
+	WorkspaceID string `json:"workspace_id"`
+	Label       string `json:"label"`
+	Number      int    `json:"number"`
+}
+
+// Workspaces lists herdr workspaces; the new-agent sheet offers these.
+func (c *Client) Workspaces(ctx context.Context) ([]Workspace, error) {
+	res, err := c.call(ctx, "workspace.list", map[string]any{})
+	if err != nil {
+		return nil, err
+	}
+	var out struct {
+		Workspaces []Workspace `json:"workspaces"`
+	}
+	if err := json.Unmarshal(res, &out); err != nil {
+		return nil, fmt.Errorf("herdr: decode workspace.list: %w", err)
+	}
+	return out.Workspaces, nil
+}
+
+// SplitPane splits a new pane under the workspace root and returns its
+// id; the created pane inherits the workspace cwd.
+func (c *Client) SplitPane(ctx context.Context, workspaceID, direction string) (string, error) {
+	res, err := c.call(ctx, "pane.split", map[string]any{"workspace_id": workspaceID, "direction": direction, "focus": false})
+	if err != nil {
+		return "", err
+	}
+	var out struct {
+		Pane struct {
+			PaneID string `json:"pane_id"`
+		} `json:"pane"`
+	}
+	if err := json.Unmarshal(res, &out); err != nil || out.Pane.PaneID == "" {
+		return "", errors.New("herdr: pane.split result missing pane_id")
+	}
+	return out.Pane.PaneID, nil
+}
+
+// PaneClose drops a pane; split-pane agents close it on failure so a
+// dead run leaves no empty split behind.
+func (c *Client) PaneClose(ctx context.Context, paneID string) error {
+	_, err := c.call(ctx, "pane.close", map[string]any{"pane_id": paneID})
+	return err
+}
+
 func (c *Client) call(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	return c.callD(ctx, method, params, 0)
 }
