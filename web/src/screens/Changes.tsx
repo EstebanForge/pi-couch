@@ -1,7 +1,8 @@
 // Changes.tsx — /sessions/{key}/changes: working-tree file list, one
 // file's diff, per-line comment drafts in the device tray (the legacy
 // trayKey format, so drafts survive), Send All through herdr.
-import { Navbar, NavbarBackLink, Sheet, Toast } from "konsta/react";
+import { Sheet, Toast } from "konsta/react";
+import { ScreenHeader } from "../components/ScreenHeader";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChangeFile, ChangesDiff, ChangesList, PendingComment } from "../api";
 import { getChanges, getDiff, sendAllComments } from "../api";
@@ -168,17 +169,10 @@ export default function ChangesScreen({ sessionKey }: { sessionKey: string }) {
 			className="mx-auto flex min-h-dvh max-w-3xl flex-col"
 			style={{ paddingBottom: "var(--safe-bottom, 0px)", paddingTop: "64px" }}
 		>
-			<Navbar
-				left={
-					back ? (
-						<NavbarBackLink onClick={back} />
-					) : (
-						<NavbarBackLink onClick={() => history.back()} />
-					)
-				}
+			<ScreenHeader
 				title={openFile ?? "Changes"}
 				subtitle={list?.repo ? list.branch || "no branch" : "not a git repository"}
-				style={{ position: "fixed", top: "var(--safe-top, 0px)", left: 0, right: 0, zIndex: 30 }}
+				onBack={back ?? (() => history.back())}
 			/>
 
 			<main className="flex-1 px-3 pb-40">

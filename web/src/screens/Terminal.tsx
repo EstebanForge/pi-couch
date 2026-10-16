@@ -7,7 +7,8 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { Navbar, NavbarBackLink, Toast } from "konsta/react";
+import { Toast } from "konsta/react";
+import { ScreenHeader } from "../components/ScreenHeader";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type SessionsSnapshot, sendKeys, sendTextInput } from "../api";
 import { ESC_SETTLE_MS } from "../chat/quick-keys";
@@ -202,11 +203,10 @@ export default function TerminalScreen({ sessionKey }: { sessionKey: string }) {
 			className="mx-auto flex min-h-dvh max-w-3xl flex-col"
 			style={{ paddingBottom: "var(--safe-bottom, 0px)", paddingTop: "64px" }}
 		>
-			<Navbar
-				left={<NavbarBackLink onClick={back} />}
+			<ScreenHeader
 				title="Terminal"
 				subtitle={gone ? "no driver" : wheel ? "wheel" : "peek"}
-				style={{ position: "fixed", top: "var(--safe-top, 0px)", left: 0, right: 0, zIndex: 30 }}
+				onBack={back}
 			/>
 
 			<main className="flex min-h-0 flex-1 flex-col px-3 pb-2">

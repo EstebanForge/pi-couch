@@ -1,6 +1,7 @@
 // Files.tsx — /sessions/{key}/files: lazy per-directory listing of the
 // session's repo plus a text/file preview.
-import { Navbar, NavbarBackLink, Toast } from "konsta/react";
+import { Toast } from "konsta/react";
+import { ScreenHeader } from "../components/ScreenHeader";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FilesList, FileView } from "../api";
 import { getFiles, getFileView } from "../api";
@@ -68,8 +69,7 @@ export default function FilesScreen({ sessionKey }: { sessionKey: string }) {
 			className="mx-auto flex min-h-dvh max-w-3xl flex-col"
 			style={{ paddingBottom: "var(--safe-bottom, 0px)", paddingTop: "64px" }}
 		>
-			<Navbar
-				left={<NavbarBackLink onClick={back ?? (() => history.back())} />}
+			<ScreenHeader
 				title={
 					view
 						? (view.file.split("/").pop() ?? "File")
@@ -78,7 +78,7 @@ export default function FilesScreen({ sessionKey }: { sessionKey: string }) {
 							: "Files"
 				}
 				subtitle={list?.repo ? dir || "/" : "not a git repository"}
-				style={{ position: "fixed", top: "var(--safe-top, 0px)", left: 0, right: 0, zIndex: 30 }}
+				onBack={back ?? (() => history.back())}
 			/>
 
 			<main className="flex-1 px-3 pb-24">

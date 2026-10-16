@@ -3,7 +3,8 @@
 // the composer reads at mount), so they follow the browser/device, not
 // the session. Konsta supplies the controls (Segmented, Toggle); List
 // stays rejected like everywhere else (material look fights dracula).
-import { Navbar, NavbarBackLink, Segmented, SegmentedButton, Sheet, Toggle } from "konsta/react";
+import { Segmented, SegmentedButton, Sheet, Toggle } from "konsta/react";
+import { ScreenHeader } from "../components/ScreenHeader";
 import { useEffect, useState } from "react";
 import { getVersion } from "../api";
 import { orderKeys, QUICK_KEYS } from "../chat/quick-keys";
@@ -58,11 +59,7 @@ export default function SettingsScreen() {
 
 	return (
 		<div className="min-h-dvh bg-base-100 text-base-content">
-			<Navbar
-				left={<NavbarBackLink onClick={() => history.back()} />}
-				title="Settings"
-				style={{ position: "fixed", top: "var(--safe-top, 0px)", left: 0, right: 0, zIndex: 30 }}
-			/>
+		<ScreenHeader title="Settings" onBack={() => history.back()} />
 			<div
 				className="mx-auto flex min-h-dvh max-w-3xl flex-col gap-6 px-3 pt-[80px]"
 				style={{ paddingBottom: "var(--safe-bottom, 0px)" }}
