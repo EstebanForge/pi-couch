@@ -3,7 +3,7 @@ import { Fragment, useEffect, useState } from "react";
 import { type SessionsSnapshot, getVersion } from "../api";
 import { NewSessionSheet } from "../components/NewSessionSheet";
 import { Spinner } from "../components/Spinner";
-import { relTime, short, tildify } from "../fmt";
+import { short, tildify } from "../fmt";
 import { navigate } from "../nav";
 import { type PushState, pushState, togglePush } from "../push";
 import { grouped, useSessions } from "../state/sessions";
@@ -233,10 +233,12 @@ export default function HomeList() {
 												{short(s.name || s.first_user || s.key, 60)}
 											</span>
 											<span className="block truncate text-xs text-muted">
-												{driven[s.path]?.label && <>{driven[s.path].label} · </>}{short(tildify(s.cwd), 48)} · {relTime(s.mtime)}
+												{short(tildify(s.cwd), 48)}
 											</span>
-											{driven[s.path]?.title && (
-												<span className="block truncate text-[11px] text-muted/70">{driven[s.path].title}</span>
+											{(driven[s.path]?.label || driven[s.path]?.title) && (
+												<span className="block truncate text-[11px] text-muted/70">
+													{[driven[s.path]?.label, driven[s.path]?.title].filter(Boolean).join(" · ")}
+												</span>
 											)}
 										</span>
 									</button>
