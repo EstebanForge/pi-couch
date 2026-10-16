@@ -7,6 +7,7 @@ import { Sheet, Toast } from "konsta/react";
 import { useEffect, useRef, useState } from "react";
 import { getModels, sendKeys, sendPrompt, setModel, setThinking, uploadImage } from "../api";
 import { type Dictation, dictationSupported, startDictation } from "../chat/dictate";
+import { dispositionFor } from "../chat/disposition";
 import { ESC_SETTLE_MS, orderKeys, type QuickKey } from "../chat/quick-keys";
 import { effectiveEnterSends, quickKeyOrder, quickKeysEnabled } from "../prefs";
 import { Spinner } from "./Spinner";
@@ -122,7 +123,7 @@ export function Composer(props: {
 		const acked = draft ?? body;
 		let outcome: "ok" | "fail" | "unknown" = "unknown";
 		try {
-			const r = await sendPrompt(sessionKey, body);
+			const r = await sendPrompt(sessionKey, body, queued ? "followUp" : undefined);
 			outcome = r.ok ? "ok" : "fail";
 			if (!r.ok)
 				setNotice(r.error === "notdriven" ? "No driver runs this session." : "Send failed.");
@@ -148,7 +149,11 @@ export function Composer(props: {
 		const paths = files.filter((f) => f.path).map((f) => f.path as string);
 		const body = paths.length > 0 ? [...paths, text].join("\n") : text;
 		setFiles([]);
-		void sendText(body, false, text);
+		// The disposition rides on the send: a working session takes the
+		// text as a follow-up, so the bubble never claims a placement the
+		// wire did not ask for.
+		const queued = dispositionFor(status) === "followUp";
+		void sendText(body, queued, text);
 	};
 
 	const pickFiles = async (list: FileList | null) => {

@@ -343,9 +343,20 @@ func (a *app) apiStop(w http.ResponseWriter, r *http.Request) {
 func (a *app) apiPrompt(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var in struct {
-		Text string `json:"text"`
+		Text     string `json:"text"`
+		WhenBusy string `json:"whenBusy"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "badrequest"})
+		return
+	}
+	// whenBusy carries the submitter's disposition. herdr exposes one
+	// verb, so follow-up is the only placement that exists; refusing
+	// the rest keeps the wire honest instead of guessing pi's queue
+	// mode (ADR-0001).
+	switch in.WhenBusy {
+	case "", "followUp":
+	default:
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "badrequest"})
 		return
 	}

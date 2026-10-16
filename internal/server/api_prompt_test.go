@@ -64,5 +64,32 @@ func TestJSONPrompt(t *testing.T) {
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("garbage body: %d, want 400", resp.StatusCode)
 	}
+
+	// whenBusy names the submitter's intent. herdr carries one verb, so
+	// only the follow-up disposition exists; anything else is a lie the
+	// endpoint must refuse, not silently send.
+	for _, body := range []string{
+		`{"text":"hi","whenBusy":"steer"}`,
+		`{"text":"hi","whenBusy":"whenever"}`,
+	} {
+		resp, err = http.Post(srv.URL+"/api/sessions/prompt-key/prompt", "", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("whenBusy %s: %d, want 400", body, resp.StatusCode)
+		}
+	}
+	// The supported disposition validates and proceeds to the driver
+	// check (409 notdriven on this fixture, like the plain twin above).
+	resp, err = http.Post(srv.URL+"/api/sessions/prompt-key/prompt", "", strings.NewReader(`{"text":"hi","whenBusy":"followUp"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("followUp: %d, want 409", resp.StatusCode)
+	}
 	_ = a
 }

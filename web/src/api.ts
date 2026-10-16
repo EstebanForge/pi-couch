@@ -222,8 +222,11 @@ async function postJSONBody(path: string, body: unknown): Promise<{ ok: boolean;
 	return { ok: true };
 }
 
-export const sendPrompt = (key: string, text: string) =>
-	postJSONBody(`/api/sessions/${encodeURIComponent(key)}/prompt`, { text });
+export const sendPrompt = (key: string, text: string, whenBusy?: "followUp") =>
+	postJSONBody(
+		`/api/sessions/${encodeURIComponent(key)}/prompt`,
+		whenBusy ? { text, whenBusy } : { text },
+	);
 
 /** Answer an open pi confirm dialog: yes presses enter, no presses
  * down+enter. ok:false carries the in-band refusal (changed, notfound,
