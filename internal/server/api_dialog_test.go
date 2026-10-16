@@ -139,4 +139,11 @@ func TestDialogAnswerValidation(t *testing.T) {
 	if code, body := answer("/api/sessions/s1/dialog/answer", `{"id":"real","answer":"yes"}`); code != http.StatusConflict || body["error"] != "changed" {
 		t.Errorf("no driver: code=%d body=%v, want 409 changed", code, body)
 	}
+
+	// A refused answer must not hold the memo: that attempt claimed
+	// "real", so a corrected retry (driver back, screen still asking)
+	// must reach the send path again.
+	if !a.answered.Claim("real") {
+		t.Fatal("refused answers must release their claim")
+	}
 }

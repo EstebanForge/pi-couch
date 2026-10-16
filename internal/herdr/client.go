@@ -59,6 +59,12 @@ func New() *Client {
 	return &Client{path: DefaultSocketPath(), timeout: 3 * time.Second}
 }
 
+// NewAt points the client at a specific socket path. Server tests use
+// it to run a fake herdr on a temp socket.
+func NewAt(path string) *Client {
+	return &Client{path: path, timeout: 3 * time.Second}
+}
+
 // Agents returns the live agent list. A missing or dead socket returns nil
 // and the dial error: callers decide the degradation (the badge path treats
 // an error as no badges, the push watcher just retries on the next tick).

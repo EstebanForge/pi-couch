@@ -40,51 +40,67 @@ func (a *app) apiDialogAnswer(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
-	defer cancel()
-	paneID, err := a.herdr.TargetForPath(ctx, meta.Path)
-	if err != nil {
+	// Claim before any key goes out: a double-tap racing the pane
+	// re-reads would send a second Enter, which answers whatever pi
+	// shows next. Any outcome that did not complete a send releases
+	// the claim so a corrected retry can proceed.
+	if !a.answered.Claim(req.ID) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
 		return
 	}
+	if !a.answerDispatch(w, r, req.Answer, meta.Path) {
+		a.answered.Release(req.ID)
+	}
+}
+
+// answerDispatch runs one answer attempt; true means keys were sent
+// and the 200 already written.
+func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, path string) bool {
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	paneID, err := a.herdr.TargetForPath(ctx, path)
+	if err != nil {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+		return false
+	}
 
 	switch {
-	case req.Answer == "yes" || req.Answer == "no":
+	case answer == "yes" || answer == "no":
 		pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 20)
 		if err != nil || !piConfirmOnScreen(pr.Text) {
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-			return
+			return false
 		}
 		keys := []string{"enter"}
-		if req.Answer == "no" {
+		if answer == "no" {
 			keys = []string{"down", "enter"}
 		}
-		a.answerSend(w, ctx, paneID, keys)
+		return a.answerSend(w, ctx, paneID, keys)
 
-	case req.Answer == "escape":
+	case answer == "escape":
 		pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 20)
 		if err != nil || !dialogOpen(pr.Text) {
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-			return
+			return false
 		}
-		a.answerSend(w, ctx, paneID, []string{"esc"})
+		return a.answerSend(w, ctx, paneID, []string{"esc"})
 
 	default:
-		a.answerSelect(w, r, ctx, paneID, req.Answer)
+		return a.answerSelect(w, r, ctx, paneID, answer)
 	}
 }
 
 // answerSelect walks pi's select cursor to the option and confirms it.
-func (a *app) answerSelect(w http.ResponseWriter, r *http.Request, ctx context.Context, paneID, want string) {
+func (a *app) answerSelect(w http.ResponseWriter, r *http.Request, ctx context.Context, paneID, want string) bool {
 	pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 20)
 	if err != nil {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-		return
+		return false
 	}
 	m := parseMenu(pr.Text)
 	if m == nil {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-		return
+		return false
 	}
 	target := -1
 	for i, o := range m.Options {
@@ -96,7 +112,7 @@ func (a *app) answerSelect(w http.ResponseWriter, r *http.Request, ctx context.C
 	if target < 0 {
 		// The card's options no longer match the screen.
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-		return
+		return false
 	}
 	if steps := aimSteps(m.Cursor, target, len(m.Options)); steps > 0 {
 		downs := make([]string, steps)
@@ -106,7 +122,7 @@ func (a *app) answerSelect(w http.ResponseWriter, r *http.Request, ctx context.C
 		if err := a.herdr.PaneSendInput(ctx, paneID, "", downs); err != nil {
 			a.logger.Error("dialog answer", "err", err)
 			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "send failed"})
-			return
+			return false
 		}
 		// Verify-then-fire: confirm the cursor really sits on the
 		// target row before the enter. A vanished or moved menu means
@@ -114,26 +130,27 @@ func (a *app) answerSelect(w http.ResponseWriter, r *http.Request, ctx context.C
 		pr2, err := a.herdr.PaneRead(ctx, paneID, "detection", 20)
 		if err != nil {
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-			return
+			return false
 		}
 		if m2 := parseMenu(pr2.Text); m2 == nil || m2.Cursor != target {
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-			return
+			return false
 		}
 	}
-	a.answerSend(w, ctx, paneID, []string{"enter"})
+	return a.answerSend(w, ctx, paneID, []string{"enter"})
 }
 
 // answerSend pushes the keys and reports. Send failures keep the bar
 // (only a network throw re-enables it client-side), so a 502 here is
 // the one refusal the client retries.
-func (a *app) answerSend(w http.ResponseWriter, ctx context.Context, paneID string, keys []string) {
+func (a *app) answerSend(w http.ResponseWriter, ctx context.Context, paneID string, keys []string) bool {
 	if err := a.herdr.PaneSendInput(ctx, paneID, "", keys); err != nil {
 		a.logger.Error("dialog answer", "err", err)
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "send failed"})
-		return
+		return false
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	return true
 }
 
 // piConfirmOnScreen reports whether pi's select/confirm menu hint is on

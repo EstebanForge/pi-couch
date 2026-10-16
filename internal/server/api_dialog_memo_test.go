@@ -1,0 +1,174 @@
+package server
+
+import (
+	"bufio"
+	"encoding/json"
+	"log/slog"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/EstebanForge/couch-pi/internal/herdr"
+	"github.com/EstebanForge/couch-pi/internal/pi"
+)
+
+const menuScreen = "Allow edit?  ❯ Yes  No  ↑↓ navigate enter select escape/ctrl+c cancel"
+
+// herdrFake answers agent.list, pane.read and pane.send_input like a
+// herdr socket driving the fixture session; *sessPath is read per
+// request so the test can wire it after the socket exists. *sends
+// counts send_input calls; failFirst makes exactly the first
+// send_input return an error.
+func herdrFake(t *testing.T, sessPath *string, sends *int32, failFirst bool) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "herdr.sock")
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer conn.Close()
+				line, err := bufio.NewReader(conn).ReadBytes('\n')
+				if err != nil {
+					return
+				}
+				var m struct {
+					ID     string `json:"id"`
+					Method string `json:"method"`
+				}
+				if json.Unmarshal(line, &m) != nil {
+					return
+				}
+				var resp string
+				switch m.Method {
+				case "agent.list":
+					b, _ := json.Marshal(*sessPath)
+					resp = `{"id":"x","result":{"agents":[{"name":"pi","agent":"pi","agent_status":"blocked","pane_id":"p1","workspace_id":"w1","agent_session":{"kind":"path","value":` + string(b) + `}}]}}`
+				case "pane.read":
+					resp = `{"id":"x","result":{"read":{"pane_id":"p1","source":"screen","format":"ansi","text":"` + menuScreen + `","revision":1}}}`
+				case "pane.send_input":
+					n := atomic.AddInt32(sends, 1)
+					if failFirst && n == 1 {
+						resp = `{"id":"x","error":{"message":"pane gone"}}`
+					} else {
+						resp = `{"id":"x","result":{"type":"ok"}}`
+					}
+				default:
+					resp = `{"id":"x","result":{"type":"ok"}}`
+				}
+				_, _ = conn.Write([]byte(resp + "\n"))
+			}()
+		}
+	}()
+	return path
+}
+
+func streamTestAppWithHerdr(t *testing.T, sock string) (*app, string, http.Handler) {
+	t.Helper()
+	root := t.TempDir()
+	sub := filepath.Join(root, "sess")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(sub, "s1.jsonl")
+	writeLines(t, path, sessHeader, userLine("a", "", "first"))
+	w, err := pi.StartWatcher(t.Context(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &app{
+		logger:   slog.New(slog.NewTextHandler(testDiscard{}, nil)),
+		idx:      pi.NewIndex(root),
+		herdr:    herdr.NewAt(sock),
+		watcher:  w,
+		answered: newDialogMemos(),
+	}
+	return a, sub, a.guard(a.routes())
+}
+
+func bridgeReal(t *testing.T, a *app, sessPath string) {
+	t.Helper()
+	a.bridgeMu.Lock()
+	a.bridge = map[string]bridgeEntry{}
+	a.bridge[sessPath] = bridgeEntry{
+		dialog:  BridgeDialog{Kind: "confirm", Title: "Allow?", ID: "real"},
+		expires: time.Now().Add(time.Minute),
+	}
+	a.bridgeMu.Unlock()
+}
+
+// The double-tap: the second answer for the same dialog id must be
+// refused without a second Enter, because the first Enter may already
+// sit in the pane and would answer whatever pi shows next.
+func TestDialogAnswerMemoDedupesDoubleTap(t *testing.T) {
+	var sends int32
+	var sessPath string
+	sock := herdrFake(t, &sessPath, &sends, false)
+	a, sub, h := streamTestAppWithHerdr(t, sock)
+	sessPath = filepath.Join(sub, "s1.jsonl")
+	bridgeReal(t, a, sessPath)
+
+	answer := func() int {
+		req := httptest.NewRequest(http.MethodPost, "/api/sessions/s1/dialog/answer",
+			strings.NewReader(`{"id":"real","answer":"yes"}`))
+		req.Host = "127.0.0.1:8090"
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	if code := answer(); code != http.StatusOK {
+		t.Fatalf("first answer: code=%d, want 200", code)
+	}
+	if n := atomic.LoadInt32(&sends); n != 1 {
+		t.Fatalf("sends=%d, want 1", n)
+	}
+	if code := answer(); code != http.StatusConflict {
+		t.Fatalf("second answer: code=%d, want 409", code)
+	}
+	if n := atomic.LoadInt32(&sends); n != 1 {
+		t.Fatalf("sends=%d after dup, want still 1", n)
+	}
+}
+
+// A send that provably failed releases the claim: the user may retry
+// once herdr is healthy again and must not hit the memo wall.
+func TestDialogAnswerMemoReleasesOnSendFailure(t *testing.T) {
+	var sends int32
+	var sessPath string
+	sock := herdrFake(t, &sessPath, &sends, true)
+	a, sub, h := streamTestAppWithHerdr(t, sock)
+	sessPath = filepath.Join(sub, "s1.jsonl")
+	bridgeReal(t, a, sessPath)
+
+	post := func() int {
+		req := httptest.NewRequest(http.MethodPost, "/api/sessions/s1/dialog/answer",
+			strings.NewReader(`{"id":"real","answer":"yes"}`))
+		req.Host = "127.0.0.1:8090"
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	if code := post(); code != http.StatusBadGateway {
+		t.Fatalf("failing send: code=%d, want 502", code)
+	}
+	if code := post(); code != http.StatusOK {
+		t.Fatalf("retry after failure: code=%d, want 200", code)
+	}
+	if n := atomic.LoadInt32(&sends); n != 2 {
+		t.Fatalf("sends=%d, want 2", n)
+	}
+}

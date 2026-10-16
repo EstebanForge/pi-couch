@@ -81,10 +81,11 @@ func streamTestApp(t *testing.T) (*app, string, http.Handler) {
 	}
 	_ = w
 	a := &app{
-		logger:  slog.New(slog.NewTextHandler(testDiscard{}, nil)),
-		idx:     pi.NewIndex(root),
-		herdr:   herdr.New(),
-		watcher: w,
+		logger:   slog.New(slog.NewTextHandler(testDiscard{}, nil)),
+		idx:      pi.NewIndex(root),
+		herdr:    herdr.New(),
+		watcher:  w,
+		answered: newDialogMemos(),
 	}
 	return a, sub, a.guard(a.routes())
 }

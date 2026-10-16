@@ -45,10 +45,11 @@ type app struct {
 	awaiting      *awaitingDetector
 	bridgeMu      sync.Mutex
 	bridge        map[string]bridgeEntry // session path -> open pi dialog (bridge extension)
+	answered      *dialogMemos           // per-dialog answer claims; dedupes double taps
 }
 
 func Run(ctx context.Context, logger *slog.Logger, addr string, idx *pi.Index, hc *herdr.Client, w *pi.Watcher, st *store.Store, pusher *push.Sender, allowedOrigin string) error {
-	a := &app{logger: logger, idx: idx, herdr: hc, watcher: w, st: st, pusher: pusher, allowedOrigin: allowedOrigin}
+	a := &app{logger: logger, idx: idx, herdr: hc, watcher: w, st: st, pusher: pusher, allowedOrigin: allowedOrigin, answered: newDialogMemos()}
 	if pusher != nil {
 		a.vapidPublic = pusher.Public
 	}
