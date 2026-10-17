@@ -34,9 +34,11 @@ type fakeHerdrOpts struct {
 	lastPrompt     *string // agent.prompt target name
 	failFirstSend  bool
 	failFirstStart bool
-	status         *string // agent_status in agent.list; blocked when nil
-	paneText       *string // pane.read text; the menu fixture when nil
-	paneAfterSend  *string // pane.read text once a send_input landed
+	status         *string  // agent_status in agent.list; blocked when nil
+	paneText       *string  // pane.read text; the menu fixture when nil
+	paneAfterSend  *string  // pane.read text once a send_input landed
+	paneSeq        []string // per-send states: after send n, serve paneSeq[min(n-1, len-1)]
+	lastText       *string  // last send_input text param
 }
 
 func herdrFake(t *testing.T, o fakeHerdrOpts) string {
@@ -105,7 +107,14 @@ func herdrFake(t *testing.T, o fakeHerdrOpts) string {
 					if o.paneText != nil {
 						pane = *o.paneText
 					}
-					if o.paneAfterSend != nil && atomic.LoadInt32(o.sends) > 0 {
+					sent := int(atomic.LoadInt32(o.sends))
+					if len(o.paneSeq) > 0 && sent > 0 {
+						idx := sent - 1
+						if idx >= len(o.paneSeq) {
+							idx = len(o.paneSeq) - 1
+						}
+						pane = o.paneSeq[idx]
+					} else if o.paneAfterSend != nil && sent > 0 {
 						pane = *o.paneAfterSend
 					}
 					// json.Marshal escapes the newlines a multi-line
@@ -113,6 +122,13 @@ func herdrFake(t *testing.T, o fakeHerdrOpts) string {
 					paneJSON, _ := json.Marshal(pane)
 					resp = `{"id":"x","result":{"read":{"pane_id":"p1","source":"screen","format":"ansi","text":` + string(paneJSON) + `,"revision":1}}}`
 				case "pane.send_input":
+					if o.lastText != nil {
+						var p struct {
+							Text string `json:"text"`
+						}
+						_ = json.Unmarshal(m.Params, &p)
+						*o.lastText = p.Text
+					}
 					n := atomic.AddInt32(o.sends, 1)
 					if o.failFirstSend && n == 1 {
 						resp = `{"id":"x","error":{"message":"pane gone"}}`
@@ -143,12 +159,13 @@ func streamTestAppWithHerdr(t *testing.T, sock string) (*app, string, http.Handl
 		t.Fatal(err)
 	}
 	a := &app{
-		logger:   slog.New(slog.NewTextHandler(testDiscard{}, nil)),
-		idx:      pi.NewIndex(root),
-		herdr:    herdr.NewAt(sock),
-		watcher:  w,
-		answered: newDialogMemos(),
-		models:   newModelsCache(filepath.Join(t.TempDir(), "models.json")),
+		logger:     slog.New(slog.NewTextHandler(testDiscard{}, nil)),
+		idx:        pi.NewIndex(root),
+		herdr:      herdr.NewAt(sock),
+		watcher:    w,
+		answered:   newDialogMemos(),
+		models:     newModelsCache(filepath.Join(t.TempDir(), "models.json")),
+		dialogWake: make(chan struct{}, 1),
 	}
 	return a, sub, a.guard(a.routes())
 }

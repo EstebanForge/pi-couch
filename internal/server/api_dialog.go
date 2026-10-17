@@ -25,6 +25,7 @@ func (a *app) apiDialogAnswer(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ID     string `json:"id"`
 		Answer string `json:"answer"`
+		Text   string `json:"text"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&req); err != nil || req.Answer == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
@@ -37,8 +38,14 @@ func (a *app) apiDialogAnswer(w http.ResponseWriter, r *http.Request) {
 	}
 	dialog, has := a.bridgeDialog(meta.Path)
 	if !has || dialog.ID == "" || dialog.ID != req.ID {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-		return
+		// The bridge entry is the usual id source, but a dialog the
+		// pane still shows is answerable through the synthesized pane
+		// id even after the entry expired; the dispatch re-reads and
+		// re-parses the pane before any key goes out.
+		if req.ID == "" || req.ID != a.paneDialogID(meta.Path) {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+			return
+		}
 	}
 	// Claim before any key goes out: a double-tap racing the pane
 	// re-reads would send a second Enter, which answers whatever pi
@@ -48,14 +55,14 @@ func (a *app) apiDialogAnswer(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
 		return
 	}
-	if !a.answerDispatch(w, r, req.Answer, meta.Path) {
+	if !a.answerDispatch(w, r, req.Answer, req.Text, meta.Path) {
 		a.answered.Release(req.ID)
 	}
 }
 
 // answerDispatch runs one answer attempt; true means keys were sent
 // and the 200 already written.
-func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, path string) bool {
+func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, text, path string) bool {
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
 	paneID, err := a.herdr.TargetForPath(ctx, path)
@@ -92,6 +99,9 @@ func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, pat
 		}
 		return a.answerSend(w, ctx, paneID, []string{"enter"})
 
+	case answer == "type":
+		return a.answerFreeText(w, r, ctx, paneID, text)
+
 	case answer == "escape":
 		pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 30)
 		if err != nil || !dialogOpen(pr.Text) {
@@ -112,6 +122,17 @@ func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, pat
 // pi repaints a beat after each key, so the cursor check retries
 // instead of racing the redraw.
 func (a *app) answerOption(w http.ResponseWriter, r *http.Request, ctx context.Context, paneID, want string) bool {
+	if !a.settleWalk(w, r, ctx, paneID, want) {
+		return false
+	}
+	return a.answerSend(w, ctx, paneID, []string{"enter"})
+}
+
+// settleWalk aims pi's dialog cursor at the option labeled want and
+// leaves it there, re-reading and re-aiming while pi repaints (a beat
+// per key). The cursor check is verify-then-fire: the enter only goes
+// out from the caller, after the cursor really sits on the row.
+func (a *app) settleWalk(w http.ResponseWriter, r *http.Request, ctx context.Context, paneID, want string) bool {
 	var m *piDialog
 	target := -1
 	for attempt := 0; attempt < 3; attempt++ {
@@ -162,7 +183,134 @@ func (a *app) answerOption(w http.ResponseWriter, r *http.Request, ctx context.C
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
 		return false
 	}
-	return a.answerSend(w, ctx, paneID, []string{"enter"})
+	return true
+}
+
+// answerFreeText answers pi's free-text widget: reach input mode (the
+// screen may already be there, or the questionnaire still needs its
+// "Type something." row selected), type the text, verify pi echoed it
+// onto the input line, then submit with enter.
+func (a *app) answerFreeText(w http.ResponseWriter, r *http.Request, ctx context.Context, paneID, text string) bool {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
+		return false
+	}
+	for attempt := 0; attempt < 4; attempt++ {
+		pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 30)
+		if err != nil {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+			return false
+		}
+		m := parsePiDialog(pr.Text)
+		if m != nil && m.InputMode {
+			// rpiv activates input mode the moment the cursor lands on
+			// the free-text row - no enter to open it; enter submits.
+			return a.typeAndSubmit(w, r, ctx, paneID, trimmed)
+		}
+		if m != nil && m.Kind == "input" {
+			// pi's native input widget.
+			return a.typeAndSubmit(w, r, ctx, paneID, trimmed)
+		}
+		if m == nil {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+			return false
+		}
+		own := -1
+		for i := range m.Options {
+			if piOwnAnswerRe.MatchString(m.Options[i].Label) {
+				own = i
+				break
+			}
+		}
+		if own < 0 {
+			// No free-text row and no input widget: nothing to type into.
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+			return false
+		}
+		if m.Cursor == own {
+			// On the row yet not in input mode: the dialog changed under
+			// us; refuse rather than guess.
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+			return false
+		}
+		steps := aimSteps(m.Cursor, own, len(m.Options))
+		downs := make([]string, steps)
+		for i := range downs {
+			downs[i] = "down"
+		}
+		if !a.paneSend(w, ctx, paneID, "", downs) {
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+			return false
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
+	// pi never showed its input line.
+	writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+	return false
+}
+
+// typeAndSubmit types the answer into pi's input line and only presses
+// enter once the pane echoes the text back; a swallowed keystroke must
+// not submit an empty or partial answer.
+func (a *app) typeAndSubmit(w http.ResponseWriter, r *http.Request, ctx context.Context, paneID, text string) bool {
+	// pi's input mode ignores the newline binding, so a multi-line
+	// answer would garble; collapse to one line first.
+	text = strings.Join(strings.Fields(text), " ")
+	for attempt := 0; attempt < 3; attempt++ {
+		// ctrl+u clears any draft rpiv restored from an earlier visit to
+		// the row, so a stale prefix can never ride into the submit.
+		if !a.paneSend(w, ctx, paneID, "", []string{"ctrl+u"}) {
+			return false
+		}
+		if !a.paneSend(w, ctx, paneID, text, nil) {
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+			return false
+		case <-time.After(150 * time.Millisecond):
+		}
+		pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 30)
+		if err != nil {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+			return false
+		}
+		if piEchoHit(pr.Text, text) {
+			return a.answerSend(w, ctx, paneID, []string{"enter"})
+		}
+	}
+	writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+	return false
+}
+
+// piEchoHit reports whether the pane echoes the typed answer. The
+// comparison ignores all whitespace (NBSP included): pi paints the
+// cursor as an NBSP cell and a phone-width pane wraps long drafts
+// across rows, so a raw Contains misses both.
+func piEchoHit(pane, want string) bool {
+	flat := func(s string) string {
+		s = ansiRe.ReplaceAllString(s, "")
+		s = strings.Join(strings.Fields(s), "")
+		return s
+	}
+	return strings.Contains(flat(pane), flat(want))
+}
+
+// paneSend is answerSend without the response: intermediate steps of a
+// multi-key answer report through the final step only.
+func (a *app) paneSend(w http.ResponseWriter, ctx context.Context, paneID, text string, keys []string) bool {
+	if err := a.herdr.PaneSendInput(ctx, paneID, text, keys); err != nil {
+		a.logger.Error("dialog answer", "err", err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "send failed"})
+		return false
+	}
+	return true
 }
 
 // answerSend pushes the keys and reports. Send failures keep the bar

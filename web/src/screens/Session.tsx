@@ -324,6 +324,29 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 		firstUser ||
 		"Session";
 	const dot = STATUS_DOT[state.status] ?? "bg-muted";
+	// The sheet opens only when the dialog carries real content. The
+	// bridge frame can land before the pane parse (up to a detector
+	// tick); an empty panel sliding up reads as broken, and the
+	// model-picker dialog never parses at all - which is correct, it
+	// must not be answered from here.
+	const sheetReady = !!(
+		state.dialog &&
+		((state.dialog.options?.length ?? 0) > 0 || state.dialog.body || state.dialog.kind === "input")
+	);
+
+	// Hold the last card while the sheet slides out: unmounting at the
+	// first null frame collapses the panel height mid-transition, which
+	// read as a stuck sliver. Cleared just after the slide ends.
+	const [lastDialog, setLastDialog] = useState(state.dialog ?? null);
+	useEffect(() => {
+		if (state.dialog) {
+			setLastDialog(state.dialog);
+			return;
+		}
+		const t = setTimeout(() => setLastDialog(null), 350);
+		return () => clearTimeout(t);
+	}, [state.dialog]);
+	const cardDialog = state.dialog ?? lastDialog;
 
 	const runStop = async () => {
 		setOverflow(false);
@@ -392,7 +415,6 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 					)}
 				</div>
 			</header>
-			{state.dialog && <DialogActions k={sessionKey} dialog={state.dialog} />}
 			{state.todos.length > 0 && <TodosCard todos={state.todos} />}
 			{/* tool strip */}
 			<div
@@ -565,6 +587,23 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 				markPending={(id, mark) => dispatch({ t: "mark-pending", id, state: mark })}
 				removePending={(id) => dispatch({ t: "remove-pending", id })}
 			/>
+
+			{/* The answering sheet: slides over the composer bottom-to-top
+			    while pi waits. It stays down until the pane parse has the
+			    actual content, so it appears once, complete, instead of an
+			    empty panel that fills in later. No scrim - the transcript
+			    stays readable; the composer is the thing being covered. */}
+			<div
+				aria-hidden={!sheetReady}
+				className={`fixed inset-x-0 bottom-0 z-50 transition-transform duration-200 ease-in ${
+					sheetReady ? "translate-y-0" : "pointer-events-none translate-y-full"
+				}`}
+			>
+				<div className="rounded-t-2xl border-t border-base-300 bg-base-200 pb-safe-all shadow-2xl">
+					<div className="mx-auto mt-2 h-1 w-10 rounded-full bg-base-content/20" />
+					{cardDialog && <DialogActions key={cardDialog.id} k={sessionKey} dialog={cardDialog} />}
+				</div>
+			</div>
 
 			<Dialog
 				opened={overflow}

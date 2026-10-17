@@ -50,16 +50,18 @@ type app struct {
 	bridge        map[string]bridgeEntry // session path -> open pi dialog (bridge extension)
 	answered      *dialogMemos           // per-dialog answer claims; dedupes double taps
 	models        *modelsCache           // pi catalog: memory, state file, then pi
+	dialogWake    chan struct{}          // cap 1: a dialog changed; stream loops push now
 }
 
 func Run(ctx context.Context, logger *slog.Logger, addr string, idx *pi.Index, hc *herdr.Client, w *pi.Watcher, st *store.Store, pusher *push.Sender, allowedOrigin string) error {
-	a := &app{logger: logger, idx: idx, herdr: hc, watcher: w, st: st, pusher: pusher, allowedOrigin: allowedOrigin, answered: newDialogMemos(), models: newModelsCache(filepath.Join(st.Dir(), "models.json"))}
+	a := &app{logger: logger, idx: idx, herdr: hc, watcher: w, st: st, pusher: pusher, allowedOrigin: allowedOrigin, answered: newDialogMemos(), models: newModelsCache(filepath.Join(st.Dir(), "models.json")), dialogWake: make(chan struct{}, 1)}
 	if pusher != nil {
 		a.vapidPublic = pusher.Public
 	}
 	// Dialog awareness: poll working panes for pi-tui chrome and expose
 	// per-session "waiting for input" state on the wire.
-	a.awaiting = newAwaitingDetector(hc, 3*time.Second)
+	a.awaiting = newAwaitingDetector(hc, time.Second)
+	a.awaiting.onChange = a.wakeDialog
 	go a.awaiting.run(ctx)
 	srv := &http.Server{
 		Addr:              addr,
@@ -360,6 +362,19 @@ func (a *app) subscribeTicks() (<-chan struct{}, func()) {
 	return a.watcher.Subscribe()
 }
 
+// wakeDialog signals the stream loops that dialog state changed, so a
+// pi question reaches the phone now instead of riding the next
+// session-file tick or the 15s heartbeat. Nil-safe for test apps.
+func (a *app) wakeDialog() {
+	if a.dialogWake == nil {
+		return
+	}
+	select {
+	case a.dialogWake <- struct{}{}:
+	default:
+	}
+}
+
 // streamMinInterval spaces a stream's full-tail re-renders. Active
 // sessions emit watcher ticks per token batch, and patching per tick
 // flooded clients with back-to-back DOM replacements until they froze.
@@ -376,9 +391,10 @@ type pacer struct {
 
 // wait blocks until the next patch is due: immediately on the first
 // call, then at most once per streamMinInterval (coalescing the tick
-// firehose), or on the heartbeat when nothing changes. False means the
+// firehose), or on the heartbeat when nothing changes. A non-nil extra
+// channel (the dialog wake) short-circuits both waits. False means the
 // client left.
-func (p *pacer) wait(ctx context.Context, ticks <-chan struct{}) bool {
+func (p *pacer) wait(ctx context.Context, ticks <-chan struct{}, extra <-chan struct{}) bool {
 	if p.last.IsZero() {
 		p.last = time.Now()
 		return true
@@ -387,11 +403,17 @@ func (p *pacer) wait(ctx context.Context, ticks <-chan struct{}) bool {
 		select {
 		case <-ctx.Done():
 			return false
+		case <-extra:
+			p.last = time.Now()
+			return true
 		case <-time.After(d):
 		}
 	}
 	select {
 	case <-ticks:
+		p.last = time.Now()
+		return true
+	case <-extra:
 		p.last = time.Now()
 		return true
 	case <-time.After(heartbeat):

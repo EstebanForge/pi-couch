@@ -81,12 +81,13 @@ func streamTestApp(t *testing.T) (*app, string, http.Handler) {
 	}
 	_ = w
 	a := &app{
-		logger:   slog.New(slog.NewTextHandler(testDiscard{}, nil)),
-		idx:      pi.NewIndex(root),
-		herdr:    herdr.New(),
-		watcher:  w,
-		answered: newDialogMemos(),
-		models:   newModelsCache(filepath.Join(t.TempDir(), "models.json")),
+		logger:     slog.New(slog.NewTextHandler(testDiscard{}, nil)),
+		idx:        pi.NewIndex(root),
+		herdr:      herdr.New(),
+		watcher:    w,
+		answered:   newDialogMemos(),
+		models:     newModelsCache(filepath.Join(t.TempDir(), "models.json")),
+		dialogWake: make(chan struct{}, 1),
 	}
 	return a, sub, a.guard(a.routes())
 }

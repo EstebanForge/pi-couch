@@ -2,7 +2,9 @@ package server
 
 import (
 	"encoding/json"
+	"hash/fnv"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -23,15 +25,57 @@ type BridgeDialog struct {
 	Title string `json:"title"` // dialog title, or the kind when untitled
 }
 
-// dialogFor gates the bridge dialog on herdr's blocked status. The
-// bridge dial and herdr's blocked mapping come from the same ui_prompt
-// events, so a dialog without the badge is a stale entry whose end
-// event was lost - a crashed pi, not a waiting one. Cheap: no pane read.
+// dialogFor prefers the bridge entry while herdr reports blocked, and
+// falls back to the pane parse, which survives both the entry's TTL
+// and badge flaps. The bridge entry alone never surfaces without the
+// badge: both map the same ui_prompt events, so a dialog without the
+// badge is a stale entry whose end event was lost - a crashed pi, not
+// a waiting one.
 func (a *app) dialogFor(sessionPath, badge string) (BridgeDialog, bool) {
-	if badge != "blocked" {
+	if badge == "blocked" {
+		if d, ok := a.bridgeDialog(sessionPath); ok {
+			return d, true
+		}
+	}
+	// The bridge entry is ephemeral (TTL, and herdr's blocked badge
+	// flaps mid-turn). The pane parse is the durable source: a dialog
+	// on screen now is answerable now, registry or no registry.
+	return a.paneDialog(sessionPath)
+}
+
+// paneDialogID derives a stable synthetic id from the parsed screen so
+// answers can target a dialog the bridge never registered (or whose
+// entry expired). Title and option labels only: the cursor moving
+// must not mint a new identity mid-answer.
+func (a *app) paneDialogID(sessionPath string) string {
+	p := a.awaiting.parsed(sessionPath)
+	if p == nil {
+		return ""
+	}
+	h := fnv.New64a()
+	h.Write([]byte(sessionPath))
+	h.Write([]byte{0x1f})
+	h.Write([]byte(p.Title))
+	for _, o := range p.Options {
+		h.Write([]byte{0x1f})
+		h.Write([]byte(o.Label))
+	}
+	return "pane-" + strconv.FormatUint(h.Sum64(), 36)
+}
+
+func (a *app) paneDialog(sessionPath string) (BridgeDialog, bool) {
+	p := a.awaiting.parsed(sessionPath)
+	if p == nil {
 		return BridgeDialog{}, false
 	}
-	return a.bridgeDialog(sessionPath)
+	kind := "select"
+	if p.Kind == "editor" {
+		kind = "editor"
+	}
+	if p.Kind == "input" {
+		kind = "input"
+	}
+	return BridgeDialog{ID: a.paneDialogID(sessionPath), Kind: kind, Title: p.Title}, true
 }
 
 type bridgeEntry struct {
@@ -72,6 +116,7 @@ func (a *app) apiBridgeDialog(w http.ResponseWriter, r *http.Request) {
 		delete(a.bridge, req.SessionPath)
 	}
 	a.bridgeMu.Unlock()
+	a.wakeDialog()
 	w.WriteHeader(http.StatusNoContent)
 }
 

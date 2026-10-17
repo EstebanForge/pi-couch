@@ -341,8 +341,12 @@ export const sendPrompt = (key: string, text: string, whenBusy?: "followUp") =>
 /** Answer an open pi confirm dialog: yes presses enter, no presses
  * down+enter. ok:false carries the in-band refusal (changed, notfound,
  * send failed) and the caller hides its buttons. */
-export const answerDialog = (key: string, id: string, answer: string) =>
-	postJSONBody(`/api/sessions/${encodeURIComponent(key)}/dialog/answer`, { id, answer });
+export const answerDialog = (key: string, id: string, answer: string, text?: string) =>
+	postJSONBody(`/api/sessions/${encodeURIComponent(key)}/dialog/answer`, {
+		id,
+		answer,
+		...(text !== undefined ? { text } : {}),
+	});
 export const setModel = (key: string, pattern: string) =>
 	postJSONBody(`/api/sessions/${encodeURIComponent(key)}/model`, { pattern });
 export const setThinking = (key: string, level: string) =>

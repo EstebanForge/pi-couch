@@ -71,7 +71,7 @@ func piHintAtEnd(plain string) bool {
 	for i := start; i < end; i++ {
 		joined := strings.Join(lines[i:], " ")
 		if piMenuHintRe.MatchString(joined) || piInputHintRe.MatchString(joined) ||
-			piAskHintRe.MatchString(joined) {
+			piAskHintRe.MatchString(joined) || piAskInputHintRe.MatchString(joined) {
 			return true
 		}
 	}
@@ -122,6 +122,10 @@ func aimSteps(cursor, target, n int) int {
 type awaitingDetector struct {
 	hc   paneSource
 	poll time.Duration
+	// onChange, when set, fires when any pane's cue or parsed dialog
+	// changed - the stream loops use it to push dialog frames instead
+	// of waiting for a session-file tick.
+	onChange func()
 
 	mu   sync.Mutex
 	pane map[string]paneState
@@ -153,6 +157,7 @@ func (d *awaitingDetector) tick(ctx context.Context) {
 		return // dead socket: keep the last state, retry next tick
 	}
 	next := map[string]paneState{}
+	changed := false
 	for _, a := range agents {
 		if a.Session == nil || a.PaneID == "" {
 			continue
@@ -178,10 +183,17 @@ func (d *awaitingDetector) tick(ctx context.Context) {
 		if st.awaiting || st.dialog != nil {
 			next[a.Session.Value] = st
 		}
+		prev, ok := d.pane[a.Session.Value]
+		if !ok || prev.awaiting != st.awaiting || !piDialogEqual(prev.dialog, st.dialog) {
+			changed = true
+		}
 	}
 	d.mu.Lock()
 	d.pane = next
 	d.mu.Unlock()
+	if changed && d.onChange != nil {
+		d.onChange()
+	}
 }
 
 func (d *awaitingDetector) isAwaiting(path string) bool {

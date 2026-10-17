@@ -51,8 +51,10 @@ describe("DialogActions", () => {
 		expect(html).toContain("Which color, Red or Blue?");
 		expect(html).toContain(">Red<");
 		expect(html).toContain("Pick red.");
-		// the own-answer row is named, not offered as a tap
-		expect(html).toContain("own answers need the Terminal");
+		// the own-answer row is not a tap; it is a real input with a send
+		expect(html).not.toContain(">Type something.<");
+		expect(html).toContain('placeholder="Type your answer…"');
+		expect(html).toContain(">Send<");
 		expect(html).toContain(">Cancel<");
 	});
 

@@ -22,20 +22,31 @@ type piDialogOption struct {
 }
 
 type piDialog struct {
-	Kind    string // "select" or "editor"
+	Kind    string // "select", "editor" or "input"
 	Title   string
 	Body    string
 	Options []piDialogOption
 	Cursor  int
+	// InputMode marks the questionnaire's free-text state: the cursor
+	// sits on the "Type something." row and its label is now the live
+	// draft. The answer flow keys its phase transition on this.
+	InputMode bool
 }
 
 var (
 	// The rpiv ask-user questionnaire: "Enter to select · ↑/↓ to
 	// navigate · n to add notes · Esc to cancel · Ctrl+] to collapse".
-	piAskHintRe = regexp.MustCompile(`(?i)enter to select\s*[·•]\s*↑/↓ to navigate\s*[·•]\s*n to add notes`)
+	piAskHintRe = regexp.MustCompile(`(?i)enter to select\s*[·•]\s*↑/↓ to navigate(\s*[·•]\s*(space to toggle|n to add notes))*\s*[·•]\s*esc to cancel`)
 	// The extension editor: "enter submit  shift+enter/ctrl+j newline
 	// escape/ctrl+c cancel  ctrl+g external editor".
 	piEditorHintRe = regexp.MustCompile(`(?i)enter\s+submit\s+shift\+enter/ctrl\+j\s+newline\s+escape/ctrl\+c\s+cancel`)
+	// The questionnaire's free-text row: selecting it opens pi's input
+	// widget, so the card renders a text field in its place.
+	piOwnAnswerRe = regexp.MustCompile(`(?i)^type something`)
+	// The same questionnaire once the cursor reaches that row: the row
+	// label is replaced by the live draft and the hint gains the
+	// newline/clear segments. Captured live 2026-10-17.
+	piAskInputHintRe = regexp.MustCompile(`(?i)enter to select\s*[·•]\s*↑/↓ to navigate\s*[·•]\s*esc to cancel.*shift\+enter for newline`)
 	// pi's plain menu and input hints, shared with awaiting.go.
 	// piRowCursorRe marks the row pi's cursor sits on.
 	piRowCursorRe  = regexp.MustCompile(`^[→❯›➜]\s*\S`)
@@ -69,6 +80,8 @@ func piHintKind(plain string) (kind string, hintIndex int) {
 			return "editor", i
 		case piMenuHintRe.MatchString(joined):
 			return "select", i
+		case piAskInputHintRe.MatchString(joined):
+			return "askinput", i
 		case piAskHintRe.MatchString(joined):
 			return "select", i
 		case piInputHintRe.MatchString(joined):
@@ -93,7 +106,47 @@ func parsePiDialog(text string) *piDialog {
 	if kind == "editor" {
 		return parsePiEditorBlock(lines[:hint])
 	}
+	if kind == "input" {
+		return parsePiInputBlock(lines[:hint])
+	}
+	if kind == "askinput" {
+		d := parsePiRowsBlock(lines[:hint], "select")
+		if d != nil {
+			d.InputMode = true
+		}
+		return d
+	}
 	return parsePiRowsBlock(lines[:hint], kind)
+}
+
+// parsePiInputBlock reads pi's free-text widget: a question head above
+// the hint and optionally a >-led line holding the current draft. No
+// rows and no cursor - that is what separates it from a menu whose
+// text merely sits over an input hint.
+func parsePiInputBlock(lines []string) *piDialog {
+	var head []string
+	for i := len(lines); i > 0 && len(head) < 8; i-- {
+		line := strings.TrimSpace(lines[i-1])
+		if line == "" {
+			if len(head) > 0 {
+				break
+			}
+			continue
+		}
+		if piDividerRe.MatchString(line) {
+			break
+		}
+		if strings.HasPrefix(line, ">") {
+			continue
+		}
+		head = append([]string{line}, head...)
+	}
+	d := &piDialog{Kind: "input"}
+	if len(head) > 0 {
+		d.Title = head[0]
+		d.Body = strings.Join(head[1:], "\n")
+	}
+	return d
 }
 
 // parsePiEditorBlock reads the editor overlay: title and body sit in
@@ -245,4 +298,24 @@ func piRowLabel(raw string) (label string, numbered bool, isRow bool) {
 // indentOf counts a line's leading spaces.
 func indentOf(raw string) int {
 	return len(raw) - len(strings.TrimLeft(raw, " "))
+}
+
+// piDialogEqual reports whether two parses carry the same dialog
+// content. Pointers always differ between parses, so the detector's
+// change detection needs a value comparison; option order matters (it
+// drives the answer walk).
+func piDialogEqual(a, b *piDialog) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	if a.Kind != b.Kind || a.Title != b.Title || a.Body != b.Body ||
+		a.Cursor != b.Cursor || a.InputMode != b.InputMode || len(a.Options) != len(b.Options) {
+		return false
+	}
+	for i := range a.Options {
+		if a.Options[i] != b.Options[i] {
+			return false
+		}
+	}
+	return true
 }

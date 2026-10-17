@@ -70,9 +70,11 @@ type transcriptStatus struct {
 	// Awaiting: the agent sits in a blocking pi dialog while still
 	// reporting working. Omitted when false.
 	Awaiting bool `json:"awaiting,omitempty"`
-	// Dialog carries the bridge-reported open dialog, with the screen
-	// menu merged in for select kinds.
-	Dialog *dialogWire `json:"dialog,omitempty"`
+	// Dialog carries the open pi dialog (bridge identity, screen parse
+	// attached). Never omitempty: an absent key would read as
+	// keep-on-the-client, and only an explicit null may clear a card
+	// once pi's end event lands.
+	Dialog *dialogWire `json:"dialog"`
 	// Todos re-sent whenever the checklist changes.
 	Todos []pi.Todo `json:"todos,omitempty"`
 }
@@ -179,6 +181,7 @@ func (a *app) apiStreamTranscript(w http.ResponseWriter, r *http.Request) {
 	}
 	ticks, unsub := a.subscribeTicks()
 	defer unsub()
+	wake := a.dialogWake
 	var pace pacer
 	send := func(event string, v any) bool { return writeEventJSON(w, event, v) == nil }
 
@@ -202,7 +205,7 @@ func (a *app) apiStreamTranscript(w http.ResponseWriter, r *http.Request) {
 				}
 				placeholder = true
 			}
-			if !pace.wait(r.Context(), ticks) {
+			if !pace.wait(r.Context(), ticks, wake) {
 				return
 			}
 			continue
@@ -253,7 +256,7 @@ func (a *app) apiStreamTranscript(w http.ResponseWriter, r *http.Request) {
 		if sent {
 			lastSend = time.Now()
 		}
-		if !pace.wait(r.Context(), ticks) {
+		if !pace.wait(r.Context(), ticks, wake) {
 			return
 		}
 	}
@@ -270,6 +273,7 @@ func (a *app) apiStreamSessions(w http.ResponseWriter, r *http.Request) {
 	}
 	ticks, unsub := a.subscribeTicks()
 	defer unsub()
+	wake := a.dialogWake
 	var pace pacer
 	type entryHash struct {
 		hash uint64
@@ -343,7 +347,7 @@ func (a *app) apiStreamSessions(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		if !pace.wait(r.Context(), ticks) {
+		if !pace.wait(r.Context(), ticks, wake) {
 			return
 		}
 	}

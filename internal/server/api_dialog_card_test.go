@@ -107,6 +107,89 @@ func TestDialogAnswerEditorSubmit(t *testing.T) {
 	}
 }
 
+// The bridge entry is ephemeral (a 10-minute TTL, and herdr's blocked
+// badge flaps). The pane parse is the durable source: the card must
+// survive a long-idle reopen with a synthesized stable id, and the
+// answer endpoint must accept that id.
+func TestDialogWireSurvivesBridgeExpiry(t *testing.T) {
+	f := &fakePaneHerdr{
+		agents: []herdr.Agent{
+			{Name: "a", AgentStatus: "blocked", PaneID: "p1", Session: &herdr.AgentSessionRef{Value: "/s/a.jsonl"}},
+		},
+		panes: map[string]string{"p1": askUserScreen},
+	}
+	a := &app{logger: testLogger()}
+	a.awaiting = newAwaitingDetector(f, time.Hour)
+	a.awaiting.tick(context.Background())
+
+	// No bridge entry at all; the badge gate stays satisfied by the parse.
+	for _, badge := range []string{"blocked", ""} {
+		d, ok := a.dialogFor("/s/a.jsonl", badge)
+		if !ok {
+			t.Fatalf("badge %q: dialogFor came up empty", badge)
+		}
+		if !strings.HasPrefix(d.ID, "pane-") {
+			t.Errorf("badge %q: id=%q, want a pane- synthesized id", badge, d.ID)
+		}
+		if d.Title != "Color" || d.Kind != "select" {
+			t.Errorf("badge %q: dialog=%+v", badge, d)
+		}
+	}
+	if _, ok := a.dialogFor("/s/none.jsonl", "blocked"); ok {
+		t.Error("unknown session must carry no dialog")
+	}
+
+	id := a.paneDialogID("/s/a.jsonl")
+	if id != a.paneDialogID("/s/a.jsonl") {
+		t.Error("synthesized id must be stable across ticks")
+	}
+	d, _ := a.dialogFor("/s/a.jsonl", "blocked")
+	w := a.dialogWireFor("/s/a.jsonl", d, true)
+	if w == nil || w.ID != id || w.Title != "Color" || len(w.Options) != 3 {
+		t.Fatalf("wire=%+v", w)
+	}
+}
+
+// An option tap answered by the synthesized pane id: no bridge entry
+// exists (TTL expired), the pane verify still gates the keys.
+func TestDialogAnswerPaneFallbackID(t *testing.T) {
+	before := askUserScreen
+	after := " Color\n Which color, Red or Blue?\n  1. Red\n     Pick red.\n❯ 2. Blue\n     Pick blue.\n  3. Type something.\n" +
+		" Enter to select · ↑/↓ to navigate · n to add notes · Esc to cancel · Ctrl+] to collapse"
+	var sends int32
+	var sessPath string
+	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath, sends: &sends, paneText: &before, paneAfterSend: &after})
+	a, sub, _ := streamTestAppWithHerdr(t, sock)
+	sessPath = filepath.Join(sub, "s1.jsonl")
+
+	a.bridgeMu.Lock()
+	a.bridge = map[string]bridgeEntry{}
+	a.bridgeMu.Unlock()
+	// The synthesized id comes from the detector's parse; build the
+	// detector over the fake socket and tick it deterministically
+	// instead of racing a poll loop.
+	a.awaiting = newAwaitingDetector(a.herdr, time.Hour)
+	a.awaiting.tick(context.Background())
+
+	post := func(id string) int {
+		req := httptest.NewRequest(http.MethodPost, "/api/sessions/s1/dialog/answer", strings.NewReader(
+			`{"id":"`+id+`","answer":"Blue"}`))
+		req.Host = "127.0.0.1:8090"
+		rec := httptest.NewRecorder()
+		a.guard(a.routes()).ServeHTTP(rec, req)
+		return rec.Code
+	}
+	if code := post("pane-bogus"); code != http.StatusConflict {
+		t.Fatalf("wrong id code=%d", code)
+	}
+	if code := post(a.paneDialogID(sessPath)); code != http.StatusOK {
+		t.Fatalf("pane id code=%d", code)
+	}
+	if n := atomic.LoadInt32(&sends); n != 2 {
+		t.Fatalf("sends=%d, want down+enter", n)
+	}
+}
+
 // An option tap on the questionnaire walks the numbered rows: the
 // cursor starts on Red, Blue is one down, the re-read verifies the
 // cursor moved, then enter confirms.
@@ -139,5 +222,93 @@ func TestDialogAnswerQuestionnaireOption(t *testing.T) {
 	// one down to Blue, one enter to confirm
 	if n := atomic.LoadInt32(&sends); n != 2 {
 		t.Fatalf("sends=%d, want down+enter", n)
+	}
+}
+
+// A free-text answer: the endpoint walks the questionnaire's cursor to
+// its "Type something." row (rpiv enters input mode on arrival - no
+// opening enter), clears any restored draft with ctrl+u, types the
+// text and submits - four sends: downs, ctrl+u, text, enter. The pane
+// states follow the sends: the input-mode paint with an empty draft,
+// then the draft echoing the typed text.
+func TestDialogAnswerFreeText(t *testing.T) {
+	before := askUserScreen
+	onType := " Color\n Which flavor?\n  1. Red\n     Pick red.\n  2. Blue\n     Pick blue.\n❯ 3.\n" +
+		" Enter to select · ↑/↓ to navigate · Esc to cancel · Ctrl+] to collapse · Shift+Enter for newline · Ctrl+U to clear"
+	inputEcho := " Color\n Which flavor?\n  1. Red\n     Pick red.\n  2. Blue\n     Pick blue.\n❯ 3. pizza\n" +
+		" Enter to select · ↑/↓ to navigate · Esc to cancel · Ctrl+] to collapse · Shift+Enter for newline · Ctrl+U to clear"
+	var sends int32
+	var sessPath string
+	var lastText string
+	sock := herdrFake(t, fakeHerdrOpts{
+		sessPath: &sessPath, sends: &sends, paneText: &before, lastText: &lastText,
+		paneSeq: []string{onType, onType, inputEcho},
+	})
+	a, sub, _ := streamTestAppWithHerdr(t, sock)
+	sessPath = filepath.Join(sub, "s1.jsonl")
+
+	a.bridgeMu.Lock()
+	a.bridge = map[string]bridgeEntry{}
+	a.bridge[sessPath] = bridgeEntry{
+		dialog:  BridgeDialog{ID: "dt", Kind: "custom", Title: "Color"},
+		expires: time.Now().Add(time.Minute),
+	}
+	a.bridgeMu.Unlock()
+	a.awaiting = newAwaitingDetector(a.herdr, time.Hour)
+	a.awaiting.tick(context.Background())
+
+	post := func(body string) int {
+		req := httptest.NewRequest(http.MethodPost, "/api/sessions/s1/dialog/answer", strings.NewReader(body))
+		req.Host = "127.0.0.1:8090"
+		rec := httptest.NewRecorder()
+		a.guard(a.routes()).ServeHTTP(rec, req)
+		return rec.Code
+	}
+	if code := post(`{"id":"dt","answer":"type","text":"  "}`); code != http.StatusBadRequest {
+		t.Fatalf("blank text code=%d", code)
+	}
+	if code := post(`{"id":"dt","answer":"type","text":"pizza"}`); code != http.StatusOK {
+		t.Fatalf("code=%d", code)
+	}
+	// downs (one send), ctrl+u (clear a restored draft), the text, the
+	// final enter - no opening enter: rpiv activates input mode on
+	// cursor arrival.
+	if n := atomic.LoadInt32(&sends); n != 4 {
+		t.Fatalf("sends=%d, want down,ctrl+u,text,enter", n)
+	}
+}
+
+// A phone-width pane wraps a long draft across rows; the echo check
+// must be whitespace-insensitive, not a raw contains.
+func TestDialogAnswerFreeTextWrappedEcho(t *testing.T) {
+	before := askUserScreen
+	onType := " Color\n Which flavor?\n  1. Red\n     Pick red.\n  2. Blue\n     Pick blue.\n❯ 3.\n" +
+		" Enter to select · ↑/↓ to navigate · Esc to cancel · Ctrl+] to collapse · Shift+Enter for newline · Ctrl+U to clear"
+	chiliEcho := " Color\n Which flavor?\n  1. Red\n     Pick red.\n  2. Blue\n     Pick blue.\n❯ 3. chili con\n   carne\n" +
+		" Enter to select · ↑/↓ to navigate · Esc to cancel · Ctrl+] to collapse · Shift+Enter for newline · Ctrl+U to clear"
+	var sends int32
+	var sessPath string
+	sock := herdrFake(t, fakeHerdrOpts{
+		sessPath: &sessPath, sends: &sends, paneText: &before,
+		paneSeq: []string{onType, chiliEcho},
+	})
+	a, sub, _ := streamTestAppWithHerdr(t, sock)
+	sessPath = filepath.Join(sub, "s1.jsonl")
+	a.bridgeMu.Lock()
+	a.bridge = map[string]bridgeEntry{}
+	a.bridge[sessPath] = bridgeEntry{
+		dialog:  BridgeDialog{ID: "dw", Kind: "custom", Title: "Color"},
+		expires: time.Now().Add(time.Minute),
+	}
+	a.bridgeMu.Unlock()
+	a.awaiting = newAwaitingDetector(a.herdr, time.Hour)
+	a.awaiting.tick(context.Background())
+
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/s1/dialog/answer", strings.NewReader(`{"id":"dw","answer":"type","text":"chili con  carne"}`))
+	req.Host = "127.0.0.1:8090"
+	rec := httptest.NewRecorder()
+	a.guard(a.routes()).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("wrapped code=%d", rec.Code)
 	}
 }

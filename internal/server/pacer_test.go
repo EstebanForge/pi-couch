@@ -10,7 +10,7 @@ func TestPacerFirstCallImmediate(t *testing.T) {
 	ticks := make(chan struct{}, 8)
 	p := &pacer{}
 	start := time.Now()
-	if !p.wait(context.Background(), ticks) {
+	if !p.wait(context.Background(), ticks, nil) {
 		t.Fatal("wait returned false")
 	}
 	if d := time.Since(start); d > 20*time.Millisecond {
@@ -30,11 +30,11 @@ func TestPacerThrottlesFlood(t *testing.T) {
 		}
 	}()
 	p := &pacer{}
-	p.wait(context.Background(), ticks) // first patch, starts the clock
+	p.wait(context.Background(), ticks, nil) // first patch, starts the clock
 	start := time.Now()
 	n := 0
 	for time.Since(start) < 250*time.Millisecond {
-		if !p.wait(context.Background(), ticks) {
+		if !p.wait(context.Background(), ticks, nil) {
 			t.Fatal("wait returned false")
 		}
 		n++
@@ -50,10 +50,25 @@ func TestPacerThrottlesFlood(t *testing.T) {
 func TestPacerCtxCancel(t *testing.T) {
 	ticks := make(chan struct{})
 	p := &pacer{}
-	p.wait(context.Background(), ticks)
+	p.wait(context.Background(), ticks, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if p.wait(ctx, ticks) {
+	if p.wait(ctx, ticks, nil) {
 		t.Fatal("cancelled ctx should stop the wait")
+	}
+}
+
+func TestPacerWakeShortCircuits(t *testing.T) {
+	ticks := make(chan struct{})
+	wake := make(chan struct{}, 1)
+	p := &pacer{}
+	p.wait(context.Background(), ticks, nil) // start the clock
+	start := time.Now()
+	wake <- struct{}{}
+	if !p.wait(context.Background(), ticks, wake) {
+		t.Fatal("wait returned false")
+	}
+	if d := time.Since(start); d > 50*time.Millisecond {
+		t.Fatalf("wake wait took %s, want immediate", d)
 	}
 }

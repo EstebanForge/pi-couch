@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { StreamItem } from "../api";
+import type { BridgeDialog, StreamItem } from "../api";
 import {
 	type DriverState,
 	emptyDriver,
@@ -82,6 +82,26 @@ describe("reduceStatus", () => {
 		const next = reduceStatus(s, { status: "done", model: "a/b", thinking: "low" });
 		expect(next.status).toBe("done");
 		expect(next.items).toBe(s.items);
+	});
+
+	// The server always sends the dialog key on statuses, so undefined
+	// only happens on hand-built frames; null is pi's end event.
+	it("keeps the dialog when absent and clears it on null", () => {
+		const live: BridgeDialog = { id: "d1", kind: "custom", title: "Color", cursor: 0 };
+		const s: DriverState = reduceReset(emptyDriver, {
+			items: [],
+			status: "blocked",
+			model: "a/b",
+			thinking: "low",
+			dialog: live,
+		});
+		expect(reduceStatus(s, { status: "blocked", model: "a/b", thinking: "low" }).dialog).toBe(live);
+		expect(
+			reduceStatus(s, { status: "blocked", model: "a/b", thinking: "low", dialog: live }).dialog,
+		).toBe(live);
+		expect(
+			reduceStatus(s, { status: "working", model: "a/b", thinking: "low", dialog: null }).dialog,
+		).toBeNull();
 	});
 });
 

@@ -111,13 +111,15 @@ export function mergeOlder(items: StreamItem[], older: StreamItem[]): StreamItem
 }
 
 export function reduceStatus(s: DriverState, p: TranscriptStatus): DriverState {
+	// Dialog is three-way on the wire: undefined keeps, null clears
+	// (pi's end event), an object sets.
 	return {
 		...s,
 		status: p.status,
 		model: p.model,
 		thinking: p.thinking,
 		awaiting: p.awaiting ?? false,
-		dialog: p.dialog ?? s.dialog,
+		dialog: p.dialog === undefined ? s.dialog : p.dialog,
 		todos: p.todos ?? s.todos,
 	};
 }
