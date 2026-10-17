@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { answerDialog, type BridgeDialog } from "../api";
 import { Spinner } from "./Spinner";
 
@@ -19,6 +19,17 @@ export function DialogActions({ k, dialog }: { k: string; dialog: BridgeDialog }
 	const [active, setActive] = useState<string>("");
 	const [failed, setFailed] = useState(false);
 	const [draft, setDraft] = useState("");
+	// The editor dialog's buffer is editable: subject and body prefill
+	// from the pane parse and rewrite pi's editor on save. Re-synced
+	// when the parse changes (a save lands, a new dialog arrives); a
+	// stream tick never touches the text mid-typing because body only
+	// changes when a save does.
+	const [subject, setSubject] = useState(dialog.title ?? "");
+	const [body, setBody] = useState(dialog.body ?? "");
+	useEffect(() => {
+		setSubject(dialog.title ?? "");
+		setBody(dialog.body ?? "");
+	}, [dialog.id, dialog.title, dialog.body]);
 	const id = dialog.id;
 	// A refused answer keeps the card with a retry note: pi may still be
 	// waiting, and collapsing the panel strands a header sliver until
@@ -53,6 +64,28 @@ export function DialogActions({ k, dialog }: { k: string; dialog: BridgeDialog }
 			});
 	};
 
+	const saveEdit = () => {
+		if (busy) return;
+		const text = [subject.trim(), body.trimEnd()].filter(Boolean).join("\n\n");
+		if (!text) return;
+		setBusy(true);
+		setActive("edit");
+		setFailed(false);
+		answerDialog(k, id, "type", text)
+			.then((r) => {
+				// Unlike a terminal answer, the edit leaves pi waiting:
+				// unlock immediately so Submit stays reachable.
+				setBusy(false);
+				setActive("");
+				if (!r.ok) setFailed(true);
+			})
+			.catch(() => {
+				setBusy(false);
+				setActive("");
+				setFailed(true);
+			});
+	};
+
 	return (
 		<div className="px-4 pb-4 pt-3">
 			<div className="text-[11px] uppercase tracking-widest text-accent">pi asks</div>
@@ -62,7 +95,7 @@ export function DialogActions({ k, dialog }: { k: string; dialog: BridgeDialog }
 			>
 				{dialog.title || dialog.kind}
 			</div>
-			{dialog.body && (
+			{dialog.body && !isEditor && (
 				<p className="mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-[13px] text-base-content/90">
 					{dialog.body}
 				</p>
@@ -118,6 +151,36 @@ export function DialogActions({ k, dialog }: { k: string; dialog: BridgeDialog }
 						Send
 					</button>
 				</form>
+			)}
+			{isEditor && (
+				<div className="mt-3 flex flex-col gap-2">
+					<input
+						value={subject}
+						onChange={(e) => setSubject(e.target.value)}
+						disabled={busy}
+						placeholder="Subject"
+						aria-label="Commit subject"
+						className="h-11 w-full rounded-xl bg-base-300 px-3 text-[14px] outline-none placeholder:text-muted"
+					/>
+					<textarea
+						value={body}
+						onChange={(e) => setBody(e.target.value)}
+						disabled={busy}
+						rows={Math.min(6, Math.max(2, body.split("\n").length))}
+						placeholder="Body (optional)"
+						aria-label="Commit body"
+						className="w-full resize-none rounded-xl bg-base-300 px-3 py-2 text-[13px] outline-none placeholder:text-muted"
+					/>
+					<button
+						type="button"
+						disabled={busy}
+						onClick={saveEdit}
+						className="flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl bg-base-300 px-4 py-2 text-[14px] text-base-content active:scale-[0.99] disabled:opacity-50"
+					>
+						{active === "edit" && <Spinner size={14} />}
+						Save edits
+					</button>
+				</div>
 			)}
 			{failed && (
 				<p className="mt-2 text-[12px] text-accent">

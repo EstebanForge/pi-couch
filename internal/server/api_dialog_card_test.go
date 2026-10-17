@@ -312,3 +312,67 @@ func TestDialogAnswerFreeTextWrappedEcho(t *testing.T) {
 		t.Fatalf("wrapped code=%d", rec.Code)
 	}
 }
+
+// The editor dialog's buffer is editable from the phone: a type
+// answer on an editor pane rewrites the buffer (park the cursor at
+// the end, backspace the old text, type the replacement with real
+// newlines) and verifies the repaint WITHOUT submitting - Submit
+// stays its own answer, so the memo claim must be released after a
+// successful edit.
+func TestDialogAnswerEditorEdit(t *testing.T) {
+	editor := " Commit staged changes with this message?\n\nprobe commit\n\n" +
+		" enter submit  shift+enter/ctrl+j newline  escape/ctrl+c cancel  ctrl+g external editor"
+	edited := " Commit staged changes with this message?\n\nnew subject\n\nnew body\n\n" +
+		" enter submit  shift+enter/ctrl+j newline  escape/ctrl+c cancel  ctrl+g external editor"
+	var sends int32
+	var sessPath string
+	var lastText string
+	var lastKeys []string
+	sock := herdrFake(t, fakeHerdrOpts{
+		sessPath: &sessPath, sends: &sends, paneText: &editor, lastText: &lastText, lastKeys: &lastKeys,
+		paneSeq: []string{edited},
+	})
+	a, sub, _ := streamTestAppWithHerdr(t, sock)
+	sessPath = filepath.Join(sub, "s1.jsonl")
+	a.bridgeMu.Lock()
+	a.bridge = map[string]bridgeEntry{}
+	a.bridge[sessPath] = bridgeEntry{
+		dialog:  BridgeDialog{ID: "d9", Kind: "editor", Title: "Commit staged changes with this message?"},
+		expires: time.Now().Add(time.Minute),
+	}
+	a.bridgeMu.Unlock()
+
+	post := func(body string) int {
+		req := httptest.NewRequest(http.MethodPost, "/api/sessions/s1/dialog/answer", strings.NewReader(body))
+		req.Host = "127.0.0.1:8090"
+		rec := httptest.NewRecorder()
+		a.guard(a.routes()).ServeHTTP(rec, req)
+		return rec.Code
+	}
+	if code := post(`{"id":"d9","answer":"type","text":"new subject\n\nnew body"}`); code != http.StatusOK {
+		t.Fatalf("edit code=%d", code)
+	}
+	// walk (ctrl+e + downs + ctrl+e), backspaces, text - no enter.
+	if n := atomic.LoadInt32(&sends); n != 3 {
+		t.Fatalf("sends=%d, want walk,backspaces,text", n)
+	}
+	if lastText != "new subject\n\nnew body" {
+		t.Fatalf("typed text %q", lastText)
+	}
+	if len(lastKeys) < 8 {
+		t.Fatalf("last keys call too short: %v", lastKeys)
+	}
+	for _, k := range lastKeys {
+		if k != "backspace" {
+			t.Fatalf("expected the backspace sweep last, got %v", lastKeys)
+		}
+		break
+	}
+	// The edit is non-terminal: Submit must still be claimable.
+	if code := post(`{"id":"d9","answer":"submit"}`); code != http.StatusOK {
+		t.Fatalf("submit after edit code=%d", code)
+	}
+	if n := atomic.LoadInt32(&sends); n != 4 {
+		t.Fatalf("sends after submit=%d, want +enter", n)
+	}
+}
