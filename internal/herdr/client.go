@@ -87,17 +87,8 @@ func (c *Client) Agents(ctx context.Context) ([]Agent, error) {
 
 // Badges maps pi session file paths to agent status strings.
 func (c *Client) Badges(ctx context.Context) map[string]string {
-	agents, err := c.Agents(ctx)
-	if err != nil {
-		return map[string]string{}
-	}
-	out := make(map[string]string, len(agents))
-	for _, a := range agents {
-		if a.Session != nil && a.Session.Value != "" && a.AgentStatus != "" {
-			out[a.Session.Value] = a.AgentStatus
-		}
-	}
-	return out
+	badges, _ := c.DriveStatus(ctx)
+	return badges
 }
 
 // DrivenInfo is what the phone shows about the agent driving a session.
@@ -111,10 +102,19 @@ type DrivenInfo struct {
 // with the workspace label joined in. A dead socket degrades to an
 // empty map, like Badges.
 func (c *Client) Driven(ctx context.Context) map[string]DrivenInfo {
-	out := map[string]DrivenInfo{}
+	_, driven := c.DriveStatus(ctx)
+	return driven
+}
+
+// DriveStatus is the snapshot's per-tick join: one agent.list feeds both
+// the badge map and the driven map instead of two. Degrades to empty
+// maps like the individual readers when the socket is down.
+func (c *Client) DriveStatus(ctx context.Context) (map[string]string, map[string]DrivenInfo) {
+	badges := map[string]string{}
+	driven := map[string]DrivenInfo{}
 	agents, err := c.Agents(ctx)
 	if err != nil {
-		return out
+		return badges, driven
 	}
 	labels := map[string]string{}
 	if raw, err := c.call(ctx, "workspace.list", map[string]any{}); err == nil {
@@ -134,9 +134,10 @@ func (c *Client) Driven(ctx context.Context) map[string]DrivenInfo {
 		if a.Session == nil || a.Session.Value == "" || a.AgentStatus == "" {
 			continue
 		}
-		out[a.Session.Value] = DrivenInfo{Status: a.AgentStatus, Title: a.TerminalTitle, Label: labels[a.WorkspaceID]}
+		badges[a.Session.Value] = a.AgentStatus
+		driven[a.Session.Value] = DrivenInfo{Status: a.AgentStatus, Title: a.TerminalTitle, Label: labels[a.WorkspaceID]}
 	}
-	return out
+	return badges, driven
 }
 
 // TargetForPath returns the pane id of the agent driving the session file.

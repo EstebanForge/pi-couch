@@ -18,7 +18,8 @@ import (
 // React client (rewrite-plan.md). Every stream sends reset first, so an
 // EventSource reconnect resyncs without a separate snapshot fetch.
 //
-//	event reset  {items,status,model,thinking} | sessionsWire
+//	event reset  {items,status,model,thinking} | sessionPatch (sessions
+//	             always; badges/driven/awaiting only when changed)
 //	event append {items}   transcript only, items carry seq
 //	event status {status,model,thinking}       transcript only
 //	event ping   keepalive
@@ -235,9 +236,11 @@ func (a *app) apiStreamTranscript(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// apiStreamSessions is the JSON twin of streamSessions. It always sends
-// the full snapshot; a hash gate skips frames whose payload did not
-// change, so the firehose of ticks costs one marshal per second at most.
+// apiStreamSessions is the JSON twin of streamSessions. Frames carry
+// field deltas: sessions ride every changed frame, and each herdr map
+// rides only when its bytes changed since this client's last frame, so
+// a file tick without driver movement costs no map payload. The REST
+// snapshot (GET /api/sessions) stays whole; only the stream patches.
 func (a *app) apiStreamSessions(w http.ResponseWriter, r *http.Request) {
 	if !startSSE(w) {
 		return
@@ -245,7 +248,14 @@ func (a *app) apiStreamSessions(w http.ResponseWriter, r *http.Request) {
 	ticks, unsub := a.subscribeTicks()
 	defer unsub()
 	var pace pacer
-	var last []byte
+	var lastSessions, lastBadges, lastDriven, lastAwaiting []byte
+	field := func(cur []byte, last *[]byte) json.RawMessage {
+		if *last != nil && string(*last) == string(cur) {
+			return nil
+		}
+		*last = cur
+		return json.RawMessage(cur)
+	}
 	for {
 		sessions, badges, driven, awaiting := a.snapshot(r)
 		if sessions == nil {
@@ -260,15 +270,26 @@ func (a *app) apiStreamSessions(w http.ResponseWriter, r *http.Request) {
 		if awaiting == nil {
 			awaiting = map[string]bool{}
 		}
-		b, err := json.Marshal(sessionsWire{Sessions: sessions, Badges: badges, Driven: driven, Awaiting: awaiting})
+		sb, err := json.Marshal(sessions)
 		if err != nil {
 			return
 		}
-		if last == nil || string(b) != string(last) {
-			if writeEventJSON(w, "reset", json.RawMessage(b)) != nil {
+		bb, _ := json.Marshal(badges)
+		db, _ := json.Marshal(driven)
+		ab, _ := json.Marshal(awaiting)
+		patch := sessionPatch{Sessions: sb}
+		patch.Badges = field(bb, &lastBadges)
+		patch.Driven = field(db, &lastDriven)
+		patch.Awaiting = field(ab, &lastAwaiting)
+		if lastSessions != nil && string(sb) == string(lastSessions) &&
+			patch.Badges == nil && patch.Driven == nil && patch.Awaiting == nil {
+			// Nothing changed anywhere: no frame; the transcript stream's
+			// keepalive does not apply here and silence is correct.
+		} else {
+			lastSessions = sb
+			if writeEventJSON(w, "reset", patch) != nil {
 				return
 			}
-			last = b
 		}
 		if !pace.wait(r.Context(), ticks) {
 			return

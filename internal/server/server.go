@@ -5,6 +5,7 @@ package server
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"hash/fnv"
 	"log/slog"
@@ -215,6 +216,17 @@ type sessionsWire struct {
 	Awaiting map[string]bool `json:"awaiting"`
 }
 
+// sessionPatch is one sessions-stream frame: a field's raw bytes ride
+// only when they changed since this client's previous frame. Sessions
+// always ride; the maps omit when unchanged. The payload slices reuse
+// the marshaled bytes so each field marshals once per tick.
+type sessionPatch struct {
+	Sessions json.RawMessage `json:"sessions"`
+	Badges   json.RawMessage `json:"badges,omitempty"`
+	Driven   json.RawMessage `json:"driven,omitempty"`
+	Awaiting json.RawMessage `json:"awaiting,omitempty"`
+}
+
 func (a *app) apiSessions(w http.ResponseWriter, r *http.Request) {
 	sessions, badges, driven, awaiting := a.snapshot(r)
 	if sessions == nil {
@@ -235,8 +247,8 @@ func (a *app) snapshot(r *http.Request) ([]pi.SessionMeta, map[string]string, ma
 		a.logger.Error("session list", "err", err)
 		sessions = nil
 	}
-	badges := a.herdr.Badges(r.Context())
-	return sessions, badges, a.herdr.Driven(r.Context()), a.awaiting.snapshot()
+	badges, driven := a.herdr.DriveStatus(r.Context())
+	return sessions, badges, driven, a.awaiting.snapshot()
 }
 
 // promptAgent drives the JSON prompt endpoint: submit the text to the

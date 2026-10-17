@@ -29,7 +29,7 @@ type SessionsState = {
 	status: Status;
 	error: string;
 	load: () => Promise<void>;
-	apply: (snap: SessionsSnapshot) => void;
+	apply: (snap: Partial<SessionsSnapshot>) => void;
 };
 
 export const useSessions = create<SessionsState>((set) => ({
@@ -54,12 +54,16 @@ export const useSessions = create<SessionsState>((set) => ({
 			set({ status: "error", error: e instanceof Error ? e.message : "load failed" });
 		}
 	},
+	// Stream frames are field deltas: an omitted field keeps the one we
+	// hold, so a file tick resends sessions alone without touching the
+	// herdr maps. GET /api/sessions stays whole, so load() passes a
+	// complete snapshot.
 	apply: (snap) =>
-		set({
-			sessions: snap.sessions,
-			badges: snap.badges,
-			driven: snap.driven ?? {},
-			awaiting: snap.awaiting ?? {},
-			status: "ok",
-		}),
+		set((s) => ({
+			sessions: snap.sessions ?? s.sessions,
+			badges: snap.badges ?? s.badges,
+			driven: snap.driven ?? s.driven,
+			awaiting: snap.awaiting ?? s.awaiting,
+			status: "ok" as Status,
+		})),
 }));

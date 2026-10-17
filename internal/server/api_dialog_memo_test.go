@@ -34,6 +34,7 @@ type fakeHerdrOpts struct {
 	lastPrompt     *string // agent.prompt target name
 	failFirstSend  bool
 	failFirstStart bool
+	status         *string // agent_status in agent.list; blocked when nil
 }
 
 func herdrFake(t *testing.T, o fakeHerdrOpts) string {
@@ -69,8 +70,12 @@ func herdrFake(t *testing.T, o fakeHerdrOpts) string {
 				var resp string
 				switch m.Method {
 				case "agent.list":
+					agentStatus := "blocked"
+					if o.status != nil {
+						agentStatus = *o.status
+					}
 					b, _ := json.Marshal(*o.sessPath)
-					resp = `{"id":"x","result":{"agents":[{"name":"pi","agent":"pi","agent_status":"blocked","pane_id":"p1","workspace_id":"w1","terminal_title_stripped":"pi - s1:running...","agent_session":{"kind":"path","value":` + string(b) + `}}]}}`
+					resp = `{"id":"x","result":{"agents":[{"name":"pi","agent":"pi","agent_status":"` + agentStatus + `","pane_id":"p1","workspace_id":"w1","terminal_title_stripped":"pi - s1:running...","agent_session":{"kind":"path","value":` + string(b) + `}}]}}`
 				case "pane.split":
 					resp = `{"id":"x","result":{"type":"pane_info","pane":{"pane_id":"p1","workspace_id":"w1"}}}`
 				case "workspace.list":

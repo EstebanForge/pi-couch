@@ -52,7 +52,7 @@ func TestAgentsAndBadges(t *testing.T) {
 		if err := json.Unmarshal(bytes.TrimSuffix(req, []byte("\n")), &m); err != nil {
 			t.Errorf("request not one JSON line: %v", err)
 		}
-		if m["method"] != "agent.list" || m["id"] == nil {
+		if (m["method"] != "agent.list" && m["method"] != "workspace.list") || m["id"] == nil {
 			t.Errorf("bad request framing: %s", req)
 		}
 		return []byte("{\"id\":\"couch-pi-1\",\"result\":" + agentsResult + "}\n")
