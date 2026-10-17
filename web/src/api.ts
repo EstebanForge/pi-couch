@@ -75,6 +75,9 @@ export type BridgeDialog = {
 	/** The option rows parsed off the pane, cursor included. */
 	options?: DialogOption[];
 	cursor?: number;
+	/** True when pi's editor viewport clipped the buffer: body is the
+	 * painted tail only, so the card must not prefill from it. */
+	scrolled?: boolean;
 };
 
 export type TranscriptReset = {

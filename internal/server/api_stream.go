@@ -95,6 +95,10 @@ type dialogWire struct {
 	Body    string             `json:"body,omitempty"`
 	Options []dialogOptionWire `json:"options,omitempty"`
 	Cursor  int                `json:"cursor"`
+	// Scrolled marks an editor whose buffer outgrew pi's viewport: the
+	// body is the painted tail only, so the card must not prefill from
+	// it - the hidden head would be silently lost on a rewrite.
+	Scrolled bool `json:"scrolled,omitempty"`
 }
 
 // dialogWireFor composes the bridge entry with the pane parse. The
@@ -114,6 +118,7 @@ func (a *app) dialogWireFor(path string, d BridgeDialog, ok bool) *dialogWire {
 		}
 		w.Body = p.Body
 		w.Cursor = p.Cursor
+		w.Scrolled = p.Scrolled
 		for _, o := range p.Options {
 			w.Options = append(w.Options, dialogOptionWire{Label: o.Label, Description: o.Description})
 		}
@@ -129,7 +134,7 @@ func dialogEqual(a, b *dialogWire) bool {
 		return a == b
 	}
 	if a.ID != b.ID || a.Kind != b.Kind || a.Title != b.Title ||
-		a.Body != b.Body || a.Cursor != b.Cursor || len(a.Options) != len(b.Options) {
+		a.Body != b.Body || a.Cursor != b.Cursor || a.Scrolled != b.Scrolled || len(a.Options) != len(b.Options) {
 		return false
 	}
 	for i := range a.Options {

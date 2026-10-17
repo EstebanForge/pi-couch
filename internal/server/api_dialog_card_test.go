@@ -89,6 +89,50 @@ func TestEditorChunks(t *testing.T) {
 // The editor dialog answers in one step: even the no-edit submit is
 // the type verb now - rewrite, verify, enter; a pane that no longer
 // shows the editor is refused with no keys.
+// After typing a long message the editor viewport only paints the
+// tail plus its "↑ N more" rule. The verify must accept the painted
+// tail as a suffix of the intended message - the old exact match
+// 409'd a rewrite that had actually landed (the live bug).
+func TestDialogAnswerEditorScrolledVerify(t *testing.T) {
+	scrolled := " Commit staged changes with this message?\n" +
+		"────────────────────────────────────────────\n" +
+		"──── ↑ 4 more ────\n" +
+		"body line three\nbody line four\n" +
+		"────────────────────────────────────────────\n\n" +
+		" enter submit  shift+enter/ctrl+j newline  escape/ctrl+c cancel  ctrl+g external editor"
+	var sends int32
+	var sessPath string
+	var lastText string
+	sock := herdrFake(t, fakeHerdrOpts{
+		sessPath: &sessPath, sends: &sends, lastText: &lastText,
+		paneText: &scrolled,
+		paneSeq:  []string{scrolled},
+	})
+	a, sub, _ := streamTestAppWithHerdr(t, sock)
+	sessPath = filepath.Join(sub, "s1.jsonl")
+	a.bridgeMu.Lock()
+	a.bridge = map[string]bridgeEntry{}
+	a.bridge[sessPath] = bridgeEntry{
+		dialog:  BridgeDialog{ID: "d9", Kind: "editor", Title: "Commit staged changes with this message?"},
+		expires: time.Now().Add(time.Minute),
+	}
+	a.bridgeMu.Unlock()
+
+	want := "feat: subject\n\nbody line one\nbody line two\nbody line three\nbody line four"
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/s1/dialog/answer", strings.NewReader(
+		`{"id":"d9","answer":"type","text":"feat: subject\n\nbody line one\nbody line two\nbody line three\nbody line four"}`))
+	req.Host = "127.0.0.1:8090"
+	rec := httptest.NewRecorder()
+	a.guard(a.routes()).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if lastText == "" {
+		t.Fatalf("no text sent")
+	}
+	_ = want
+}
+
 func TestDialogAnswerEditorSubmit(t *testing.T) {
 	editor := " Commit staged changes with this message?\n" +
 		"────────────────────────────────────────────\n" +

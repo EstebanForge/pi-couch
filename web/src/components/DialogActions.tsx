@@ -22,12 +22,13 @@ export function DialogActions({ k, dialog }: { k: string; dialog: BridgeDialog }
 	// The editor dialog's buffer is one message, exactly as pi paints
 	// it: title, blank line, description. One textarea edits it all at
 	// once and Submit rewrites pi's editor and accepts in one step.
-	// Re-synced when the parse changes; a stream tick never touches the
-	// text mid-typing because body only changes then.
-	const [message, setMessage] = useState(dialog.body ?? "");
+	// A scrolled editor paints only the buffer's tail - the head is
+	// not on the pane - so the box starts empty instead of prefilling
+	// a fragment whose subject would be silently lost on a rewrite.
+	const [message, setMessage] = useState(dialog.scrolled ? "" : (dialog.body ?? ""));
 	useEffect(() => {
-		setMessage(dialog.body ?? "");
-	}, [dialog.id, dialog.body]);
+		setMessage(dialog.scrolled ? "" : (dialog.body ?? ""));
+	}, [dialog.id, dialog.body, dialog.scrolled]);
 	const id = dialog.id;
 	// A refused answer keeps the card with a retry note: pi may still be
 	// waiting, and collapsing the panel strands a header sliver until
@@ -136,15 +137,23 @@ export function DialogActions({ k, dialog }: { k: string; dialog: BridgeDialog }
 				</form>
 			)}
 			{isEditor && (
-				<textarea
-					value={message}
-					onChange={(e) => setMessage(e.target.value)}
-					disabled={busy}
-					rows={Math.min(10, Math.max(3, message.split("\n").length))}
-					placeholder="Commit message"
-					aria-label="Commit message"
-					className="w-full resize-none rounded-xl bg-base-300 px-3 py-2 font-mono text-[13px] outline-none placeholder:text-muted"
-				/>
+				<>
+					{dialog.scrolled && (
+						<p className="mt-2 text-[12px] text-muted">
+							The message is longer than pi's editor shows. Write the full message below - it
+							replaces the whole buffer.
+						</p>
+					)}
+					<textarea
+						value={message}
+						onChange={(e) => setMessage(e.target.value)}
+						disabled={busy}
+						rows={Math.min(10, Math.max(3, message.split("\n").length))}
+						placeholder="Commit message"
+						aria-label="Commit message"
+						className="mt-2 w-full resize-none rounded-xl bg-base-300 px-3 py-2 font-mono text-[13px] outline-none placeholder:text-muted"
+					/>
+				</>
 			)}
 			{failed && (
 				<p className="mt-2 text-[12px] text-accent">

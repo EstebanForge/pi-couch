@@ -73,13 +73,32 @@ describe("DialogActions", () => {
 			),
 		);
 		expect(html).toContain("Commit staged changes with this message?");
-		// the editor buffer is editable: prefilled subject and body
-		// fields plus a Save edits button ride with Submit
 		// the whole buffer is one editable message, like pi's editor
 		expect(html).toContain('placeholder="Commit message"');
 		expect(html).toContain(">probe commit</textarea>");
 		expect(html).toContain(">Submit<");
 		expect(html).toContain(">Cancel<");
+	});
+
+	it("starts a scrolled editor with an empty box", () => {
+		// a scrolled editor paints only the buffer's tail - the head is
+		// not on the pane, so the box must not prefill a fragment
+		const html = flat(
+			renderToString(
+				<DialogActions
+					k="k"
+					dialog={{
+						id: "e2",
+						kind: "editor",
+						title: "Commit staged changes with this message?",
+						body: "visible tail",
+						scrolled: true,
+					}}
+				/>,
+			),
+		);
+		expect(html).toContain("longer than pi&#x27;s editor shows");
+		expect(html).not.toContain(">visible tail<");
 	});
 
 	it("renders the card for id-less... no: id-less dialogs render nothing", () => {

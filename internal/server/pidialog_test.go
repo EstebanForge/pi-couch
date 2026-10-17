@@ -236,6 +236,30 @@ func TestParsePiDialogMultiSelectHint(t *testing.T) {
 // buffer: the whole text between pi's divider rules is the buffer,
 // and only the rules bound it - an internal blank must survive into
 // Body, with Title staying the overlay's question.
+// A long buffer scrolls: pi paints the visible tail plus a rule
+// carrying "↑ N more". The parse must flag the clip, not swallow the
+// rule as message content - the card prefills from this body.
+func TestParsePiDialogEditorScrolled(t *testing.T) {
+	screen := "some transcript line\n\n" +
+		"────────────────────────────────────────────────────────────\n" +
+		" Commit staged changes with this message?\n" +
+		"────────────────────────────────────────────────────────────\n" +
+		"────── ↑ 4 more ──────\n" +
+		"the visible tail\nlines two\n" +
+		"────────────────────────────────────────────────────────────\n\n" +
+		" enter submit  shift+enter/ctrl+j newline  escape/ctrl+c cancel  ctrl+g external editor"
+	d := parsePiDialog(screen)
+	if d == nil || d.Kind != "editor" {
+		t.Fatalf("parse: %+v", d)
+	}
+	if !d.Scrolled || d.HiddenAbove != 4 {
+		t.Fatalf("scrolled=%v hidden=%d", d.Scrolled, d.HiddenAbove)
+	}
+	if want := "the visible tail\nlines two"; d.Body != want {
+		t.Fatalf("body=%q, want %q", d.Body, want)
+	}
+}
+
 func TestParsePiDialogEditorBufferKeepsBlank(t *testing.T) {
 	screen := "some transcript line\n\n" +
 		"────────────────────────────────────────────────────────────\n" +

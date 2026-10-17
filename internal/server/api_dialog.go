@@ -376,7 +376,7 @@ func (a *app) editEditorSubmit(w http.ResponseWriter, r *http.Request, ctx conte
 		}
 		m := parsePiDialog(pr.Text)
 		if m != nil && m.Kind == "editor" {
-			if editorBufferOf(m.Body) == editorBufferOf(want) {
+			if editorBufferMatches(m, want) {
 				return a.answerSend(w, ctx, paneID, []string{"enter"})
 			}
 			cur = m
@@ -399,6 +399,30 @@ func editorBufferOf(s string) string {
 		lines = lines[:len(lines)-1]
 	}
 	return strings.Join(lines, "\n")
+}
+
+// editorBufferMatches compares the repaint against the intended
+// message. A long buffer outgrows the editor viewport, so the pane
+// then only paints the tail under its "↑ N more" rule - the painted
+// lines must be a suffix of the message, with the indicator's count
+// accounting for the hidden lines (±2 for wrap drift).
+func editorBufferMatches(m *piDialog, want string) bool {
+	have := strings.Split(editorBufferOf(m.Body), "\n")
+	wantLines := strings.Split(editorBufferOf(want), "\n")
+	if !m.Scrolled {
+		return strings.Join(have, "\n") == strings.Join(wantLines, "\n")
+	}
+	if len(have) > len(wantLines) {
+		return false
+	}
+	tail := wantLines[len(wantLines)-len(have):]
+	for i := range have {
+		if have[i] != tail[i] {
+			return false
+		}
+	}
+	hidden := len(wantLines) - len(have)
+	return m.HiddenAbove >= hidden-2 && m.HiddenAbove <= hidden+2
 }
 
 // editorChunks splits a commit message into sends pi's editor will
