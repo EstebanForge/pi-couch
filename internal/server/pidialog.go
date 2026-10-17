@@ -34,9 +34,12 @@ type piDialog struct {
 	InputMode bool
 	// Scrolled marks an editor whose buffer outgrew its viewport: pi
 	// paints the visible tail plus a rule carrying "↑ N more", so the
-	// body is the tail only. HiddenAbove is that N.
+	// body is the tail only. HiddenAbove is that N. HiddenBelow is the
+	// mirror: a "↓ N more" rule at the window's bottom edge marks the
+	// head-only view the reveal scanner pages from.
 	Scrolled    bool
 	HiddenAbove int
+	HiddenBelow int
 }
 
 var (
@@ -59,8 +62,10 @@ var (
 	piCursorMarkRe = regexp.MustCompile(`^[→❯›➜]\s*`)
 	piNumberedRe   = regexp.MustCompile(`^(\d+)[.)]\s+(.*)$`)
 	piDividerRe    = regexp.MustCompile(`^\s*[-─━═_]{4,}\s*$`)
-	// The editor viewport's scroll rule, e.g. "──── ↑ 4 more ────".
-	piScrollMoreRe = regexp.MustCompile(`^[-─━═_]{2,}\s*↑\s*(\d+) more\s*[-─━═_]{2,}$`)
+	// The editor viewport's scroll rules: the tail window's top edge
+	// "──── ↑ 4 more ────" and the head window's bottom edge
+	// "──── ↓ 5 more ────".
+	piScrollMoreRe = regexp.MustCompile(`^[-─━═_]{2,}\s*([↑↓])\s*(\d+) more\s*[-─━═_]{2,}$`)
 )
 
 // piHintKind scans the trailing lines for one of pi's hint bars, the
@@ -173,20 +178,25 @@ func parsePiEditorBlock(lines []string) *piDialog {
 	i--
 	var buf []string
 	scrolled := false
-	hidden := 0
+	hiddenAbove := 0
+	hiddenBelow := 0
 	for i > 0 {
 		line := strings.TrimSpace(lines[i-1])
 		if piDividerRe.MatchString(line) {
 			i--
 			break
 		}
-		// pi's viewport rule: "──── ↑ 4 more ────" - a divider with a
-		// count embedded. The lines above it are scrolled out of the
-		// pane, so the body is the tail only.
+		// pi's viewport rules: "──── ↑ 4 more ────" hides the lines
+		// above (a tail window), "──── ↓ 5 more ────" hides the lines
+		// below (a head window). Either way the body is a fragment.
 		if m := piScrollMoreRe.FindStringSubmatch(line); m != nil {
-			n, _ := strconv.Atoi(m[1])
+			n, _ := strconv.Atoi(m[2])
 			scrolled = true
-			hidden = n
+			if m[1] == "↑" {
+				hiddenAbove = n
+			} else {
+				hiddenBelow = n
+			}
 			i--
 			continue
 		}
@@ -222,7 +232,7 @@ func parsePiEditorBlock(lines []string) *piDialog {
 		title = append([]string{line}, title...)
 		i--
 	}
-	d := &piDialog{Kind: "editor", Body: strings.Join(buf, "\n"), Scrolled: scrolled, HiddenAbove: hidden}
+	d := &piDialog{Kind: "editor", Body: strings.Join(buf, "\n"), Scrolled: scrolled, HiddenAbove: hiddenAbove, HiddenBelow: hiddenBelow}
 	if len(title) > 0 {
 		d.Title = strings.Join(title, " ")
 	}

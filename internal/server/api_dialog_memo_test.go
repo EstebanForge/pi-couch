@@ -176,6 +176,7 @@ func streamTestAppWithHerdr(t *testing.T, sock string) (*app, string, http.Handl
 		herdr:      herdr.NewAt(sock),
 		watcher:    w,
 		answered:   newDialogMemos(),
+		reveals:    newRevealStore(),
 		models:     newModelsCache(filepath.Join(t.TempDir(), "models.json")),
 		dialogWake: make(chan struct{}, 1),
 	}

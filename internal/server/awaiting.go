@@ -127,12 +127,13 @@ type awaitingDetector struct {
 	// of waiting for a session-file tick.
 	onChange func()
 
-	mu   sync.Mutex
-	pane map[string]paneState
+	mu      sync.Mutex
+	pane    map[string]paneState
+	paneIDs map[string]string
 }
 
 func newAwaitingDetector(hc paneSource, poll time.Duration) *awaitingDetector {
-	return &awaitingDetector{hc: hc, poll: poll, pane: map[string]paneState{}}
+	return &awaitingDetector{hc: hc, poll: poll, pane: map[string]paneState{}, paneIDs: map[string]string{}}
 }
 
 // run drives the detector until ctx is done.
@@ -157,6 +158,7 @@ func (d *awaitingDetector) tick(ctx context.Context) {
 		return // dead socket: keep the last state, retry next tick
 	}
 	next := map[string]paneState{}
+	nextIDs := map[string]string{}
 	changed := false
 	for _, a := range agents {
 		if a.Session == nil || a.PaneID == "" {
@@ -182,6 +184,7 @@ func (d *awaitingDetector) tick(ctx context.Context) {
 		}
 		if st.awaiting || st.dialog != nil {
 			next[a.Session.Value] = st
+			nextIDs[a.Session.Value] = a.PaneID
 		}
 		prev, ok := d.pane[a.Session.Value]
 		if !ok || prev.awaiting != st.awaiting || !piDialogEqual(prev.dialog, st.dialog) {
@@ -190,6 +193,7 @@ func (d *awaitingDetector) tick(ctx context.Context) {
 	}
 	d.mu.Lock()
 	d.pane = next
+	d.paneIDs = nextIDs
 	d.mu.Unlock()
 	if changed && d.onChange != nil {
 		d.onChange()
@@ -212,7 +216,22 @@ func (d *awaitingDetector) parsed(path string) *piDialog {
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return d.pane[path].dialog
+	st, ok := d.pane[path]
+	if !ok {
+		return nil
+	}
+	return st.dialog
+}
+
+// paneFor returns the pane id last seen carrying this session's
+// dialog, for keyed follow-up work like the editor reveal scan.
+func (d *awaitingDetector) paneFor(path string) string {
+	if d == nil {
+		return ""
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.paneIDs[path]
 }
 
 // snapshot copies the awaiting flags for the sessions wire; always

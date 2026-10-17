@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { answerDialog, type BridgeDialog } from "../api";
 import { Spinner } from "./Spinner";
 
@@ -26,8 +26,14 @@ export function DialogActions({ k, dialog }: { k: string; dialog: BridgeDialog }
 	// not on the pane - so the box starts empty instead of prefilling
 	// a fragment whose subject would be silently lost on a rewrite.
 	const [message, setMessage] = useState(dialog.scrolled ? "" : (dialog.body ?? ""));
+	const servedBody = useRef(message);
 	useEffect(() => {
-		setMessage(dialog.scrolled ? "" : (dialog.body ?? ""));
+		const next = dialog.scrolled ? "" : (dialog.body ?? "");
+		// A stream tick never touches text mid-typing: the box only
+		// takes a new parse while it still holds what was served last -
+		// the scrolled-to-stitched transition fills it, edits survive.
+		setMessage((prev) => (prev === servedBody.current ? next : prev));
+		servedBody.current = next;
 	}, [dialog.id, dialog.body, dialog.scrolled]);
 	const id = dialog.id;
 	// A refused answer keeps the card with a retry note: pi may still be

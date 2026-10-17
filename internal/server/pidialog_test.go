@@ -239,6 +239,33 @@ func TestParsePiDialogMultiSelectHint(t *testing.T) {
 // A long buffer scrolls: pi paints the visible tail plus a rule
 // carrying "↑ N more". The parse must flag the clip, not swallow the
 // rule as message content - the card prefills from this body.
+// The head window of a scrolled buffer hides its tail instead: pi
+// paints a "↓ N more" rule at the viewport's bottom edge. The
+// reveal scanner pages on this signal.
+func TestParsePiDialogEditorScrollDown(t *testing.T) {
+	screen := "some transcript line\n\n" +
+		"────────────────────────────────────────────────────────────\n" +
+		" Commit staged changes with this message?\n" +
+		"────────────────────────────────────────────────────────────\n" +
+		"feat: subject\n\nbody line one\n" +
+		"────── ↓ 5 more ──────\n" +
+		"────────────────────────────────────────────────────────────\n\n" +
+		" enter submit  shift+enter/ctrl+j newline  escape/ctrl+c cancel  ctrl+g external editor"
+	d := parsePiDialog(screen)
+	if d == nil || d.Kind != "editor" {
+		t.Fatalf("parse: %+v", d)
+	}
+	if !d.Scrolled || d.HiddenAbove != 0 || d.HiddenBelow != 5 {
+		t.Fatalf("scrolled=%v above=%d below=%d", d.Scrolled, d.HiddenAbove, d.HiddenBelow)
+	}
+	if d.HiddenBelow != 5 {
+		t.Fatalf("hidden below=%d", d.HiddenBelow)
+	}
+	if want := "feat: subject\n\nbody line one"; d.Body != want {
+		t.Fatalf("body=%q, want %q", d.Body, want)
+	}
+}
+
 func TestParsePiDialogEditorScrolled(t *testing.T) {
 	screen := "some transcript line\n\n" +
 		"────────────────────────────────────────────────────────────\n" +
@@ -271,6 +298,9 @@ func TestParsePiDialogEditorBufferKeepsBlank(t *testing.T) {
 	d := parsePiDialog(screen)
 	if d == nil || d.Kind != "editor" {
 		t.Fatalf("parse: %+v", d)
+	}
+	if d.Scrolled || d.HiddenAbove != 0 || d.HiddenBelow != 0 {
+		t.Fatalf("a short buffer is not a fragment: %+v", d)
 	}
 	if d.Title != "Commit staged changes with this message?" {
 		t.Fatalf("title=%q", d.Title)

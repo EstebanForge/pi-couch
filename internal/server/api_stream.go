@@ -119,6 +119,19 @@ func (a *app) dialogWireFor(path string, d BridgeDialog, ok bool) *dialogWire {
 		w.Body = p.Body
 		w.Cursor = p.Cursor
 		w.Scrolled = p.Scrolled
+		if p.Scrolled && p.Kind == "editor" && a.reveals != nil {
+			key := revealKey(path, p)
+			if st := a.reveals.get(key); st != "" {
+				w.Body = st
+				w.Scrolled = false
+			} else if paneID := a.awaiting.paneFor(path); paneID != "" && a.reveals.start(key) {
+				go func() {
+					stitched := a.revealEditorBuffer(context.Background(), paneID, p)
+					a.reveals.done(key, stitched)
+					a.wakeDialog()
+				}()
+			}
+		}
 		for _, o := range p.Options {
 			w.Options = append(w.Options, dialogOptionWire{Label: o.Label, Description: o.Description})
 		}
