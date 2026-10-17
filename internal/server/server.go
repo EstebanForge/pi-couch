@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -46,10 +47,11 @@ type app struct {
 	bridgeMu      sync.Mutex
 	bridge        map[string]bridgeEntry // session path -> open pi dialog (bridge extension)
 	answered      *dialogMemos           // per-dialog answer claims; dedupes double taps
+	models        *modelsCache           // pi catalog: memory, state file, then pi
 }
 
 func Run(ctx context.Context, logger *slog.Logger, addr string, idx *pi.Index, hc *herdr.Client, w *pi.Watcher, st *store.Store, pusher *push.Sender, allowedOrigin string) error {
-	a := &app{logger: logger, idx: idx, herdr: hc, watcher: w, st: st, pusher: pusher, allowedOrigin: allowedOrigin, answered: newDialogMemos()}
+	a := &app{logger: logger, idx: idx, herdr: hc, watcher: w, st: st, pusher: pusher, allowedOrigin: allowedOrigin, answered: newDialogMemos(), models: newModelsCache(filepath.Join(st.Dir(), "models.json"))}
 	if pusher != nil {
 		a.vapidPublic = pusher.Public
 	}
@@ -192,7 +194,7 @@ func (a *app) routes() http.Handler {
 	// The terminal mirror is a raw-byte SSE stream with custom event
 	// names (term/gone/ping), not one of the JSON /api/stream feeds.
 	mux.HandleFunc("GET /stream/terminal/{key}", a.streamTerminal)
-	mux.HandleFunc("GET /api/models", a.models)
+	mux.HandleFunc("GET /api/models", a.apiModels)
 	mux.HandleFunc("POST /api/upload", a.uploadHandler)
 	mux.HandleFunc("GET /api/push/key", a.pushKey)
 	mux.HandleFunc("POST /api/push/subscribe", a.pushSubscribe)

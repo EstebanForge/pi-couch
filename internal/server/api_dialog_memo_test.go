@@ -131,6 +131,7 @@ func streamTestAppWithHerdr(t *testing.T, sock string) (*app, string, http.Handl
 		herdr:    herdr.NewAt(sock),
 		watcher:  w,
 		answered: newDialogMemos(),
+		models:   newModelsCache(filepath.Join(t.TempDir(), "models.json")),
 	}
 	return a, sub, a.guard(a.routes())
 }

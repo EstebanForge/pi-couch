@@ -40,6 +40,7 @@ export function Composer(props: {
 	useSheetBack(sheet !== "none", () => setSheet("none"));
 	const [modelQuery, setModelQuery] = useState("");
 	const [modelRows, setModelRows] = useState<string[]>([]);
+	const [modelsLoading, setModelsLoading] = useState(false);
 	const [modelMark, setModelMark] = useState(false);
 	const [thinkingMark, setThinkingMark] = useState(false);
 	const [chosenModel, setChosenModel] = useState<string | null>(null);
@@ -235,13 +236,16 @@ export function Composer(props: {
 		void sendText(body, true);
 	};
 
-	// Model search: 300ms debounce over /api/models.
+	// Model search: 300ms debounce over /api/models. Old rows stay
+	// visible while a new query loads; only a cold, empty list spins.
 	useEffect(() => {
 		if (sheet !== "model") return;
+		setModelsLoading(true);
 		const t = setTimeout(() => {
 			getModels(modelQuery)
 				.then(setModelRows)
-				.catch(() => setModelRows([]));
+				.catch(() => setModelRows([]))
+				.finally(() => setModelsLoading(false));
 		}, 300);
 		return () => clearTimeout(t);
 	}, [modelQuery, sheet]);
@@ -525,11 +529,16 @@ export function Composer(props: {
 								{m}
 							</button>
 						))}
-						{modelRows.length === 0 && (
+						{modelsLoading && modelRows.length === 0 ? (
+							<div className="flex items-center gap-2 px-3 py-3 text-[13px] text-muted">
+								<Spinner size={14} />
+								Loading models…
+							</div>
+						) : modelRows.length === 0 ? (
 							<div className="px-3 py-3 text-[13px] text-muted">
 								No matches. Free text still works.
 							</div>
-						)}
+						) : null}
 					</div>
 				</div>
 			</Sheet>

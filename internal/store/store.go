@@ -152,3 +152,8 @@ func checkKey(key string) error {
 	}
 	return nil
 }
+
+// Dir exposes the store root for siblings like the model cache file.
+func (s *Store) Dir() string {
+	return s.dir
+}

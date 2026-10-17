@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"os"
 	"os/exec"
@@ -16,13 +17,95 @@ type modelRow struct {
 	ID string `json:"id"`
 }
 
-// The catalog is static per pi release: load it once and refilter in
-// memory; running pi takes seconds.
-var (
-	modelCacheMu   sync.Mutex
-	modelCacheRows []modelRow
-	modelCacheAt   time.Time
-)
+// The catalog is static per pi release but pi --list-models takes
+// seconds, so it is cached three deep: memory for an hour, a state-dir
+// file for ttl, and on a pi failure the file at any age. A restart or
+// a broken pi must not blank the picker while a copy exists.
+type modelsCache struct {
+	mu   sync.Mutex
+	rows []modelRow
+	at   time.Time
+	path string
+	ttl  time.Duration
+	run  func(context.Context) ([]modelRow, error)
+}
+
+func newModelsCache(path string) *modelsCache {
+	return &modelsCache{
+		path: path,
+		ttl:  7 * 24 * time.Hour,
+		run:  runPiModels,
+	}
+}
+
+func runPiModels(ctx context.Context) ([]modelRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	bin, err := piBinary()
+	if err != nil {
+		return nil, err
+	}
+	out, err := exec.CommandContext(ctx, bin, "--list-models").Output()
+	if err != nil {
+		return nil, err
+	}
+	return parseModelList(string(out)), nil
+}
+
+func (c *modelsCache) load(ctx context.Context) ([]modelRow, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.rows != nil && time.Since(c.at) < time.Hour {
+		return c.rows, nil
+	}
+	fileRows, fileAt, err := readModelFile(c.path)
+	if err == nil && time.Since(fileAt) < c.ttl {
+		c.rows, c.at = fileRows, time.Now()
+		return c.rows, nil
+	}
+	fresh, err := c.run(ctx)
+	if err != nil {
+		// Stale beats blank: the picker tolerates an old catalog.
+		if fileRows != nil {
+			return fileRows, nil
+		}
+		return nil, err
+	}
+	c.rows, c.at = fresh, time.Now()
+	writeModelFile(c.path, fresh)
+	return c.rows, nil
+}
+
+func readModelFile(path string) ([]modelRow, time.Time, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	var doc struct {
+		FetchedAt time.Time  `json:"fetched_at"`
+		Rows      []modelRow `json:"rows"`
+	}
+	if err := json.Unmarshal(b, &doc); err != nil || len(doc.Rows) == 0 {
+		return nil, time.Time{}, err
+	}
+	return doc.Rows, doc.FetchedAt, nil
+}
+
+func writeModelFile(path string, rows []modelRow) {
+	doc := struct {
+		FetchedAt time.Time  `json:"fetched_at"`
+		Rows      []modelRow `json:"rows"`
+	}{FetchedAt: time.Now(), Rows: rows}
+	b, err := json.Marshal(doc)
+	if err != nil {
+		return
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return
+	}
+	_ = os.Rename(tmp, path)
+}
 
 // piBinary resolves the pi CLI for list-models. The systemd user unit does
 // not carry ~/.local/bin on PATH, hence the explicit fallback.
@@ -35,27 +118,6 @@ func piBinary() (string, error) {
 		return "", err
 	}
 	return filepath.Join(home, ".local", "bin", "pi"), nil
-}
-
-func loadModels(ctx context.Context) ([]modelRow, error) {
-	modelCacheMu.Lock()
-	defer modelCacheMu.Unlock()
-	if modelCacheRows != nil && time.Since(modelCacheAt) < time.Hour {
-		return modelCacheRows, nil
-	}
-	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-	defer cancel()
-	bin, err := piBinary()
-	if err != nil {
-		return nil, err
-	}
-	out, err := exec.CommandContext(ctx, bin, "--list-models").Output()
-	if err != nil {
-		return nil, err
-	}
-	modelCacheRows = parseModelList(string(out))
-	modelCacheAt = time.Now()
-	return modelCacheRows, nil
 }
 
 // parseModelList reads the TSV table: provider, model, context, max-out,
@@ -87,8 +149,8 @@ func filterModels(rows []modelRow, q string, cap int) []modelRow {
 	return out
 }
 
-func (a *app) models(w http.ResponseWriter, r *http.Request) {
-	rows, err := loadModels(r.Context())
+func (a *app) apiModels(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.models.load(r.Context())
 	if err != nil {
 		a.logger.Error("list-models", "err", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "model catalog unavailable"})

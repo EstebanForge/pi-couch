@@ -86,6 +86,7 @@ func streamTestApp(t *testing.T) (*app, string, http.Handler) {
 		herdr:    herdr.New(),
 		watcher:  w,
 		answered: newDialogMemos(),
+		models:   newModelsCache(filepath.Join(t.TempDir(), "models.json")),
 	}
 	return a, sub, a.guard(a.routes())
 }
