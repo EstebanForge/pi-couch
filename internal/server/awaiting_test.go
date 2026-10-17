@@ -111,11 +111,11 @@ func TestParseMenuScreens(t *testing.T) {
 		"\n" +
 		"/tmp/repo (main)\n" +
 		"92k context"
-	m := parseMenu(selectScreen)
+	m := parsePiDialog(selectScreen)
 	if m == nil {
 		t.Fatal("select screen parsed nil")
 	}
-	if len(m.Options) != 3 || m.Options[0] != "pick me" || m.Options[2] != "third" {
+	if len(m.Options) != 3 || m.Options[0].Label != "pick me" || m.Options[2].Label != "third" {
 		t.Fatalf("options=%v", m.Options)
 	}
 	if m.Cursor != 0 {
@@ -123,7 +123,7 @@ func TestParseMenuScreens(t *testing.T) {
 	}
 
 	mid := "title\n\n→ alpha\n  beta\n  gamma\n\n↑↓ navigate  enter select  escape/ctrl+c cancel\n"
-	if m := parseMenu(mid); m == nil || m.Cursor != 0 || m.Options[1] != "beta" {
+	if m := parsePiDialog(mid); m == nil || m.Cursor != 0 || m.Options[1].Label != "beta" || m.Title != "title" {
 		t.Fatalf("mid=%v", m)
 	}
 	if aimSteps(0, 2, 3) != 2 || aimSteps(2, 1, 3) != 2 || aimSteps(1, 1, 3) != 0 {
@@ -131,14 +131,14 @@ func TestParseMenuScreens(t *testing.T) {
 	}
 
 	wrapped := "→ the first option that is quite long and\ncontinues here\n  short\n\n↑↓ navigate  enter select  escape/ctrl+c cancel\n"
-	if m := parseMenu(wrapped); m == nil || m.Options[0] != "the first option that is quite long and continues here" {
+	if m := parsePiDialog(wrapped); m == nil || m.Options[0].Label != "the first option that is quite long and continues here" {
 		t.Fatalf("wrapped=%v", m)
 	}
 
-	if parseMenu("just prose, no dialog here\n") != nil {
+	if parsePiDialog("just prose, no dialog here\n") != nil {
 		t.Fatal("prose parsed as menu")
 	}
-	if parseMenu("→ orphan rows without any hint\n") != nil {
+	if parsePiDialog("→ orphan rows without any hint\n") != nil {
 		t.Fatal("hint-less rows parsed as menu")
 	}
 }

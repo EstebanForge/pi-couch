@@ -6,47 +6,79 @@ import { DialogActions } from "./DialogActions";
 const flat = (html: string) => html.replace(/<!--.*?-->/g, "");
 
 describe("DialogActions", () => {
-	it("renders Yes and No for a confirm dialog carrying an id", () => {
-		const html = flat(
-			renderToString(
-				<DialogActions k="k" dialog={{ id: "d1", kind: "confirm", title: "Allow edit?" }} />,
-			),
-		);
-		expect(html).toContain("pi asks: Allow edit?");
-		expect(html).toContain(">Yes<");
-		expect(html).toContain(">No<");
-	});
-
-	it("renders the option rows for a select dialog", () => {
+	it("renders option rows for a confirm carrying an id", () => {
 		const html = flat(
 			renderToString(
 				<DialogActions
 					k="k"
 					dialog={{
 						id: "d1",
-						kind: "select",
-						title: "Pick one",
-						options: ["alpha", "beta"],
-						cursor: 1,
+						kind: "confirm",
+						title: "Allow edit?",
+						options: [{ label: "Yes" }, { label: "No", description: "keep the file as it is" }],
+						cursor: 0,
 					}}
 				/>,
 			),
 		);
-		expect(html).toContain("pi asks: Pick one");
-		expect(html).toContain(">alpha<");
-		expect(html).toContain(">beta<");
+		expect(html).toContain("pi asks");
+		expect(html).toContain("Allow edit?");
+		expect(html).toContain(">Yes<");
+		expect(html).toContain("keep the file as it is");
 		expect(html).toContain(">Cancel<");
 	});
 
-	it("renders nothing for other kinds, id-less dialogs, or option-less selects", () => {
-		expect(
-			renderToString(<DialogActions k="k" dialog={{ id: "d1", kind: "editor", title: "T" }} />),
-		).toBe("");
+	it("renders the option rows for a questionnaire with its question body", () => {
+		const html = flat(
+			renderToString(
+				<DialogActions
+					k="k"
+					dialog={{
+						id: "d1",
+						kind: "custom",
+						title: "Color",
+						body: "Which color, Red or Blue?",
+						options: [
+							{ label: "Red", description: "Pick red." },
+							{ label: "Blue", description: "Pick blue." },
+							{ label: "Type something." },
+						],
+						cursor: 0,
+					}}
+				/>,
+			),
+		);
+		expect(html).toContain("Which color, Red or Blue?");
+		expect(html).toContain(">Red<");
+		expect(html).toContain("Pick red.");
+		// the own-answer row is named, not offered as a tap
+		expect(html).toContain("own answers need the Terminal");
+		expect(html).toContain(">Cancel<");
+	});
+
+	it("renders an editor draft with Submit and Cancel", () => {
+		const html = flat(
+			renderToString(
+				<DialogActions
+					k="k"
+					dialog={{
+						id: "d1",
+						kind: "editor",
+						title: "Commit staged changes with this message?",
+						body: "probe commit",
+					}}
+				/>,
+			),
+		);
+		expect(html).toContain("Commit staged changes with this message?");
+		expect(html).toContain("probe commit");
+		expect(html).toContain(">Submit<");
+		expect(html).toContain(">Cancel<");
+	});
+
+	it("renders the card for id-less... no: id-less dialogs render nothing", () => {
 		expect(renderToString(<DialogActions k="k" dialog={{ kind: "confirm", title: "T" }} />)).toBe(
 			"",
 		);
-		expect(
-			renderToString(<DialogActions k="k" dialog={{ id: "d1", kind: "select", title: "T" }} />),
-		).toBe("");
 	});
 });

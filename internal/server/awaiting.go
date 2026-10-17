@@ -70,7 +70,8 @@ func piHintAtEnd(plain string) bool {
 	}
 	for i := start; i < end; i++ {
 		joined := strings.Join(lines[i:], " ")
-		if piMenuHintRe.MatchString(joined) || piInputHintRe.MatchString(joined) {
+		if piMenuHintRe.MatchString(joined) || piInputHintRe.MatchString(joined) ||
+			piAskHintRe.MatchString(joined) {
 			return true
 		}
 	}
@@ -91,59 +92,16 @@ func dialogOpen(text string) bool {
 		selectCounterRe.MatchString(plain)
 }
 
-// menuState is a parsed select menu: the option rows pi-tui paints
-// above the hint, and which row the cursor sits on.
-type menuState struct {
-	Options []string
-	Cursor  int
+// paneState is one agent's dialog awareness: the pill cue and, when
+// the chrome parses as a pi dialog, its rows, cursor and title.
+type paneState struct {
+	awaiting bool
+	dialog   *piDialog
 }
 
-// parseMenu extracts a select menu from a pane read. pi-tui SelectList
-// paints the selected row as "→ option" and the rest as "  option",
-// with the menu hint below the block. Only the real hint anchors a
-// parse: the model picker's "Enter to select · Ctrl+S" hint draws the
-// same rows but is NOT a ctx.ui dialog, and answering it could save a
-// default. A phone-width pane wraps long options; a non-prefix line
-// inside the block continues the row above it.
-func parseMenu(text string) *menuState {
-	plain := ansiRe.ReplaceAllString(text, "")
-	lines := strings.Split(plain, "\n")
-	hint := -1
-	for i := len(lines) - 1; i >= 0; i-- {
-		if piMenuHintRe.MatchString(lines[i]) {
-			hint = i
-			break
-		}
-	}
-	if hint < 0 {
-		return nil
-	}
-	end := hint
-	for end > 0 && strings.TrimSpace(lines[end-1]) == "" {
-		end--
-	}
-	start := end
-	for start > 0 && strings.TrimSpace(lines[start-1]) != "" {
-		start--
-	}
-	var m menuState
-	for i := start; i < end; i++ {
-		l := lines[i]
-		switch {
-		case strings.HasPrefix(l, "→"):
-			m.Options = append(m.Options, strings.TrimSpace(strings.TrimPrefix(l, "→")))
-			m.Cursor = len(m.Options) - 1
-		case strings.HasPrefix(l, "  ") && strings.TrimSpace(l) != "":
-			m.Options = append(m.Options, strings.TrimSpace(l))
-		case len(m.Options) > 0:
-			m.Options[len(m.Options)-1] += " " + strings.TrimSpace(l)
-		}
-	}
-	if len(m.Options) == 0 {
-		return nil
-	}
-	return &m
-}
+// parseMenu's job moved to parsePiDialog (pidialog.go), which reads
+// every pi hint family - the plain select menu, the rpiv questionnaire,
+// the editor overlay and the input line - off the same screen.
 
 // aimSteps is the down-key count from the cursor row to the target.
 // pi's SelectList wraps, and only downward travel is verified before
@@ -160,20 +118,13 @@ func aimSteps(cursor, target, n int) int {
 // dialog chrome. Every agent with a pane is read: the model picker and
 // some extension dialogs park pi while herdr reports plain done or
 // working, so the status is no filter at all - the chrome decides.
-// lines=8 per pane per tick keeps the pane.read load trivial.
+// 30 lines per pane per tick keeps the pane.read load trivial.
 type awaitingDetector struct {
 	hc   paneSource
 	poll time.Duration
 
 	mu   sync.Mutex
 	pane map[string]paneState
-}
-
-// paneState is one agent's dialog awareness: the pill cue and, when the
-// chrome is a real select menu, its parsed option rows.
-type paneState struct {
-	awaiting bool
-	menu     *menuState
 }
 
 func newAwaitingDetector(hc paneSource, poll time.Duration) *awaitingDetector {
@@ -209,7 +160,9 @@ func (d *awaitingDetector) tick(ctx context.Context) {
 		// source detection is herdr's own visible-screen read (live-
 		// verified 2026-10-15): the tail of what pi paints now, never
 		// scrollback, so an answered dialog buried above cannot match.
-		pr, err := d.hc.PaneRead(ctx, a.PaneID, "detection", 8)
+		// 30 lines: the questionnaire's rows plus its question, or an
+		// editor's draft, must fit above the hint.
+		pr, err := d.hc.PaneRead(ctx, a.PaneID, "detection", 30)
 		if err != nil {
 			continue
 		}
@@ -220,11 +173,9 @@ func (d *awaitingDetector) tick(ctx context.Context) {
 				piHintAtEnd(plain) ||
 				externalEditorRe.MatchString(plain) ||
 				selectCounterRe.MatchString(plain)
-			if piMenuHintRe.MatchString(plain) {
-				st.menu = parseMenu(pr.Text)
-			}
+			st.dialog = parsePiDialog(pr.Text)
 		}
-		if st.awaiting {
+		if st.awaiting || st.dialog != nil {
 			next[a.Session.Value] = st
 		}
 	}
@@ -242,14 +193,14 @@ func (d *awaitingDetector) isAwaiting(path string) bool {
 	return d.pane[path].awaiting
 }
 
-// menu returns the parsed select menu for a session path, or nil.
-func (d *awaitingDetector) menu(path string) *menuState {
+// parsed returns the parsed pi dialog for a session path, or nil.
+func (d *awaitingDetector) parsed(path string) *piDialog {
 	if d == nil {
 		return nil
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return d.pane[path].menu
+	return d.pane[path].dialog
 }
 
 // snapshot copies the awaiting flags for the sessions wire; always

@@ -60,12 +60,20 @@ export type StreamItem = {
 export type Todo = { id: number; subject: string; status: string; active_form?: string };
 
 /** An open blocking pi dialog, reported by the couch-pi bridge extension. */
+export type DialogOption = {
+	label: string;
+	description?: string;
+};
+
 export type BridgeDialog = {
 	id?: string;
 	kind: string;
 	title: string;
-	/** select kinds only: the option rows parsed off the pane. */
-	options?: string[];
+	/** The dialog's own text under the title (a commit draft, the
+	 * question), read off the pane. */
+	body?: string;
+	/** The option rows parsed off the pane, cursor included. */
+	options?: DialogOption[];
 	cursor?: number;
 };
 

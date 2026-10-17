@@ -66,7 +66,7 @@ func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, pat
 
 	switch {
 	case answer == "yes" || answer == "no":
-		pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 20)
+		pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 30)
 		if err != nil || !piConfirmOnScreen(pr.Text) {
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
 			return false
@@ -77,8 +77,23 @@ func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, pat
 		}
 		return a.answerSend(w, ctx, paneID, keys)
 
+	case answer == "submit":
+		// The editor overlay's accept key is enter (escape cancels in
+		// the generic branch below). The screen must still be the
+		// editor before the key goes out.
+		pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 30)
+		if err != nil {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+			return false
+		}
+		if d := parsePiDialog(pr.Text); d == nil || d.Kind != "editor" {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+			return false
+		}
+		return a.answerSend(w, ctx, paneID, []string{"enter"})
+
 	case answer == "escape":
-		pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 20)
+		pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 30)
 		if err != nil || !dialogOpen(pr.Text) {
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
 			return false
@@ -86,35 +101,46 @@ func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, pat
 		return a.answerSend(w, ctx, paneID, []string{"esc"})
 
 	default:
-		return a.answerSelect(w, r, ctx, paneID, answer)
+		return a.answerOption(w, r, ctx, paneID, answer)
 	}
 }
 
-// answerSelect walks pi's select cursor to the option and confirms it.
-func (a *app) answerSelect(w http.ResponseWriter, r *http.Request, ctx context.Context, paneID, want string) bool {
-	pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 20)
-	if err != nil {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-		return false
-	}
-	m := parseMenu(pr.Text)
-	if m == nil {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-		return false
-	}
+// answerOption walks pi's dialog cursor to the option and confirms it.
+// The parse is the same one the card's rows came from (parsePiDialog),
+// so a questionnaire's numbered rows, a plain menu and a confirm's
+// Yes/No all answer through this path. The walk is settle-verified:
+// pi repaints a beat after each key, so the cursor check retries
+// instead of racing the redraw.
+func (a *app) answerOption(w http.ResponseWriter, r *http.Request, ctx context.Context, paneID, want string) bool {
+	var m *piDialog
 	target := -1
-	for i, o := range m.Options {
-		if strings.TrimSpace(o) == strings.TrimSpace(want) {
-			target = i
+	for attempt := 0; attempt < 3; attempt++ {
+		pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 30)
+		if err != nil {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+			return false
+		}
+		m = parsePiDialog(pr.Text)
+		if m == nil || len(m.Options) == 0 {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+			return false
+		}
+		target = -1
+		for i, o := range m.Options {
+			if strings.TrimSpace(o.Label) == strings.TrimSpace(want) {
+				target = i
+				break
+			}
+		}
+		if target < 0 {
+			// The card's options no longer match the screen.
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+			return false
+		}
+		if m.Cursor == target {
 			break
 		}
-	}
-	if target < 0 {
-		// The card's options no longer match the screen.
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-		return false
-	}
-	if steps := aimSteps(m.Cursor, target, len(m.Options)); steps > 0 {
+		steps := aimSteps(m.Cursor, target, len(m.Options))
 		downs := make([]string, steps)
 		for i := range downs {
 			downs[i] = "down"
@@ -124,18 +150,17 @@ func (a *app) answerSelect(w http.ResponseWriter, r *http.Request, ctx context.C
 			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "send failed"})
 			return false
 		}
-		// Verify-then-fire: confirm the cursor really sits on the
-		// target row before the enter. A vanished or moved menu means
-		// the screen changed under us.
-		pr2, err := a.herdr.PaneRead(ctx, paneID, "detection", 20)
-		if err != nil {
+		select {
+		case <-ctx.Done():
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
 			return false
+		case <-time.After(250 * time.Millisecond):
 		}
-		if m2 := parseMenu(pr2.Text); m2 == nil || m2.Cursor != target {
-			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-			return false
-		}
+	}
+	if m == nil || m.Cursor != target {
+		// The cursor never settled on the target row.
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+		return false
 	}
 	return a.answerSend(w, ctx, paneID, []string{"enter"})
 }

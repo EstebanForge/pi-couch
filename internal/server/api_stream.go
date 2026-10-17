@@ -81,40 +81,61 @@ type transcriptStatus struct {
 // entry's identity, plus the option rows parsed off the pane when the
 // dialog is a select. The cursor rides along so the card can highlight
 // where pi's selection sits.
-type dialogWire struct {
-	ID      string   `json:"id,omitempty"`
-	Kind    string   `json:"kind"`
-	Title   string   `json:"title"`
-	Options []string `json:"options,omitempty"`
-	Cursor  int      `json:"cursor"`
+type dialogOptionWire struct {
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
 }
 
-// dialogWireFor composes the bridge entry with the detector's screen
-// menu. Options attach to select kinds only: a confirm card needs no
-// rows, and the model picker's TUI-drawn rows must never become answer
-// buttons (answering there saves a default).
+type dialogWire struct {
+	ID      string             `json:"id,omitempty"`
+	Kind    string             `json:"kind"`
+	Title   string             `json:"title"`
+	Body    string             `json:"body,omitempty"`
+	Options []dialogOptionWire `json:"options,omitempty"`
+	Cursor  int                `json:"cursor"`
+}
+
+// dialogWireFor composes the bridge entry with the pane parse. The
+// parser reads every pi hint family, so the card gets its question,
+// body and rows whatever kind the bridge reported (the rpiv
+// questionnaire reports "custom" with no title; only the pane knows
+// what it asks). The model picker never parses - answering it would
+// save a default.
 func (a *app) dialogWireFor(path string, d BridgeDialog, ok bool) *dialogWire {
 	if !ok {
 		return nil
 	}
 	w := &dialogWire{ID: d.ID, Kind: d.Kind, Title: d.Title}
-	if d.Kind == "select" {
-		if m := a.awaiting.menu(path); m != nil {
-			w.Options = m.Options
-			w.Cursor = m.Cursor
+	if p := a.awaiting.parsed(path); p != nil {
+		if w.Title == "" {
+			w.Title = p.Title
+		}
+		w.Body = p.Body
+		w.Cursor = p.Cursor
+		for _, o := range p.Options {
+			w.Options = append(w.Options, dialogOptionWire{Label: o.Label, Description: o.Description})
 		}
 	}
 	return w
 }
 
 // dialogEqual compares wire dialogs so the status event fires when the
-// options or cursor move, not only when the bridge entry changes.
+// body, options or cursor move, not only when the bridge entry
+// changes.
 func dialogEqual(a, b *dialogWire) bool {
 	if a == nil || b == nil {
 		return a == b
 	}
-	return a.ID == b.ID && a.Kind == b.Kind && a.Title == b.Title &&
-		a.Cursor == b.Cursor && slices.Equal(a.Options, b.Options)
+	if a.ID != b.ID || a.Kind != b.Kind || a.Title != b.Title ||
+		a.Body != b.Body || a.Cursor != b.Cursor || len(a.Options) != len(b.Options) {
+		return false
+	}
+	for i := range a.Options {
+		if a.Options[i] != b.Options[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // startSSE writes the event-stream headers and flushes them. The caller

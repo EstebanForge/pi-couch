@@ -35,6 +35,8 @@ type fakeHerdrOpts struct {
 	failFirstSend  bool
 	failFirstStart bool
 	status         *string // agent_status in agent.list; blocked when nil
+	paneText       *string // pane.read text; the menu fixture when nil
+	paneAfterSend  *string // pane.read text once a send_input landed
 }
 
 func herdrFake(t *testing.T, o fakeHerdrOpts) string {
@@ -99,7 +101,17 @@ func herdrFake(t *testing.T, o fakeHerdrOpts) string {
 					}
 					resp = `{"id":"x","result":{"type":"ok"}}`
 				case "pane.read":
-					resp = `{"id":"x","result":{"read":{"pane_id":"p1","source":"screen","format":"ansi","text":"` + menuScreen + `","revision":1}}}`
+					pane := menuScreen
+					if o.paneText != nil {
+						pane = *o.paneText
+					}
+					if o.paneAfterSend != nil && atomic.LoadInt32(o.sends) > 0 {
+						pane = *o.paneAfterSend
+					}
+					// json.Marshal escapes the newlines a multi-line
+					// screen carries; raw ones would break the reply.
+					paneJSON, _ := json.Marshal(pane)
+					resp = `{"id":"x","result":{"read":{"pane_id":"p1","source":"screen","format":"ansi","text":` + string(paneJSON) + `,"revision":1}}}`
 				case "pane.send_input":
 					n := atomic.AddInt32(o.sends, 1)
 					if o.failFirstSend && n == 1 {
