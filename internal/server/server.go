@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -206,8 +207,11 @@ func (a *app) routes() http.Handler {
 // sessionsWire is the JSON snapshot the React SPA boots from (rewrite-plan.md).
 // Nil slices and maps marshal as null, so both fields are always non-nil.
 type sessionsWire struct {
-	Sessions []pi.SessionMeta  `json:"sessions"`
-	Badges   map[string]string `json:"badges"`
+	Sessions []pi.SessionMeta `json:"sessions"`
+	// Total is the matched session count after q but before limit, so a
+	// windowed client knows how much lies beyond its page.
+	Total  int               `json:"total"`
+	Badges map[string]string `json:"badges"`
 	// Driven carries the live driver state per session path: status,
 	// pane title and workspace label, empty for undriven sessions.
 	Driven map[string]herdr.DrivenInfo `json:"driven"`
@@ -216,19 +220,55 @@ type sessionsWire struct {
 	Awaiting map[string]bool `json:"awaiting"`
 }
 
-// sessionPatch is one sessions-stream frame: a field's raw bytes ride
-// only when they changed since this client's previous frame. Sessions
-// always ride; the maps omit when unchanged. The payload slices reuse
-// the marshaled bytes so each field marshals once per tick.
+// sessionUpsertCap bounds one tick's delta: more churn than this and
+// the frame collapses to a full reset, keeping a pathological tick from
+// dwarfing the list it patches.
+const sessionUpsertCap = 64
+
+// sessionPatch is one sessions-stream frame. The entry delta rides
+// upserts (new or changed metas) and removed (client keys); a first
+// frame or an over-cap tick rides the whole list in sessions. Total is
+// always present: the header count lives on it. The herdr map fields
+// reuse their marshaled bytes and omit when unchanged.
 type sessionPatch struct {
-	Sessions json.RawMessage `json:"sessions"`
-	Badges   json.RawMessage `json:"badges,omitempty"`
-	Driven   json.RawMessage `json:"driven,omitempty"`
-	Awaiting json.RawMessage `json:"awaiting,omitempty"`
+	Sessions []pi.SessionMeta `json:"sessions,omitempty"`
+	Upserts  []pi.SessionMeta `json:"upserts,omitempty"`
+	Removed  []string         `json:"removed,omitempty"`
+	Total    int              `json:"total"`
+	Badges   json.RawMessage  `json:"badges,omitempty"`
+	Driven   json.RawMessage  `json:"driven,omitempty"`
+	Awaiting json.RawMessage  `json:"awaiting,omitempty"`
 }
 
+// apiSessions serves the windowed snapshot: q filters name, first_user
+// and cwd (case-insensitive, the client's search rule), limit caps the
+// rows after filtering, and total reports the matched count before the
+// cap so the phone knows when to offer load-more.
 func (a *app) apiSessions(w http.ResponseWriter, r *http.Request) {
 	sessions, badges, driven, awaiting := a.snapshot(r)
+	total := len(sessions)
+	if needle := strings.TrimSpace(r.URL.Query().Get("q")); needle != "" {
+		n := strings.ToLower(needle)
+		kept := sessions[:0]
+		for _, s := range sessions {
+			if strings.Contains(strings.ToLower(s.Name), n) ||
+				strings.Contains(strings.ToLower(s.FirstUser), n) ||
+				strings.Contains(strings.ToLower(s.Cwd), n) {
+				kept = append(kept, s)
+			}
+		}
+		sessions, total = kept, len(kept)
+	}
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n <= 0 {
+			http.Error(w, "bad limit", http.StatusBadRequest)
+			return
+		}
+		if n < len(sessions) {
+			sessions = sessions[:n]
+		}
+	}
 	if sessions == nil {
 		sessions = []pi.SessionMeta{}
 	}
@@ -238,7 +278,7 @@ func (a *app) apiSessions(w http.ResponseWriter, r *http.Request) {
 	if driven == nil {
 		driven = map[string]herdr.DrivenInfo{}
 	}
-	writeJSON(w, http.StatusOK, sessionsWire{Sessions: sessions, Badges: badges, Driven: driven, Awaiting: awaiting})
+	writeJSON(w, http.StatusOK, sessionsWire{Sessions: sessions, Total: total, Badges: badges, Driven: driven, Awaiting: awaiting})
 }
 
 func (a *app) snapshot(r *http.Request) ([]pi.SessionMeta, map[string]string, map[string]herdr.DrivenInfo, map[string]bool) {

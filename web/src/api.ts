@@ -24,9 +24,23 @@ export type DriveInfo = {
 
 export type SessionsSnapshot = {
 	sessions: SessionMeta[];
+	total: number;
 	badges: Record<string, string>;
 	driven: Record<string, DriveInfo>;
 	awaiting: Record<string, boolean>;
+};
+
+// One /api/stream/sessions frame: entry deltas (upserts/removed) plus
+// the matched total, with a full sessions list on connect or reset.
+// Omitted fields keep the values the client already holds.
+export type SessionsPatch = {
+	total: number;
+	sessions?: SessionMeta[];
+	upserts?: SessionMeta[];
+	removed?: string[];
+	badges?: Record<string, string>;
+	driven?: Record<string, DriveInfo>;
+	awaiting?: Record<string, boolean>;
 };
 
 export type StreamItem = {
@@ -76,8 +90,12 @@ export type TranscriptStatus = {
 	todos?: Todo[];
 };
 
-export async function getSessions(): Promise<SessionsSnapshot> {
-	const res = await fetch("/api/sessions");
+export async function getSessions(limit?: number, q?: string): Promise<SessionsSnapshot> {
+	const p = new URLSearchParams();
+	if (limit) p.set("limit", String(limit));
+	if (q) p.set("q", q);
+	const qs = p.toString();
+	const res = await fetch(`/api/sessions${qs ? `?${qs}` : ""}`);
 	if (!res.ok) throw new Error(`sessions ${res.status}`);
 	return (await res.json()) as SessionsSnapshot;
 }

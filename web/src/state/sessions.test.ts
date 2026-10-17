@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SessionMeta } from "../api";
-import { grouped } from "./sessions";
+import { dropSessions, grouped, mergeUpserts } from "./sessions";
 
 const meta = (key: string, mtime: string): SessionMeta => ({
 	key,
@@ -41,5 +41,24 @@ describe("grouped", () => {
 		const rows = [meta("a", "2026-01-02T00:00:00Z"), meta("b", "2026-01-01T00:00:00Z")];
 		const badges = { "/p/a": "working", "/p/b": "blocked" };
 		expect(keys(grouped(rows, badges))).toEqual(["a", "b"]);
+	});
+});
+
+// Stream upsert frames carry unordered new-or-changed metas; the store
+// list stays mtime-desc with one entry per key.
+describe("session merge helpers", () => {
+	it("merges upserts, replacing by key and sorting mtime desc", () => {
+		const list = [meta("a", "2026-10-17T10:00:00Z"), meta("b", "2026-10-17T09:00:00Z")];
+		const out = mergeUpserts(list, [
+			meta("c", "2026-10-17T12:00:00Z"),
+			meta("a", "2026-10-17T13:00:00Z"),
+		]);
+		expect(out.map((s) => s.key)).toEqual(["a", "c", "b"]);
+	});
+
+	it("drops removed keys and keeps the rest", () => {
+		const list = [meta("a", "2026-10-17T10:00:00Z"), meta("b", "2026-10-17T09:00:00Z")];
+		expect(dropSessions(list, ["b"]).map((s) => s.key)).toEqual(["a"]);
+		expect(dropSessions(list, []).map((s) => s.key)).toEqual(["a", "b"]);
 	});
 });

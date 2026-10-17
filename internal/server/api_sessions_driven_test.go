@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -46,8 +48,9 @@ func TestSessionsCarriesDrivenInfo(t *testing.T) {
 	_ = a
 }
 
-// Field-delta frames: the sessions stream resends a field only when it
-// changed, so a file tick without driver movement omits the herdr maps.
+// Entry-delta frames: the sessions stream sends only what changed per
+// tick — new or touched sessions ride upserts, gone ones ride removed —
+// and the herdr maps still ride only on their own bytes.
 func TestSessionsStreamFieldDelta(t *testing.T) {
 	var sends int32
 	var sessPath string
@@ -79,30 +82,30 @@ func TestSessionsStreamFieldDelta(t *testing.T) {
 
 	f := waitFrame(t, frames, 5*time.Second, "reset")
 	k := keys(f)
-	for _, want := range []string{"sessions", "badges", "driven", "awaiting"} {
+	for _, want := range []string{"sessions", "badges", "driven", "awaiting", "total"} {
 		if !k[want] {
 			t.Fatalf("first frame missing %s: %s", want, f.data)
 		}
 	}
 
-	// A file tick with no driver movement: sessions only.
+	// A new session file arrives as one upsert, not a whole list.
 	writeLines(t, filepath.Join(sub, "s2.jsonl"), sessHeader)
 	f = waitFrame(t, frames, 8*time.Second, "reset")
 	k = keys(f)
-	if !k["sessions"] {
-		t.Fatalf("second frame missing sessions: %s", f.data)
-	}
-	for _, gone := range []string{"badges", "driven", "awaiting"} {
+	for _, gone := range []string{"sessions", "badges", "driven", "awaiting"} {
 		if k[gone] {
-			t.Fatalf("second frame resent %s: %s", gone, f.data)
+			t.Fatalf("upsert frame resent %s: %s", gone, f.data)
 		}
 	}
-	var snap sessionsWire
-	if err := json.Unmarshal([]byte(f.data), &snap); err != nil {
+	if !k["total"] || !k["upserts"] {
+		t.Fatalf("upsert frame missing total/upserts: %s", f.data)
+	}
+	var patch sessionPatch
+	if err := json.Unmarshal([]byte(f.data), &patch); err != nil {
 		t.Fatal(err)
 	}
-	if len(snap.Sessions) != 2 {
-		t.Fatalf("second frame sessions=%d, want 2", len(snap.Sessions))
+	if patch.Total != 2 || len(patch.Upserts) != 1 || patch.Upserts[0].Key != "s2" {
+		t.Fatalf("upsert payload: total=%d upserts=%+v", patch.Total, patch.Upserts)
 	}
 
 	// A driver status flip rides the next file tick: badges and driven
@@ -111,11 +114,62 @@ func TestSessionsStreamFieldDelta(t *testing.T) {
 	writeLines(t, filepath.Join(sub, "s3.jsonl"), sessHeader)
 	f = waitFrame(t, frames, 8*time.Second, "reset")
 	k = keys(f)
-	if !k["badges"] || !k["driven"] {
+	if !k["badges"] || !k["driven"] || !k["upserts"] {
 		t.Fatalf("third frame missing driver fields: %s", f.data)
 	}
-	if k["awaiting"] {
-		t.Fatalf("third frame resent awaiting: %s", f.data)
+	if k["awaiting"] || k["sessions"] {
+		t.Fatalf("third frame resent unchanged fields: %s", f.data)
+	}
+
+	// A deleted session file rides removed with the client key.
+	if err := os.Remove(filepath.Join(sub, "s2.jsonl")); err != nil {
+		t.Fatal(err)
+	}
+	f = waitFrame(t, frames, 8*time.Second, "reset")
+	if err := json.Unmarshal([]byte(f.data), &patch); err != nil {
+		t.Fatal(err)
+	}
+	if patch.Total != 2 || len(patch.Removed) != 1 || patch.Removed[0] != "s2" {
+		t.Fatalf("removed payload: total=%d removed=%v", patch.Total, patch.Removed)
 	}
 	_ = a
+}
+
+// A tick that changes more entries than the upsert cap collapses into a
+// full reset frame instead of a giant delta.
+func TestSessionsStreamUpsertReset(t *testing.T) {
+	_, sub, h := streamTestApp(t)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/stream/sessions")
+	if err != nil {
+		t.Fatal(err)
+	}
+	frames := readFrames(t, resp.Body)
+	defer resp.Body.Close()
+
+	f := waitFrame(t, frames, 5*time.Second, "reset")
+	var first sessionPatch
+	if err := json.Unmarshal([]byte(f.data), &first); err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Sessions) != 1 {
+		t.Fatalf("first frame sessions=%d", len(first.Sessions))
+	}
+
+	for i := range sessionUpsertCap + 1 {
+		writeLines(t, filepath.Join(sub, "bulk-"+strconv.Itoa(i)+".jsonl"), sessHeader)
+	}
+	f = waitFrame(t, frames, 10*time.Second, "reset")
+	var patch sessionPatch
+	if err := json.Unmarshal([]byte(f.data), &patch); err != nil {
+		t.Fatal(err)
+	}
+	if len(patch.Sessions) != sessionUpsertCap+2 {
+		t.Fatalf("reset frame sessions=%d, want %d", len(patch.Sessions), sessionUpsertCap+2)
+	}
+	if len(patch.Upserts) != 0 || len(patch.Removed) != 0 {
+		t.Fatalf("reset frame carried deltas: %s", f.data)
+	}
 }

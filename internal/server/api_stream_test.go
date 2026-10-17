@@ -263,7 +263,7 @@ func TestJSONSessionsStream(t *testing.T) {
 	defer resp.Body.Close()
 
 	f := waitFrame(t, frames, 5*time.Second, "reset")
-	var snap sessionsWire
+	var snap sessionPatch
 	if err := json.Unmarshal([]byte(f.data), &snap); err != nil {
 		t.Fatal(err)
 	}
@@ -271,15 +271,15 @@ func TestJSONSessionsStream(t *testing.T) {
 		t.Fatalf("snapshot sessions=%+v", snap.Sessions)
 	}
 
-	// A new session file must arrive as a second reset with both sessions.
+	// A new session file must arrive as an upsert delta with the new total.
 	writeLines(t, filepath.Join(sub, "s2.jsonl"), sessHeader)
 	f = waitFrame(t, frames, 8*time.Second, "reset")
-	var snap2 sessionsWire
-	if err := json.Unmarshal([]byte(f.data), &snap2); err != nil {
+	var patch sessionPatch
+	if err := json.Unmarshal([]byte(f.data), &patch); err != nil {
 		t.Fatal(err)
 	}
-	if len(snap2.Sessions) != 2 {
-		t.Fatalf("second snapshot sessions=%d, want 2", len(snap2.Sessions))
+	if len(patch.Upserts) != 1 || patch.Upserts[0].Key != "s2" || patch.Total != 2 {
+		t.Fatalf("upsert frame: upserts=%+v total=%d", patch.Upserts, patch.Total)
 	}
 }
 

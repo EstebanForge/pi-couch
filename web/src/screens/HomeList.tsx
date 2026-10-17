@@ -1,6 +1,6 @@
 import { Fab, Panel } from "konsta/react";
 import { Fragment, useEffect, useState } from "react";
-import { createQuickAgent, getVersion, type SessionsSnapshot } from "../api";
+import { createQuickAgent, getVersion, type SessionsPatch } from "../api";
 import { NewAgentSheet } from "../components/NewAgentSheet";
 import { NewSessionSheet } from "../components/NewSessionSheet";
 import { Spinner } from "../components/Spinner";
@@ -12,14 +12,16 @@ import { grouped, useSessions } from "../state/sessions";
 import { isWaiting, STATUS_DOT } from "../status";
 import { connectStream } from "../stream";
 
-const LIST_WINDOW = 7;
+const LIST_WINDOW = 15;
 const WINDOW_STEP = 5;
+const SEARCH_WINDOW = 50;
+const SEARCH_DEBOUNCE_MS = 300;
 
 export default function HomeList() {
-	const { sessions, badges, driven, awaiting, status, error, load, apply } = useSessions();
+	const { sessions, total, badges, driven, awaiting, status, error, load, apply } = useSessions();
 	const [menuOpen, setMenuOpen] = useState(false);
 	const [query, setQuery] = useState("");
-	const [size, setSize] = useState(LIST_WINDOW);
+	const [limit, setLimit] = useState(LIST_WINDOW);
 	const [loadingMore, setLoadingMore] = useState(false);
 	const [createOpen, setCreateOpen] = useState(false);
 	// FAB speed dial: closed shows the +; menu fans out the three
@@ -38,41 +40,55 @@ export default function HomeList() {
 			.catch(() => {});
 	}, []);
 
-	// Grow the window one step per tap. The spinner must paint first
-	// and the step lands after a deliberate 500ms beat, so the load is
+	// Load more refetches a bigger window from the server (the store
+	// only holds what was asked for). The spinner must paint first and
+	// the step lands after a deliberate 500ms beat, so the load is
 	// visible instead of a blur.
 	const loadMore = () => {
 		if (loadingMore) return;
 		setLoadingMore(true);
+		const next = limit + WINDOW_STEP;
 		requestAnimationFrame(() => {
 			setTimeout(() => {
-				setSize((s) => s + WINDOW_STEP);
-				setLoadingMore(false);
+				setLimit(next);
+				void load({ limit: next, q: needle || undefined }).finally(() => setLoadingMore(false));
 			}, 500);
 		});
 	};
 	const [push, setPush] = useState<PushState>("off");
 
 	useEffect(() => {
-		if (status === "idle") void load();
-	}, [status, load]);
-
-	useEffect(() => {
 		void pushState().then(setPush);
 	}, []);
 
+	// Windowed home: 15 rows at first, search asks the server (50
+	// matches) so the window never blinds the search. The needle resets
+	// the window; a slower earlier response cannot overwrite a newer
+	// one (the store's load sequence guard).
+	const needle = query.trim().toLowerCase();
+	useEffect(() => {
+		const next = needle ? SEARCH_WINDOW : LIST_WINDOW;
+		setLimit(next);
+		const t = setTimeout(
+			() => void load({ limit: next, q: needle || undefined }),
+			needle ? SEARCH_DEBOUNCE_MS : 0,
+		);
+		return () => clearTimeout(t);
+	}, [needle, load]);
+
 	// Live updates: the sessions stream resets on every connect and on
-	// change; the snapshot lands straight in the store.
+	// change; delta frames merge into the store.
 	useEffect(() => {
 		const stream = connectStream("/api/stream/sessions", {
 			onEvent: (name, data) => {
-				if (name === "reset") apply(JSON.parse(data) as SessionsSnapshot);
+				if (name === "reset") apply(JSON.parse(data) as SessionsPatch);
 			},
 		});
 		return () => stream.close();
 	}, [apply]);
 
-	const needle = query.trim().toLowerCase();
+	// The client re-filters so a stray upsert for a non-matching session
+	// cannot surface mid-search.
 	const ordered = grouped(sessions, badges).filter((s) => {
 		if (!needle) return true;
 		return (
@@ -81,12 +97,7 @@ export default function HomeList() {
 			s.cwd.toLowerCase().includes(needle)
 		);
 	});
-	// A fresh search starts a fresh window.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: the effect must re-run when the needle changes even though it does not read it
-	useEffect(() => {
-		setSize(LIST_WINDOW);
-	}, [needle]);
-	const visible = ordered.slice(0, size);
+	const visible = ordered.slice(0, limit);
 	// First non-active row: the Earlier divider renders before it when
 	// actives exist and the boundary sits inside the visible window.
 	const boundary = ordered.findIndex((s) => {
@@ -150,9 +161,7 @@ export default function HomeList() {
 						</svg>
 					</button>
 					<h1 className="text-lg font-semibold">Couch Pi</h1>
-					<span className="ml-auto text-sm text-muted">
-						{status === "ok" ? `${sessions.length}` : ""}
-					</span>
+					<span className="ml-auto text-sm text-muted">{status === "ok" ? `${total}` : ""}</span>
 					{push !== "unsupported" && (
 						<button
 							type="button"
@@ -287,7 +296,7 @@ export default function HomeList() {
 						);
 					})}
 				</ul>
-				{status === "ok" && size < ordered.length && (
+				{status === "ok" && limit < total && (
 					<button
 						type="button"
 						onClick={loadMore}
@@ -295,7 +304,7 @@ export default function HomeList() {
 						className="mx-auto mt-3 flex items-center gap-2 rounded-xl bg-base-200 px-5 py-3 text-sm text-muted active:scale-[0.99]"
 					>
 						{loadingMore && <Spinner size={14} />}
-						Load more ({ordered.length - size} earlier)
+						Load more ({total - limit} earlier)
 					</button>
 				)}
 			</main>

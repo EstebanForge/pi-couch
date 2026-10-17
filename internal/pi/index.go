@@ -150,7 +150,14 @@ func (ix *Index) List() ([]SessionMeta, error) {
 			}
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Mtime.After(out[j].Mtime) })
+	// Key desc on mtime ties: keys are chronological timestamps, so a
+	// same-jiffy write batch still shows newest first.
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Mtime.Equal(out[j].Mtime) {
+			return out[i].Key > out[j].Key
+		}
+		return out[i].Mtime.After(out[j].Mtime)
+	})
 	return out, nil
 }
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"net/http"
 	"slices"
 	"strconv"
@@ -18,8 +19,9 @@ import (
 // React client (rewrite-plan.md). Every stream sends reset first, so an
 // EventSource reconnect resyncs without a separate snapshot fetch.
 //
-//	event reset  {items,status,model,thinking} | sessionPatch (sessions
-//	             always; badges/driven/awaiting only when changed)
+//	event reset  {items,status,model,thinking} | sessionPatch (entry
+//	             deltas via upserts/removed/total; full sessions list
+//	             on connect or over-cap ticks; maps only when changed)
 //	event append {items}   transcript only, items carry seq
 //	event status {status,model,thinking}       transcript only
 //	event ping   keepalive
@@ -237,10 +239,10 @@ func (a *app) apiStreamTranscript(w http.ResponseWriter, r *http.Request) {
 }
 
 // apiStreamSessions is the JSON twin of streamSessions. Frames carry
-// field deltas: sessions ride every changed frame, and each herdr map
-// rides only when its bytes changed since this client's last frame, so
-// a file tick without driver movement costs no map payload. The REST
-// snapshot (GET /api/sessions) stays whole; only the stream patches.
+// entry deltas: upserts for new or changed metas, removed for gone
+// ones, total always, and each herdr map only when its bytes changed.
+// A first frame or a tick touching more than sessionUpsertCap entries
+// collapses to a full reset. The REST snapshot stays whole.
 func (a *app) apiStreamSessions(w http.ResponseWriter, r *http.Request) {
 	if !startSSE(w) {
 		return
@@ -248,7 +250,13 @@ func (a *app) apiStreamSessions(w http.ResponseWriter, r *http.Request) {
 	ticks, unsub := a.subscribeTicks()
 	defer unsub()
 	var pace pacer
-	var lastSessions, lastBadges, lastDriven, lastAwaiting []byte
+	type entryHash struct {
+		hash uint64
+		key  string
+	}
+	var lastEntries map[string]entryHash
+	var lastTotal = -1
+	var lastBadges, lastDriven, lastAwaiting []byte
 	field := func(cur []byte, last *[]byte) json.RawMessage {
 		if *last != nil && string(*last) == string(cur) {
 			return nil
@@ -270,23 +278,46 @@ func (a *app) apiStreamSessions(w http.ResponseWriter, r *http.Request) {
 		if awaiting == nil {
 			awaiting = map[string]bool{}
 		}
-		sb, err := json.Marshal(sessions)
-		if err != nil {
-			return
+		entries := make(map[string]entryHash, len(sessions))
+		var upserts []pi.SessionMeta
+		for _, m := range sessions {
+			b, err := json.Marshal(m)
+			if err != nil {
+				return
+			}
+			h := fnv.New64a()
+			h.Write(b)
+			entries[m.Path] = entryHash{h.Sum64(), m.Key}
+			if prev, ok := lastEntries[m.Path]; !ok || prev.hash != h.Sum64() {
+				upserts = append(upserts, m)
+			}
 		}
-		bb, _ := json.Marshal(badges)
-		db, _ := json.Marshal(driven)
-		ab, _ := json.Marshal(awaiting)
-		patch := sessionPatch{Sessions: sb}
-		patch.Badges = field(bb, &lastBadges)
-		patch.Driven = field(db, &lastDriven)
-		patch.Awaiting = field(ab, &lastAwaiting)
-		if lastSessions != nil && string(sb) == string(lastSessions) &&
-			patch.Badges == nil && patch.Driven == nil && patch.Awaiting == nil {
-			// Nothing changed anywhere: no frame; the transcript stream's
-			// keepalive does not apply here and silence is correct.
-		} else {
-			lastSessions = sb
+		var removed []string
+		for path, e := range lastEntries {
+			if _, ok := entries[path]; !ok {
+				removed = append(removed, e.key)
+			}
+		}
+		reset := lastEntries == nil || len(upserts) > sessionUpsertCap
+		lastEntries = entries
+		if reset || len(upserts) > 0 || len(removed) > 0 || lastTotal != len(sessions) {
+			lastTotal = len(sessions)
+			patch := sessionPatch{Total: lastTotal}
+			if reset {
+				patch.Sessions = sessions
+				// A reset re-baselines the client, so the map gates must
+				// ride too or a stale client would keep pre-reset maps.
+				lastBadges, lastDriven, lastAwaiting = nil, nil, nil
+			} else {
+				patch.Upserts = upserts
+				patch.Removed = removed
+			}
+			bb, _ := json.Marshal(badges)
+			db, _ := json.Marshal(driven)
+			ab, _ := json.Marshal(awaiting)
+			patch.Badges = field(bb, &lastBadges)
+			patch.Driven = field(db, &lastDriven)
+			patch.Awaiting = field(ab, &lastAwaiting)
 			if writeEventJSON(w, "reset", patch) != nil {
 				return
 			}
