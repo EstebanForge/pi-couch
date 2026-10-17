@@ -34,12 +34,12 @@ type fakeHerdrOpts struct {
 	lastPrompt     *string // agent.prompt target name
 	failFirstSend  bool
 	failFirstStart bool
-	status         *string   // agent_status in agent.list; blocked when nil
-	paneText       *string   // pane.read text; the menu fixture when nil
-	paneAfterSend  *string   // pane.read text once a send_input landed
-	paneSeq        []string  // per-send states: after send n, serve paneSeq[min(n-1, len-1)]
-	lastText       *string   // last send_input text param
-	lastKeys       *[]string // last NON-EMPTY send_input keys slice
+	status         *string     // agent_status in agent.list; blocked when nil
+	paneText       *string     // pane.read text; the menu fixture when nil
+	paneAfterSend  *string     // pane.read text once a send_input landed
+	paneSeq        []string    // per-send states: after send n, serve paneSeq[min(n-1, len-1)]
+	lastText       *string     // last send_input text param
+	keysLog        *[][]string // every non-empty send_input keys call
 }
 
 func herdrFake(t *testing.T, o fakeHerdrOpts) string {
@@ -123,13 +123,13 @@ func herdrFake(t *testing.T, o fakeHerdrOpts) string {
 					paneJSON, _ := json.Marshal(pane)
 					resp = `{"id":"x","result":{"read":{"pane_id":"p1","source":"screen","format":"ansi","text":` + string(paneJSON) + `,"revision":1}}}`
 				case "pane.send_input":
-					if o.lastKeys != nil {
+					if o.keysLog != nil {
 						var p struct {
 							Keys []string `json:"keys"`
 						}
 						_ = json.Unmarshal(m.Params, &p)
 						if len(p.Keys) > 0 {
-							*o.lastKeys = p.Keys
+							*o.keysLog = append(*o.keysLog, p.Keys)
 						}
 					}
 					if o.lastText != nil {
@@ -137,7 +137,9 @@ func herdrFake(t *testing.T, o fakeHerdrOpts) string {
 							Text string `json:"text"`
 						}
 						_ = json.Unmarshal(m.Params, &p)
-						*o.lastText = p.Text
+						if p.Text != "" {
+							*o.lastText = p.Text
+						}
 					}
 					n := atomic.AddInt32(o.sends, 1)
 					if o.failFirstSend && n == 1 {

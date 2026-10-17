@@ -231,3 +231,27 @@ func TestParsePiDialogMultiSelectHint(t *testing.T) {
 		t.Fatalf("options=%d, want 3", len(d.Options))
 	}
 }
+
+// A commit message's blank subject/body separator lives INSIDE the
+// buffer: the whole text between pi's divider rules is the buffer,
+// and only the rules bound it - an internal blank must survive into
+// Body, with Title staying the overlay's question.
+func TestParsePiDialogEditorBufferKeepsBlank(t *testing.T) {
+	screen := "some transcript line\n\n" +
+		"────────────────────────────────────────────────────────────\n" +
+		" Commit staged changes with this message?\n" +
+		"────────────────────────────────────────────────────────────\n" +
+		"feat: subject here\n\nbody line one\nbody line two\n" +
+		"────────────────────────────────────────────────────────────\n\n" +
+		" enter submit  shift+enter/ctrl+j newline  escape/ctrl+c cancel  ctrl+g external editor"
+	d := parsePiDialog(screen)
+	if d == nil || d.Kind != "editor" {
+		t.Fatalf("parse: %+v", d)
+	}
+	if d.Title != "Commit staged changes with this message?" {
+		t.Fatalf("title=%q", d.Title)
+	}
+	if want := "feat: subject here\n\nbody line one\nbody line two"; d.Body != want {
+		t.Fatalf("body=%q, want %q", d.Body, want)
+	}
+}

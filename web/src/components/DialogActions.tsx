@@ -19,17 +19,15 @@ export function DialogActions({ k, dialog }: { k: string; dialog: BridgeDialog }
 	const [active, setActive] = useState<string>("");
 	const [failed, setFailed] = useState(false);
 	const [draft, setDraft] = useState("");
-	// The editor dialog's buffer is editable: subject and body prefill
-	// from the pane parse and rewrite pi's editor on save. Re-synced
-	// when the parse changes (a save lands, a new dialog arrives); a
-	// stream tick never touches the text mid-typing because body only
-	// changes when a save does.
-	const [subject, setSubject] = useState(dialog.title ?? "");
-	const [body, setBody] = useState(dialog.body ?? "");
+	// The editor dialog's buffer is one message, exactly as pi paints
+	// it: title, blank line, description. One textarea edits it all at
+	// once and Submit rewrites pi's editor and accepts in one step.
+	// Re-synced when the parse changes; a stream tick never touches the
+	// text mid-typing because body only changes then.
+	const [message, setMessage] = useState(dialog.body ?? "");
 	useEffect(() => {
-		setSubject(dialog.title ?? "");
-		setBody(dialog.body ?? "");
-	}, [dialog.id, dialog.title, dialog.body]);
+		setMessage(dialog.body ?? "");
+	}, [dialog.id, dialog.body]);
 	const id = dialog.id;
 	// A refused answer keeps the card with a retry note: pi may still be
 	// waiting, and collapsing the panel strands a header sliver until
@@ -66,24 +64,9 @@ export function DialogActions({ k, dialog }: { k: string; dialog: BridgeDialog }
 
 	const saveEdit = () => {
 		if (busy) return;
-		const text = [subject.trim(), body.trimEnd()].filter(Boolean).join("\n\n");
+		const text = message.trim();
 		if (!text) return;
-		setBusy(true);
-		setActive("edit");
-		setFailed(false);
-		answerDialog(k, id, "type", text)
-			.then((r) => {
-				// Unlike a terminal answer, the edit leaves pi waiting:
-				// unlock immediately so Submit stays reachable.
-				setBusy(false);
-				setActive("");
-				if (!r.ok) setFailed(true);
-			})
-			.catch(() => {
-				setBusy(false);
-				setActive("");
-				setFailed(true);
-			});
+		answer("type", "submit", text);
 	};
 
 	return (
@@ -153,34 +136,15 @@ export function DialogActions({ k, dialog }: { k: string; dialog: BridgeDialog }
 				</form>
 			)}
 			{isEditor && (
-				<div className="mt-3 flex flex-col gap-2">
-					<input
-						value={subject}
-						onChange={(e) => setSubject(e.target.value)}
-						disabled={busy}
-						placeholder="Subject"
-						aria-label="Commit subject"
-						className="h-11 w-full rounded-xl bg-base-300 px-3 text-[14px] outline-none placeholder:text-muted"
-					/>
-					<textarea
-						value={body}
-						onChange={(e) => setBody(e.target.value)}
-						disabled={busy}
-						rows={Math.min(6, Math.max(2, body.split("\n").length))}
-						placeholder="Body (optional)"
-						aria-label="Commit body"
-						className="w-full resize-none rounded-xl bg-base-300 px-3 py-2 text-[13px] outline-none placeholder:text-muted"
-					/>
-					<button
-						type="button"
-						disabled={busy}
-						onClick={saveEdit}
-						className="flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl bg-base-300 px-4 py-2 text-[14px] text-base-content active:scale-[0.99] disabled:opacity-50"
-					>
-						{active === "edit" && <Spinner size={14} />}
-						Save edits
-					</button>
-				</div>
+				<textarea
+					value={message}
+					onChange={(e) => setMessage(e.target.value)}
+					disabled={busy}
+					rows={Math.min(10, Math.max(3, message.split("\n").length))}
+					placeholder="Commit message"
+					aria-label="Commit message"
+					className="w-full resize-none rounded-xl bg-base-300 px-3 py-2 font-mono text-[13px] outline-none placeholder:text-muted"
+				/>
 			)}
 			{failed && (
 				<p className="mt-2 text-[12px] text-accent">
@@ -192,7 +156,7 @@ export function DialogActions({ k, dialog }: { k: string; dialog: BridgeDialog }
 					<button
 						type="button"
 						disabled={busy}
-						onClick={() => answer("submit", "submit")}
+						onClick={saveEdit}
 						className="flex min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-[14px] font-medium text-primary-content active:scale-[0.99] disabled:opacity-50"
 					>
 						{active === "submit" && <Spinner size={14} />}

@@ -75,10 +75,9 @@ describe("DialogActions", () => {
 		expect(html).toContain("Commit staged changes with this message?");
 		// the editor buffer is editable: prefilled subject and body
 		// fields plus a Save edits button ride with Submit
-		expect(html).toContain('placeholder="Subject"');
-		expect(html).toContain('placeholder="Body (optional)"');
+		// the whole buffer is one editable message, like pi's editor
+		expect(html).toContain('placeholder="Commit message"');
 		expect(html).toContain(">probe commit</textarea>");
-		expect(html).toContain(">Save edits<");
 		expect(html).toContain(">Submit<");
 		expect(html).toContain(">Cancel<");
 	});

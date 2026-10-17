@@ -149,37 +149,62 @@ func parsePiInputBlock(lines []string) *piDialog {
 	return d
 }
 
-// parsePiEditorBlock reads the editor overlay: title and body sit in
-// segments between pi's divider rules above the hint. Reading upward,
-// the first segment is the body (the draft text), the next the title.
+// parsePiEditorBlock reads the editor overlay: a rule-bounded title,
+// then the draft buffer between the next pair of rules. Only rules
+// bound the buffer - a blank line inside it is content (a commit
+// message's subject/body separator) - and the viewport may have
+// scrolled its top off the pane, so Body is whatever is painted.
 func parsePiEditorBlock(lines []string) *piDialog {
-	var segments [][]string
-	for i := len(lines) - 1; i >= 0; i-- {
-		line := strings.TrimSpace(lines[i])
-		if piDividerRe.MatchString(line) || line == "" {
-			// Blanks pad between pi's rules; a segment boundary is a rule
-			// (or blank) met with text already collected.
-			if len(segments) > 0 && len(segments[len(segments)-1]) > 0 {
-				if len(segments) == 2 {
-					break
-				}
-				segments = append(segments, nil)
-			}
-			continue
-		}
-		if len(segments) == 0 {
-			segments = append(segments, nil)
-		}
-		cur := segments[len(segments)-1]
-		segments[len(segments)-1] = append([]string{line}, cur...)
+	i := len(lines)
+	for i > 0 && strings.TrimSpace(lines[i-1]) == "" {
+		i--
 	}
-	if len(segments) == 0 || len(segments[0]) == 0 {
+	if i == 0 || !piDividerRe.MatchString(strings.TrimSpace(lines[i-1])) {
 		return nil
 	}
-	d := &piDialog{Kind: "editor", Body: strings.Join(segments[0], "\n")}
-	if len(segments) > 1 && len(segments[1]) > 0 {
-		d.Title = segments[1][0]
-		d.Body = strings.Join(append(append([]string{}, segments[1][1:]...), segments[0]...), "\n")
+	i--
+	var buf []string
+	for i > 0 {
+		line := strings.TrimSpace(lines[i-1])
+		if piDividerRe.MatchString(line) {
+			i--
+			break
+		}
+		buf = append([]string{line}, buf...)
+		i--
+	}
+	for len(buf) > 0 && buf[0] == "" {
+		buf = buf[1:]
+	}
+	for len(buf) > 0 && buf[len(buf)-1] == "" {
+		buf = buf[:len(buf)-1]
+	}
+	if len(buf) == 0 {
+		return nil
+	}
+	var title []string
+	pad := 0
+	for i > 0 && len(title) < 4 {
+		line := strings.TrimSpace(lines[i-1])
+		if piDividerRe.MatchString(line) {
+			break
+		}
+		if line == "" {
+			// Pi pads a blank between the title and the buffer's rule;
+			// more than a couple of blanks means there is no title.
+			pad++
+			if len(title) > 0 || pad > 2 {
+				break
+			}
+			i--
+			continue
+		}
+		title = append([]string{line}, title...)
+		i--
+	}
+	d := &piDialog{Kind: "editor", Body: strings.Join(buf, "\n")}
+	if len(title) > 0 {
+		d.Title = strings.Join(title, " ")
 	}
 	return d
 }

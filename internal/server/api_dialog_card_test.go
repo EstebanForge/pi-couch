@@ -62,10 +62,38 @@ func TestDialogWireCarriesParsedDialog(t *testing.T) {
 	}
 }
 
-// The editor dialog answers submit with one enter; the screen must
-// still be the editor when the key goes out.
+// Long messages must arrive at pi's editor in insertable chunks:
+// a single text event over 10 lines or 1000 characters collapses
+// into a [paste #n] marker (pi-tui paste guard) - the live bug that
+// mangled a 13-line commit message into one.
+func TestEditorChunks(t *testing.T) {
+	short := "subject\n\nbody"
+	if got := editorChunks(short); len(got) != 1 || got[0] != short {
+		t.Fatalf("short: %q", got)
+	}
+	long := strings.Repeat("line\n", 12) + "end"
+	got := editorChunks(long)
+	if strings.Join(got, "") != long {
+		t.Fatalf("chunks do not reassemble: %d chunks", len(got))
+	}
+	for i, c := range got {
+		if n := strings.Count(c, "\n"); n > 10 {
+			t.Fatalf("chunk %d carries %d newlines", i, n)
+		}
+		if len(c) > 1000 {
+			t.Fatalf("chunk %d is %d bytes", i, len(c))
+		}
+	}
+}
+
+// The editor dialog answers in one step: even the no-edit submit is
+// the type verb now - rewrite, verify, enter; a pane that no longer
+// shows the editor is refused with no keys.
 func TestDialogAnswerEditorSubmit(t *testing.T) {
-	editor := " Commit staged changes with this message?\n\nprobe commit\n\n" +
+	editor := " Commit staged changes with this message?\n" +
+		"────────────────────────────────────────────\n" +
+		"probe commit\n" +
+		"────────────────────────────────────────────\n\n" +
 		" enter submit  shift+enter/ctrl+j newline  escape/ctrl+c cancel  ctrl+g external editor"
 	var sends int32
 	var sessPath string
@@ -84,7 +112,7 @@ func TestDialogAnswerEditorSubmit(t *testing.T) {
 
 	answer := func() int {
 		req := httptest.NewRequest(http.MethodPost, "/api/sessions/s1/dialog/answer", strings.NewReader(
-			`{"id":"d9","answer":"submit"}`))
+			`{"id":"d9","answer":"type","text":"probe commit"}`))
 		req.Host = "127.0.0.1:8090"
 		rec := httptest.NewRecorder()
 		a.guard(a.routes()).ServeHTTP(rec, req)
@@ -93,8 +121,8 @@ func TestDialogAnswerEditorSubmit(t *testing.T) {
 	if code := answer(); code != http.StatusOK {
 		t.Fatalf("submit code=%d", code)
 	}
-	if n := atomic.LoadInt32(&sends); n != 1 {
-		t.Fatalf("sends=%d, want one enter", n)
+	if n := atomic.LoadInt32(&sends); n != 4 {
+		t.Fatalf("sends=%d, want walk,backspaces,text,enter", n)
 	}
 
 	// The editor gone from the screen: refused, no keys.
@@ -102,7 +130,7 @@ func TestDialogAnswerEditorSubmit(t *testing.T) {
 	if code := answer(); code != http.StatusConflict {
 		t.Fatalf("gone code=%d", code)
 	}
-	if n := atomic.LoadInt32(&sends); n != 1 {
+	if n := atomic.LoadInt32(&sends); n != 4 {
 		t.Fatalf("sends after refusal=%d", n)
 	}
 }
@@ -320,16 +348,22 @@ func TestDialogAnswerFreeTextWrappedEcho(t *testing.T) {
 // stays its own answer, so the memo claim must be released after a
 // successful edit.
 func TestDialogAnswerEditorEdit(t *testing.T) {
-	editor := " Commit staged changes with this message?\n\nprobe commit\n\n" +
+	editor := " Commit staged changes with this message?\n" +
+		"────────────────────────────────────────────\n" +
+		"probe commit\n" +
+		"────────────────────────────────────────────\n\n" +
 		" enter submit  shift+enter/ctrl+j newline  escape/ctrl+c cancel  ctrl+g external editor"
-	edited := " Commit staged changes with this message?\n\nnew subject\n\nnew body\n\n" +
+	edited := " Commit staged changes with this message?\n" +
+		"────────────────────────────────────────────\n" +
+		"new subject\n\nnew body\n" +
+		"────────────────────────────────────────────\n\n" +
 		" enter submit  shift+enter/ctrl+j newline  escape/ctrl+c cancel  ctrl+g external editor"
 	var sends int32
 	var sessPath string
 	var lastText string
-	var lastKeys []string
+	var keysLog [][]string
 	sock := herdrFake(t, fakeHerdrOpts{
-		sessPath: &sessPath, sends: &sends, paneText: &editor, lastText: &lastText, lastKeys: &lastKeys,
+		sessPath: &sessPath, sends: &sends, paneText: &editor, lastText: &lastText, keysLog: &keysLog,
 		paneSeq: []string{edited},
 	})
 	a, sub, _ := streamTestAppWithHerdr(t, sock)
@@ -352,27 +386,27 @@ func TestDialogAnswerEditorEdit(t *testing.T) {
 	if code := post(`{"id":"d9","answer":"type","text":"new subject\n\nnew body"}`); code != http.StatusOK {
 		t.Fatalf("edit code=%d", code)
 	}
-	// walk (ctrl+e + downs + ctrl+e), backspaces, text - no enter.
-	if n := atomic.LoadInt32(&sends); n != 3 {
-		t.Fatalf("sends=%d, want walk,backspaces,text", n)
+	// walk (ctrl+e + downs + ctrl+e), backspaces, text, enter - one
+	// step, like pi's own accept.
+	if n := atomic.LoadInt32(&sends); n != 4 {
+		t.Fatalf("sends=%d, want walk,backspaces,text,enter", n)
 	}
 	if lastText != "new subject\n\nnew body" {
 		t.Fatalf("typed text %q", lastText)
 	}
-	if len(lastKeys) < 8 {
-		t.Fatalf("last keys call too short: %v", lastKeys)
+	if len(keysLog) != 3 {
+		t.Fatalf("keys calls=%d, want walk,backspaces,enter: %v", len(keysLog), keysLog)
 	}
-	for _, k := range lastKeys {
+	walk := keysLog[0]
+	if walk[0] != "ctrl+e" || walk[len(walk)-1] != "ctrl+e" {
+		t.Fatalf("walk must park the cursor with ctrl+e: %v", walk)
+	}
+	for _, k := range keysLog[1] {
 		if k != "backspace" {
-			t.Fatalf("expected the backspace sweep last, got %v", lastKeys)
+			t.Fatalf("second call must be the backspace sweep: %v", keysLog[1])
 		}
-		break
 	}
-	// The edit is non-terminal: Submit must still be claimable.
-	if code := post(`{"id":"d9","answer":"submit"}`); code != http.StatusOK {
-		t.Fatalf("submit after edit code=%d", code)
-	}
-	if n := atomic.LoadInt32(&sends); n != 4 {
-		t.Fatalf("sends after submit=%d, want +enter", n)
+	if len(keysLog[2]) != 1 || keysLog[2][0] != "enter" {
+		t.Fatalf("third call must be enter: %v", keysLog[2])
 	}
 }

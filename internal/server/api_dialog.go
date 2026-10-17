@@ -56,15 +56,14 @@ func (a *app) apiDialogAnswer(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
 		return
 	}
-	if !a.answerDispatch(w, r, req.Answer, req.Text, req.ID, meta.Path) {
+	if !a.answerDispatch(w, r, req.Answer, req.Text, meta.Path) {
 		a.answered.Release(req.ID)
 	}
 }
 
 // answerDispatch runs one answer attempt; true means keys were sent
-// and the 200 already written. The id rides along so non-terminal
-// answers (editor buffer edits) can release their own claim.
-func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, text, id, path string) bool {
+// and the 200 already written.
+func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, text, path string) bool {
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
 	paneID, err := a.herdr.TargetForPath(ctx, path)
@@ -86,23 +85,8 @@ func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, tex
 		}
 		return a.answerSend(w, ctx, paneID, keys)
 
-	case answer == "submit":
-		// The editor overlay's accept key is enter (escape cancels in
-		// the generic branch below). The screen must still be the
-		// editor before the key goes out.
-		pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 30)
-		if err != nil {
-			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-			return false
-		}
-		if d := parsePiDialog(pr.Text); d == nil || d.Kind != "editor" {
-			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-			return false
-		}
-		return a.answerSend(w, ctx, paneID, []string{"enter"})
-
 	case answer == "type":
-		return a.answerFreeText(w, r, ctx, paneID, id, text)
+		return a.answerFreeText(w, r, ctx, paneID, text)
 
 	case answer == "escape":
 		pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 30)
@@ -192,7 +176,7 @@ func (a *app) settleWalk(w http.ResponseWriter, r *http.Request, ctx context.Con
 // screen may already be there, or the questionnaire still needs its
 // "Type something." row selected), type the text, verify pi echoed it
 // onto the input line, then submit with enter.
-func (a *app) answerFreeText(w http.ResponseWriter, r *http.Request, ctx context.Context, paneID, id, text string) bool {
+func (a *app) answerFreeText(w http.ResponseWriter, r *http.Request, ctx context.Context, paneID, text string) bool {
 	trimmed := strings.TrimSpace(text)
 	if trimmed == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
@@ -206,9 +190,9 @@ func (a *app) answerFreeText(w http.ResponseWriter, r *http.Request, ctx context
 		}
 		m := parsePiDialog(pr.Text)
 		if m != nil && m.Kind == "editor" {
-			// The editor buffer is editable from the phone; the submit
-			// stays its own answer.
-			return a.editEditorBuffer(w, r, ctx, paneID, id, m, text)
+			// The editor buffer is editable in one step: rewrite and
+			// submit, like pi's own accept.
+			return a.editEditorSubmit(w, r, ctx, paneID, m, text)
 		}
 		if m != nil && m.InputMode {
 			// rpiv activates input mode the moment the cursor lands on
@@ -342,22 +326,21 @@ func piConfirmOnScreen(text string) bool {
 	return piMenuHintRe.MatchString(plain)
 }
 
-// editEditorBuffer rewrites pi's editor buffer (the git commit
-// preview) from the phone: park the cursor at the buffer end
-// (ctrl+e, a generous down-walk, ctrl+e again - herdr has no end
-// key), backspace the old content (no-ops once empty), type the
-// replacement - raw newlines insert real lines in pi's editor - and
-// verify the repaint. Never submits: the commit preview must be
-// reviewable, so the edit releases its memo claim and Submit stays a
-// separate answer.
-func (a *app) editEditorBuffer(w http.ResponseWriter, r *http.Request, ctx context.Context, paneID, id string, cur *piDialog, text string) bool {
+// editEditorSubmit rewrites pi's editor buffer (the git commit
+// preview) and submits in one step, like pi's own accept: park the
+// cursor at the buffer end (ctrl+e, a generous down-walk, ctrl+e
+// again - herdr has no end key), backspace the old content (no-ops
+// once empty), type the replacement - raw newlines insert real lines
+// in pi's editor - verify the repaint, then enter. Refuses rather
+// than guessing when the pane no longer shows the editor.
+func (a *app) editEditorSubmit(w http.ResponseWriter, r *http.Request, ctx context.Context, paneID string, cur *piDialog, text string) bool {
 	want := editorBufferOf(strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n"))
 	if want == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
 		return false
 	}
 	for attempt := 0; attempt < 3; attempt++ {
-		joined := cur.Title + "\n\n" + cur.Body
+		joined := cur.Body
 		lines := strings.Count(joined, "\n") + 1
 		walk := make([]string, 0, lines+10)
 		walk = append(walk, "ctrl+e")
@@ -375,8 +358,10 @@ func (a *app) editEditorBuffer(w http.ResponseWriter, r *http.Request, ctx conte
 		if !a.paneSend(w, ctx, paneID, "", bs) {
 			return false
 		}
-		if !a.paneSend(w, ctx, paneID, want, nil) {
-			return false
+		for _, chunk := range editorChunks(want) {
+			if !a.paneSend(w, ctx, paneID, chunk, nil) {
+				return false
+			}
 		}
 		select {
 		case <-ctx.Done():
@@ -389,15 +374,12 @@ func (a *app) editEditorBuffer(w http.ResponseWriter, r *http.Request, ctx conte
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
 			return false
 		}
-		if m := parsePiDialog(pr.Text); m != nil && m.Kind == "editor" && editorBufferOf(m.Title+"\n\n"+m.Body) == want {
-			a.answered.Release(id)
-			writeJSON(w, http.StatusOK, map[string]string{"ok": "1"})
-			return true
-		}
-		// Re-aim from whatever the pane shows now; a stale parse falls
-		// through to the refusal below.
-		if next := parsePiDialog(pr.Text); next != nil && next.Kind == "editor" {
-			cur = next
+		m := parsePiDialog(pr.Text)
+		if m != nil && m.Kind == "editor" {
+			if editorBufferOf(m.Body) == editorBufferOf(want) {
+				return a.answerSend(w, ctx, paneID, []string{"enter"})
+			}
+			cur = m
 			continue
 		}
 		break
@@ -417,4 +399,37 @@ func editorBufferOf(s string) string {
 		lines = lines[:len(lines)-1]
 	}
 	return strings.Join(lines, "\n")
+}
+
+// editorChunks splits a commit message into sends pi's editor will
+// insert verbatim: one text event over 10 lines or 1000 characters
+// collapses into a "[paste #n]" marker (pi-tui editor paste guard).
+func editorChunks(s string) []string {
+	if strings.Count(s, "\n") < 9 && len(s) <= 1000 {
+		return []string{s}
+	}
+	lines := strings.Split(s, "\n")
+	var chunks []string
+	var cur []string
+	chars := 0
+	flush := func() {
+		if len(cur) == 0 {
+			return
+		}
+		chunks = append(chunks, strings.Join(cur, "\n")+"\n")
+		cur = nil
+		chars = 0
+	}
+	for _, line := range lines {
+		if len(cur) >= 9 || chars+len(line) >= 1000 {
+			flush()
+		}
+		cur = append(cur, line)
+		chars += len(line) + 1
+	}
+	// The last chunk keeps the message's own (missing) trailing newline.
+	if len(cur) > 0 {
+		chunks = append(chunks, strings.Join(cur, "\n"))
+	}
+	return chunks
 }
