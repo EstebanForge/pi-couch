@@ -37,7 +37,9 @@ export function ScreenHeader(props: {
 				)}
 				<div className="min-w-0 flex-1">
 					<p className="truncate text-[15px] font-medium leading-tight">{props.title}</p>
-					{props.subtitle && <p className="truncate text-[11px] leading-tight text-muted">{props.subtitle}</p>}
+					{props.subtitle && (
+						<p className="truncate text-[11px] leading-tight text-muted">{props.subtitle}</p>
+					)}
 				</div>
 				{props.right}
 			</div>

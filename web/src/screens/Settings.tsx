@@ -4,11 +4,11 @@
 // the session. Konsta supplies the controls (Segmented, Toggle); List
 // stays rejected like everywhere else (material look fights dracula).
 import { Segmented, SegmentedButton, Sheet, Toggle } from "konsta/react";
-import { ScreenHeader } from "../components/ScreenHeader";
 import { useEffect, useState } from "react";
 import { getVersion } from "../api";
 import { orderKeys, QUICK_KEYS } from "../chat/quick-keys";
 import { DirBrowser } from "../components/DirBrowser";
+import { ScreenHeader } from "../components/ScreenHeader";
 import { useSheetBack } from "../nav";
 import {
 	type EnterSendsPref,
@@ -59,7 +59,7 @@ export default function SettingsScreen() {
 
 	return (
 		<div className="min-h-dvh bg-base-100 text-base-content">
-		<ScreenHeader title="Settings" onBack={() => history.back()} />
+			<ScreenHeader title="Settings" onBack={() => history.back()} />
 			<div
 				className="mx-auto flex min-h-dvh max-w-3xl flex-col gap-6 px-3 pt-[80px]"
 				style={{ paddingBottom: "var(--safe-bottom, 0px)" }}

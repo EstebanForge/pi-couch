@@ -28,7 +28,6 @@ export function Composer(props: {
 	addPending: (text: string, queued: boolean) => number;
 	markPending: (id: number, state: "sent" | "queued" | "unconfirmed") => void;
 	removePending: (id: number) => void;
-	requestClose: () => void;
 	sendAgent?: (body: string, queued: boolean) => Promise<{ ok: boolean; error?: string }>;
 }) {
 	const { sessionKey, status } = props;
@@ -207,10 +206,6 @@ export function Composer(props: {
 	};
 
 	const runKey = (k: QuickKey) => {
-		if (k.action.kind === "close") {
-			props.requestClose();
-			return;
-		}
 		if (k.action.kind === "queue") {
 			runQueue();
 			return;
@@ -330,31 +325,40 @@ export function Composer(props: {
 		<>
 			{/* quick keys strip */}
 			{quickKeysEnabled() && (
-				<div
-					className="relative flex gap-2 overflow-x-auto px-2 pt-2 pb-1"
-					style={{ scrollbarWidth: "none", touchAction: "manipulation", userSelect: "none" }}
-				>
-					{orderKeys(quickKeyOrder()).map((k) => {
-						const enabled =
-							k.action.kind === "queue"
-								? runQueueEnabled(status, hasText)
-								: k.enabled(status, hasText);
-						return (
-							<button
-								key={k.id}
-								type="button"
-								disabled={!enabled}
-								onPointerDown={(e) => e.preventDefault()}
-								onMouseDown={(e) => e.preventDefault()}
-								onClick={() => (k.action.kind === "queue" ? runQueue() : runKey(k))}
-								className={`h-11 min-w-[44px] shrink-0 rounded-lg border border-base-300 border-b-2 border-b-base-300/70 bg-base-200 px-2 font-mono text-[13px] active:scale-95 ${
-									enabled ? "text-base-content" : "text-muted/40"
-								}`}
-							>
-								{k.label}
-							</button>
-						);
-					})}
+				<div className="relative">
+					<div
+						className="flex gap-2 overflow-x-auto px-2 pt-2 pb-1"
+						style={{
+							scrollbarWidth: "none",
+							touchAction: "manipulation",
+							userSelect: "none",
+							transform: "translateZ(0)",
+						}}
+					>
+						{orderKeys(quickKeyOrder()).map((k) => {
+							const enabled =
+								k.action.kind === "queue"
+									? runQueueEnabled(status, hasText)
+									: k.enabled(status, hasText);
+							return (
+								<button
+									key={k.id}
+									type="button"
+									disabled={!enabled}
+									onPointerDown={(e) => e.preventDefault()}
+									onMouseDown={(e) => e.preventDefault()}
+									onClick={() => (k.action.kind === "queue" ? runQueue() : runKey(k))}
+									className={`h-11 min-w-[44px] shrink-0 rounded-lg border border-base-300 border-b-2 border-b-base-300/70 bg-base-200 px-2 font-mono text-[13px] active:scale-95 ${
+										enabled ? "text-base-content" : "text-muted/40"
+									}`}
+								>
+									{k.label}
+								</button>
+							);
+						})}
+					</div>
+					{/* pinned outside the scroller: inside, it slides with the
+					keys and its opaque edge cuts through them */}
 					<div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-base-100 to-transparent" />
 				</div>
 			)}

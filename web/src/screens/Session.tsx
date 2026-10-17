@@ -5,6 +5,7 @@ import {
 	agentSession,
 	closeSession,
 	getItemText,
+	getTranscriptPage,
 	type StreamItem,
 	sendAgentPrompt,
 	stopSession,
@@ -26,6 +27,7 @@ import {
 	emptyDriver,
 	groupWorkBlocks,
 	markPending,
+	mergeOlder,
 	reduceAppend,
 	reduceReset,
 	reduceStatus,
@@ -35,7 +37,11 @@ import {
 import { isWaiting, STATUS_DOT } from "../status";
 import { connectStream, type StreamStatus } from "../stream";
 
-const LIMIT = 400; // client-side tail cap; the server re-resets past it
+const LIMIT = 2000; // client-side tail cap; the server re-resets past it
+const PAGE = 20; // reverse-pagination page: what one scroll-to-top loads
+// Virtuoso's firstItemIndex headroom: pages decrement it as items
+// prepend above, so the index never reaches 0 for a human-scale thread.
+const INDEX_BASE = 1_000_000;
 
 let pendingCounter = 0;
 const nextPendingId = () => ++pendingCounter;
@@ -44,6 +50,7 @@ type Action =
 	| { t: "reset"; p: TranscriptReset }
 	| { t: "append"; p: TranscriptAppend }
 	| { t: "status"; p: TranscriptStatus }
+	| { t: "older"; p: StreamItem[] }
 	| { t: "add-pending"; id: number; text: string; queued: boolean }
 	| { t: "mark-pending"; id: number; state: "sent" | "queued" | "unconfirmed" }
 	| { t: "remove-pending"; id: number };
@@ -56,6 +63,8 @@ function driver(s: DriverState, a: Action): DriverState {
 			return reduceAppend(s, a.p);
 		case "status":
 			return reduceStatus(s, a.p);
+		case "older":
+			return { ...s, items: mergeOlder(s.items, a.p) };
 		case "add-pending":
 			return addPending(s, a.id, a.text, a.queued);
 		case "mark-pending":
@@ -212,6 +221,12 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 	const [query, setQuery] = useState<string | null>(null);
 	const [overflow, setOverflow] = useState(false);
 	const [confirmClose, setConfirmClose] = useState(false);
+	// Reverse pagination: firstItemIndex drops as older pages prepend so
+	// Virtuoso anchors the scroll instead of jumping.
+	const [firstItemIndex, setFirstItemIndex] = useState(INDEX_BASE);
+	const [moreHistory, setMoreHistory] = useState(true);
+	const [loadingOlder, setLoadingOlder] = useState(false);
+	const paging = useRef(false);
 	useSheetBack(overflow, () => setOverflow(false));
 	useSheetBack(confirmClose, () => setConfirmClose(false));
 	const [notice, setNotice] = useState("");
@@ -225,8 +240,13 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 		const stream = connectStream(`/api/stream/transcript/${encodeURIComponent(sessionKey)}`, {
 			onStatus: setConn,
 			onEvent: (name, data) => {
-				if (name === "reset") dispatch({ t: "reset", p: JSON.parse(data) as TranscriptReset });
-				else if (name === "append")
+				if (name === "reset") {
+					// A reset replaces items with the fresh tail: history pages
+					// and their index bookkeeping restart with it.
+					setFirstItemIndex(INDEX_BASE);
+					setMoreHistory(true);
+					dispatch({ t: "reset", p: JSON.parse(data) as TranscriptReset });
+				} else if (name === "append")
 					dispatch({ t: "append", p: JSON.parse(data) as TranscriptAppend });
 				else if (name === "status")
 					dispatch({ t: "status", p: JSON.parse(data) as TranscriptStatus });
@@ -253,6 +273,45 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 		if (items.length > LIMIT) return groupWorkBlocks(items.slice(items.length - LIMIT));
 		return groupWorkBlocks(items);
 	}, [state.items, query]);
+
+	// One history page per top touch. Skipped mid-search: the filtered
+	// block list would desync firstItemIndex bookkeeping.
+	const loadOlder = () => {
+		const oldest = state.items[0];
+		if (paging.current || !moreHistory || !oldest || query || state.items.length >= LIMIT) return;
+		paging.current = true;
+		setLoadingOlder(true);
+		getTranscriptPage(sessionKey, oldest.seq, PAGE)
+			.then((page) => {
+				const merged = mergeOlder(state.items, page.items);
+				if (merged.length !== state.items.length) {
+					const delta = groupWorkBlocks(merged).length - groupWorkBlocks(state.items).length;
+					dispatch({ t: "older", p: page.items });
+					if (delta > 0) setFirstItemIndex((fi) => fi - delta);
+				}
+				setMoreHistory(page.more && merged.length < LIMIT);
+			})
+			.catch(() => {})
+			.finally(() => {
+				paging.current = false;
+				setLoadingOlder(false);
+			});
+	};
+
+	// Virtuoso latches startReached against the pre-stream empty list, so
+	// the first tail arrival re-checks: a window still parked at the top
+	// (short thread, no scroll) fetches its first history page here.
+	const loadOlderRef = useRef(loadOlder);
+	loadOlderRef.current = loadOlder;
+	const hadItems = state.items.length > 0;
+	useEffect(() => {
+		if (!hadItems) return;
+		const t = setTimeout(() => {
+			const sc = scroller.current?.querySelector("[data-virtuoso-scroller]");
+			if (sc && sc.scrollTop <= 0) loadOlderRef.current();
+		}, 60);
+		return () => clearTimeout(t);
+	}, [hadItems]);
 
 	const meta = useSessions((s) => s.sessions.find((x) => x.key === sessionKey));
 	const firstUser = state.items.find((it) => it.kind === "user")?.text.slice(0, 60);
@@ -407,6 +466,8 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 				<Virtuoso
 					data={blocks}
 					computeItemKey={(_, b) => itemKey(b)}
+					firstItemIndex={firstItemIndex}
+					startReached={loadOlder}
 					followOutput={(isAtBottom) => (pinned.current && isAtBottom ? "auto" : false)}
 					atBottomThreshold={90}
 					atBottomStateChange={(atBottom) => {
@@ -416,6 +477,17 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 					className="h-full"
 					itemContent={(_, b) => <Block block={b} sessionKey={sessionKey} />}
 					components={{
+						Header: () =>
+							loadingOlder ? (
+								<div className="flex items-center justify-center gap-2 py-2 text-[12px] text-muted">
+									<Spinner size={14} />
+									Loading older messages…
+								</div>
+							) : !moreHistory && state.items.length > 0 ? (
+								<div className="py-2 text-center text-[11px] text-muted/60">
+									Start of the thread
+								</div>
+							) : null,
 						Footer: () =>
 							state.dialog || state.awaiting ? (
 								<div className="flex items-center gap-2 px-3 py-2 text-[13px] text-accent">
@@ -492,7 +564,6 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 				}}
 				markPending={(id, mark) => dispatch({ t: "mark-pending", id, state: mark })}
 				removePending={(id) => dispatch({ t: "remove-pending", id })}
-				requestClose={() => setConfirmClose(true)}
 			/>
 
 			<Dialog

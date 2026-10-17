@@ -100,6 +100,16 @@ export function reduceAppend(s: DriverState, p: TranscriptAppend): DriverState {
 	return reconcile({ ...s, items: [...s.items, ...fresh].sort((a, b) => a.seq - b.seq) });
 }
 
+/** Prepend one fetched history page: dedupe by seq (an SSE append can
+ * race the page fetch) with the live copy winning, ascending out. */
+export function mergeOlder(items: StreamItem[], older: StreamItem[]): StreamItem[] {
+	const known = new Map(items.map((it) => [it.seq, it]));
+	for (const it of older) {
+		if (!known.has(it.seq)) known.set(it.seq, it);
+	}
+	return [...known.values()].sort((a, b) => a.seq - b.seq);
+}
+
 export function reduceStatus(s: DriverState, p: TranscriptStatus): DriverState {
 	return {
 		...s,

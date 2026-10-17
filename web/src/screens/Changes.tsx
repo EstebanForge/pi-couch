@@ -2,10 +2,10 @@
 // file's diff, per-line comment drafts in the device tray (the legacy
 // trayKey format, so drafts survive), Send All through herdr.
 import { Sheet, Toast } from "konsta/react";
-import { ScreenHeader } from "../components/ScreenHeader";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChangeFile, ChangesDiff, ChangesList, PendingComment } from "../api";
 import { getChanges, getDiff, sendAllComments } from "../api";
+import { ScreenHeader } from "../components/ScreenHeader";
 import { connectStream } from "../stream";
 
 // Same key and shape the templ island used: drafts written there are

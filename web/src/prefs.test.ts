@@ -61,9 +61,9 @@ describe("prefs", () => {
 		expect(quickKeyOrder()).toBeNull();
 		setQuickKeyOrder(["down", "esc"]);
 		expect(quickKeyOrder()).toEqual(["down", "esc"]);
-		backing.set("couch-pi.keyOrder", "{broken");
+		backing.set("couch-pi.keyOrder.v2", "{broken");
 		expect(quickKeyOrder()).toBeNull();
-		backing.set("couch-pi.keyOrder", JSON.stringify(["esc", 42, "up"]));
+		backing.set("couch-pi.keyOrder.v2", JSON.stringify(["esc", 42, "up"]));
 		expect(quickKeyOrder()).toEqual(["esc", "up"]);
 	});
 });

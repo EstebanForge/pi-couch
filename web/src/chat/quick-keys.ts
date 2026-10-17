@@ -6,9 +6,8 @@ export type QuickKey = {
 	id: string;
 	label: string;
 	// keys go to the TUI; queue is the Alt+Enter flow (draft first, then
-	// the key, per the spike); close opens the confirm dialog instead of
-	// sending a keystroke (Ctrl+D would strand the workspace).
-	action: { kind: "keys"; keys: string[] } | { kind: "queue" } | { kind: "close" };
+	// the key, per the spike).
+	action: { kind: "keys"; keys: string[] } | { kind: "queue" };
 	enabled: (status: string, hasText: boolean) => boolean;
 };
 
@@ -21,25 +20,23 @@ export const QUICK_KEYS: QuickKey[] = [
 		action: { kind: "keys", keys: ["esc"] },
 		enabled: (status) => status === "working" || status === "blocked",
 	},
-	{ id: "enter", label: "⏎", action: { kind: "keys", keys: ["enter"] }, enabled: hasDriver },
-	// Space and Tab drive extension dialogs (space cycles a settings
-	// value or toggles multi-select, tab switches questionnaire tabs);
-	// in pi's plain editor they insert the character. herdr 22 has no
-	// page-up/down key (invalid_key in every spelling), so long selects
-	// scroll with held arrows.
-	{ id: "space", label: "Space", action: { kind: "keys", keys: ["space"] }, enabled: hasDriver },
 	{ id: "tab", label: "Tab", action: { kind: "keys", keys: ["tab"] }, enabled: hasDriver },
-	{ id: "left", label: "←", action: { kind: "keys", keys: ["left"] }, enabled: hasDriver },
-	{ id: "up", label: "↑", action: { kind: "keys", keys: ["up"] }, enabled: hasDriver },
-	{ id: "down", label: "↓", action: { kind: "keys", keys: ["down"] }, enabled: hasDriver },
-	{ id: "right", label: "→", action: { kind: "keys", keys: ["right"] }, enabled: hasDriver },
 	{
 		id: "altenter",
 		label: "Alt+⏎",
 		action: { kind: "queue" },
 		enabled: (status, hasText) => status === "working" && hasText,
 	},
-	{ id: "ctrld", label: "^D", action: { kind: "close" }, enabled: hasDriver },
+	// Space drives extension dialogs (space cycles a settings value or
+	// toggles multi-select); in pi's plain editor it inserts the
+	// character. herdr 22 has no page-up/down key (invalid_key in every
+	// spelling), so long selects scroll with held arrows.
+	{ id: "space", label: "Space", action: { kind: "keys", keys: ["space"] }, enabled: hasDriver },
+	{ id: "enter", label: "⏎", action: { kind: "keys", keys: ["enter"] }, enabled: hasDriver },
+	{ id: "left", label: "←", action: { kind: "keys", keys: ["left"] }, enabled: hasDriver },
+	{ id: "up", label: "↑", action: { kind: "keys", keys: ["up"] }, enabled: hasDriver },
+	{ id: "down", label: "↓", action: { kind: "keys", keys: ["down"] }, enabled: hasDriver },
+	{ id: "right", label: "→", action: { kind: "keys", keys: ["right"] }, enabled: hasDriver },
 ];
 
 // After an Esc, wait before the next key: herdr's lone-Esc finding.

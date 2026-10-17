@@ -5,15 +5,14 @@ describe("orderKeys", () => {
 	it("keeps the default order when nothing is stored", () => {
 		expect(orderKeys(null).map((k) => k.id)).toEqual([
 			"esc",
-			"enter",
-			"space",
 			"tab",
+			"altenter",
+			"space",
+			"enter",
 			"left",
 			"up",
 			"down",
 			"right",
-			"altenter",
-			"ctrld",
 		]);
 	});
 
@@ -27,10 +26,10 @@ describe("orderKeys", () => {
 	});
 
 	it("drops unknown stored ids and keeps every known key", () => {
-		const ids = orderKeys(["bogus", "ctrld", "lost"]).map((k) => k.id);
+		const ids = orderKeys(["bogus", "space", "lost"]).map((k) => k.id);
 		expect(ids).not.toContain("bogus");
 		expect(ids).not.toContain("lost");
-		expect(ids[0]).toBe("ctrld");
+		expect(ids[0]).toBe("space");
 		expect(new Set(ids).size).toBe(ids.length);
 	});
 });

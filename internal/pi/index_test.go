@@ -132,3 +132,49 @@ func TestTranscriptMissing(t *testing.T) {
 		t.Fatal("missing session must error")
 	}
 }
+
+func TestTranscriptBefore(t *testing.T) {
+	ix := testIndex(t)
+	_, items, err := ix.Transcript("20261010_fixture", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) < 3 {
+		t.Fatalf("fixture too small: %d", len(items))
+	}
+	last := int(items[len(items)-1].Seq)
+
+	page, more, err := ix.TranscriptBefore("20261010_fixture", last, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page) != 1 || int(page[0].Seq) >= last {
+		t.Fatalf("page: %+v more=%v", page, more)
+	}
+	if !more {
+		t.Fatal("want more=true with older items left")
+	}
+
+	// before the oldest seq: empty page, no more
+	first := int(items[0].Seq)
+	page, more, err = ix.TranscriptBefore("20261010_fixture", first, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page) != 0 || more {
+		t.Fatalf("oldest page: %+v more=%v", page, more)
+	}
+
+	// a page of the whole branch clipped to the last two, ascending
+	page, more, err = ix.TranscriptBefore("20261010_fixture", 1<<30, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page) != 2 || int(page[0].Seq) >= int(page[1].Seq) {
+		t.Fatalf("tail page: %+v", page)
+	}
+
+	if _, _, err := ix.TranscriptBefore("nope", 1<<30, 2); err == nil {
+		t.Fatal("unknown key must error")
+	}
+}

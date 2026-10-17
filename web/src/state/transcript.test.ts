@@ -4,6 +4,7 @@ import {
 	type DriverState,
 	emptyDriver,
 	groupWorkBlocks,
+	mergeOlder,
 	reduceAppend,
 	reduceReset,
 	reduceStatus,
@@ -13,6 +14,21 @@ const item = (seq: number, kind: StreamItem["kind"], text = ""): StreamItem => (
 	seq,
 	kind,
 	text,
+});
+
+describe("mergeOlder", () => {
+	it("prepends older pages deduped and ascending", () => {
+		const cur = [item(40, "user", "new"), item(41, "text", "newer")];
+		const merged = mergeOlder(cur, [item(41, "text", "dup"), item(39, "user", "old")]);
+		expect(merged.map((i) => i.seq)).toEqual([39, 40, 41]);
+		// the live copy wins over the fetched page
+		expect(merged.find((i) => i.seq === 41)?.text).toBe("newer");
+	});
+
+	it("keeps a fully duplicate page a no-op", () => {
+		const cur = [item(40, "user", "new")];
+		expect(mergeOlder(cur, [item(40, "user", "dup")])).toEqual(cur);
+	});
 });
 
 describe("reduceReset", () => {

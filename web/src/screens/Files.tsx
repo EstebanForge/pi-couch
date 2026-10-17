@@ -1,10 +1,10 @@
 // Files.tsx — /sessions/{key}/files: lazy per-directory listing of the
 // session's repo plus a text/file preview.
 import { Toast } from "konsta/react";
-import { ScreenHeader } from "../components/ScreenHeader";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FilesList, FileView } from "../api";
 import { getFiles, getFileView } from "../api";
+import { ScreenHeader } from "../components/ScreenHeader";
 
 const fmtSize = (n: number): string => {
 	if (n < 1024) return `${n} B`;

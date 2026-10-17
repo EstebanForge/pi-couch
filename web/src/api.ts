@@ -201,6 +201,20 @@ export async function getItemText(key: string, seq: number): Promise<string> {
 	return ((await res.json()) as { text: string }).text;
 }
 
+/** One reverse-pagination page: items strictly older than `before`,
+ * ascending; more says whether an older page exists. */
+export async function getTranscriptPage(
+	key: string,
+	before: number,
+	limit = 20,
+): Promise<{ items: StreamItem[]; more: boolean }> {
+	const res = await fetch(
+		`/api/sessions/${encodeURIComponent(key)}/transcript?before=${before}&limit=${limit}`,
+	);
+	if (!res.ok) throw new Error(`transcript ${res.status}`);
+	return (await res.json()) as { items: StreamItem[]; more: boolean };
+}
+
 export async function getDiff(key: string, file: string): Promise<ChangesDiff> {
 	const res = await fetch(
 		`/api/sessions/${encodeURIComponent(key)}/changes?file=${encodeURIComponent(file)}`,

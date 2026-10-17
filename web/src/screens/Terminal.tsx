@@ -8,10 +8,10 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { Toast } from "konsta/react";
-import { ScreenHeader } from "../components/ScreenHeader";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type SessionsSnapshot, sendKeys, sendTextInput } from "../api";
 import { ESC_SETTLE_MS } from "../chat/quick-keys";
+import { ScreenHeader } from "../components/ScreenHeader";
 import { connectStream, type Stream } from "../stream";
 
 // Dracula palette for the grid; same values as index.css tokens.

@@ -325,6 +325,28 @@ func (ix *Index) Transcript(key string, limit int) (SessionMeta, []ViewItem, err
 	return meta, items, nil
 }
 
+// TranscriptBefore pages backwards through the active branch: the
+// last limit items strictly older than before, ascending, with more
+// reporting whether older items remain. Same render truncation as
+// Transcript so pages match the stream's shapes.
+func (ix *Index) TranscriptBefore(key string, before int, limit int) ([]ViewItem, bool, error) {
+	items, err := ix.branchItems(key, renderLimit)
+	if err != nil {
+		return nil, false, err
+	}
+	cut := 0
+	for cut < len(items) && int(items[cut].Seq) < before {
+		cut++
+	}
+	older := items[:cut]
+	more := false
+	if limit > 0 && len(older) > limit {
+		older = older[len(older)-limit:]
+		more = true
+	}
+	return older, more, nil
+}
+
 // FullItem returns one transcript item with no render truncation, so
 // the client can show whole tool output on demand.
 func (ix *Index) FullItem(key string, seq int) (SessionMeta, ViewItem, error) {

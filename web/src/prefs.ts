@@ -6,7 +6,9 @@ export type EnterSendsPref = "auto" | "send" | "newline";
 
 const ENTER_KEY = "couch-pi.enterSends";
 const KEYS_KEY = "couch-pi.quickKeys";
-const ORDER_KEY = "couch-pi.keyOrder";
+// v2: the 2026-10 default dropped enter and reordered the strip; a
+// stored v1 order would otherwise mask the new default forever.
+const ORDER_KEY = "couch-pi.keyOrder.v2";
 const QUICK_PATH_KEY = "couch-pi.quickPath";
 
 function store(): Storage | null {
