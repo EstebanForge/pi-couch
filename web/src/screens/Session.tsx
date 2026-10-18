@@ -437,7 +437,6 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 					)}
 				</div>
 			</header>
-			{state.todos.length > 0 && <TodosCard todos={state.todos} />}
 			{/* tool strip */}
 			<div
 				className="flex gap-1 overflow-x-auto border-b border-base-300 px-2 py-1"
@@ -477,6 +476,7 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 					/>
 				</div>
 			)}
+			{state.todos.length > 0 && <TodosCard todos={state.todos} />}
 			{conn === "offline" && (
 				<div className="bg-error/20 px-3 py-1 text-center text-[12px] text-error">
 					Reconnecting…
@@ -660,6 +660,7 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 // asked for).
 function TodosCard({ todos }: { todos: Todo[] }) {
 	const [open, setOpen] = useState(false);
+	const done = todos.filter((t) => t.status === "completed").length;
 	return (
 		<div className="border-b border-base-300 px-3 py-2">
 			<button
@@ -669,7 +670,7 @@ function TodosCard({ todos }: { todos: Todo[] }) {
 				className="flex min-h-[36px] w-full items-center gap-2 text-left"
 			>
 				<span className="text-[11px] tracking-widest text-muted uppercase">Todos</span>
-				<span className="text-[11px] text-muted">· {todos.length}</span>
+				<span className="text-[11px] text-muted">· {done}/{todos.length}</span>
 				<span className="ml-auto text-[11px] text-muted">{open ? "▾" : "▸"}</span>
 			</button>
 			{open && (

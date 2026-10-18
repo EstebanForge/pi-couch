@@ -75,8 +75,10 @@ type transcriptStatus struct {
 	// keep-on-the-client, and only an explicit null may clear a card
 	// once pi's end event lands.
 	Dialog *dialogWire `json:"dialog"`
-	// Todos re-sent whenever the checklist changes.
-	Todos []pi.Todo `json:"todos,omitempty"`
+	// Todos re-sent whenever the checklist changes. Never omitempty:
+	// a checklist clear must reach the client as an empty array, not
+	// as an absent key that reads as keep-what-you-have.
+	Todos []pi.Todo `json:"todos"`
 }
 
 // dialogWire is the open pi dialog as the phone sees it: the bridge

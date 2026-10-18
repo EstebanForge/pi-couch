@@ -251,7 +251,8 @@ func (ix *Index) parse(path, key string, st os.FileInfo) (SessionMeta, bool) {
 		Version: h.Version,
 		Entries: len(entries),
 	}
-	for _, e := range entries {
+	todoIdx, lastUserIdx := -1, -1
+	for i, e := range entries {
 		if u := e.Usage; u != nil {
 			meta.TotalTokens += u.TotalTokens
 			meta.TotalCost += u.Cost.Total
@@ -274,8 +275,11 @@ func (ix *Index) parse(path, key string, st os.FileInfo) (SessionMeta, bool) {
 				var td struct {
 					Tasks []Todo `json:"tasks"`
 				}
-				if json.Unmarshal(e.Data, &td) == nil && len(td.Tasks) > 0 {
+				// A present-but-empty tasks array is a clear; only an
+				// absent key leaves the previous list standing.
+				if json.Unmarshal(e.Data, &td) == nil && td.Tasks != nil {
 					meta.Todos = td.Tasks
+					todoIdx = i
 				}
 			}
 		case "message":
@@ -293,10 +297,32 @@ func (ix *Index) parse(path, key string, st os.FileInfo) (SessionMeta, bool) {
 			if meta.FirstUser == "" && m.Role == "user" {
 				meta.FirstUser = firstText(m)
 			}
+			if m.Role == "user" {
+				lastUserIdx = i
+			}
 		}
 	}
 	meta.FirstUser = truncate(meta.FirstUser, 80)
+	// pi's terminal drops a finished todo panel when the next user
+	// message lands; retire the served list the same way so the phone
+	// strip does not outlive it. Empty, not nil: a nil list would ride
+	// the status frame as null and the client would keep the stale one.
+	if todoIdx >= 0 && lastUserIdx > todoIdx && todosAllDone(meta.Todos) {
+		meta.Todos = []Todo{}
+	}
 	return meta, true
+}
+
+func todosAllDone(todos []Todo) bool {
+	if len(todos) == 0 {
+		return false
+	}
+	for _, t := range todos {
+		if t.Status != "completed" {
+			return false
+		}
+	}
+	return true
 }
 
 // ViewItem is one renderable transcript row.
