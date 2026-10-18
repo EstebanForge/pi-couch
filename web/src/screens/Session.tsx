@@ -492,7 +492,7 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 
 			<div
 				ref={scroller}
-				className="min-h-0 flex-1"
+				className="relative min-h-0 flex-1"
 				style={{ overscrollBehavior: "contain" }}
 				onPointerDown={(e) => {
 					dragStart.current = e.pointerType === "touch" ? { y: e.clientY } : null;
@@ -535,8 +535,10 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 							) : null,
 					}}
 				/>
-				{blocks.length === 0 && (
-					<div className="p-6 text-center text-[13px] text-muted">Nothing here yet.</div>
+				{blocks.length === 0 && !pendingAgent && (
+					<div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 text-[13px] text-muted">
+						{state.status === "" ? <Spinner size={22} /> : <span>Nothing here yet.</span>}
+					</div>
 				)}
 			</div>
 

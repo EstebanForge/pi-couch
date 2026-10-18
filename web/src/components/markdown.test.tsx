@@ -65,4 +65,5 @@ it("renders short fences open with no fold chrome", () => {
 	const html = renderToString(<Markdown text={"```js\nconst a = 1;\n```"} />);
 	expect(html).toContain("<pre>");
 	expect(html).not.toContain("· 2 lines");
+	expect(html).toContain(`aria-label="Copy code"`);
 });
