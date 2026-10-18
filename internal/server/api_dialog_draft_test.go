@@ -367,6 +367,13 @@ func TestDialogWireServesEmptyEditor(t *testing.T) {
 	sessPath = filepath.Join(sub, "s1.jsonl")
 	a.awaiting = newAwaitingDetector(a.herdr, time.Hour)
 
+	// The synthetic needs two consecutive paints: a single empty-editor
+	// reading is indistinguishable from a just-submitted dialog's
+	// repaint transient.
+	a.awaiting.tick(context.Background())
+	if d, ok := a.dialogFor(sessPath, "blocked"); ok && d.ID != "" {
+		t.Fatalf("one paint surfaced %s, want nothing yet", d.ID)
+	}
 	a.awaiting.tick(context.Background())
 	d, ok := a.dialogFor(sessPath, "blocked")
 	if !ok || d.ID == "" {

@@ -127,13 +127,14 @@ type awaitingDetector struct {
 	// of waiting for a session-file tick.
 	onChange func()
 
-	mu      sync.Mutex
-	pane    map[string]paneState
-	paneIDs map[string]string
+	mu        sync.Mutex
+	pane      map[string]paneState
+	paneIDs   map[string]string
+	emptySeen map[string]int
 }
 
 func newAwaitingDetector(hc paneSource, poll time.Duration) *awaitingDetector {
-	return &awaitingDetector{hc: hc, poll: poll, pane: map[string]paneState{}, paneIDs: map[string]string{}}
+	return &awaitingDetector{hc: hc, poll: poll, pane: map[string]paneState{}, paneIDs: map[string]string{}, emptySeen: map[string]int{}}
 }
 
 // run drives the detector until ctx is done.
@@ -181,8 +182,19 @@ func (d *awaitingDetector) tick(ctx context.Context) {
 				externalEditorRe.MatchString(plain) ||
 				selectCounterRe.MatchString(plain)
 			st.dialog = parsePiDialog(pr.Text)
-			if st.dialog == nil {
-				st.dialog = piEmptyEditorDialog(plain)
+			if st.dialog != nil {
+				delete(d.emptySeen, a.Session.Value)
+			} else if e := piEmptyEditorDialog(plain); e != nil {
+				// One paint proves nothing: a just-submitted dialog's
+				// repaint can transiently read as an emptied editor and
+				// would flash an empty card. A real stuck editor survives
+				// ticks, so require two consecutive ones.
+				d.emptySeen[a.Session.Value]++
+				if d.emptySeen[a.Session.Value] >= 2 {
+					st.dialog = e
+				}
+			} else {
+				delete(d.emptySeen, a.Session.Value)
 			}
 		}
 		if st.awaiting || st.dialog != nil {
