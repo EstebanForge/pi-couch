@@ -1,3 +1,8 @@
+// Parked 2026-10-18: dictation is disabled client-side until the
+// server-side Whisper backend replaces the platform recognizer (30s
+// session caps, per-device quirks). The native bridge and tests stay
+// for revival; Composer ships a send-only button until then.
+
 // Web Speech dictation: browser-provided speech recognition, no key,
 // no server round trip. Chromium ships it; the Android WebView may not,
 // so callers feature-detect and hide the control. Finals commit into
@@ -29,13 +34,34 @@ function ctors(): [RecognitionCtor?, RecognitionCtor?] {
 	const w = window as unknown as {
 		SpeechRecognition?: RecognitionCtor;
 		webkitSpeechRecognition?: RecognitionCtor;
+		CouchPiSpeech?: NativeBridge;
 	};
 	return [w.SpeechRecognition, w.webkitSpeechRecognition];
 }
 
+// The Android WebView ships no Web Speech API, so the shell exposes the
+// platform SpeechRecognizer over a JavascriptInterface (MainActivity.kt).
+// Same contract as the web path from the caller's side: finals only, an
+// end, and an error. The page installs __couchPiDictation callbacks; the
+// shell calls them from the UI thread.
+type NativeBridge = {
+	available: () => boolean;
+	start: (lang: string) => void;
+	stop: () => void;
+};
+
+type NativeCallbacks = { onFinal: (t: string) => void; onError: () => void; onEnd: () => void };
+
+function nativeBridge(): NativeBridge | null {
+	if (typeof window === "undefined") return null;
+	const b = (window as unknown as { CouchPiSpeech?: NativeBridge }).CouchPiSpeech;
+	if (!b?.available()) return null;
+	return b;
+}
+
 export function dictationSupported(): boolean {
 	const [a, b] = ctors();
-	return !!(a || b);
+	return !!(a || b) || nativeBridge() !== null;
 }
 
 export type Dictation = { stop: () => void };
@@ -47,9 +73,66 @@ export function startDictation(cb: {
 	onEnd: () => void;
 	onError: () => void;
 }): Dictation | null {
+	const native = nativeBridge();
+	if (native) return startNative(native, cb);
 	const [a, b] = ctors();
 	const Ctor = a ?? b;
-	if (!Ctor) return null;
+	if (Ctor) return startWeb(Ctor, cb);
+	return null;
+}
+
+function startNative(
+	bridge: NativeBridge,
+	cb: { onFinal: (text: string) => void; onEnd: () => void; onError: () => void },
+): Dictation | null {
+	let alive = true;
+	const uninstall = () => {
+		delete (window as unknown as Record<string, unknown>).__couchPiDictation;
+	};
+	(window as unknown as Record<string, unknown>).__couchPiDictation = {
+		onFinal: (t: string) => {
+			if (alive) cb.onFinal(t);
+		},
+		onError: () => {
+			if (!alive) return;
+			alive = false;
+			uninstall();
+			cb.onError();
+		},
+		onEnd: () => {
+			if (!alive) return;
+			alive = false;
+			uninstall();
+			cb.onEnd();
+		},
+	} satisfies NativeCallbacks;
+	try {
+		const lang = typeof navigator !== "undefined" && navigator.language ? navigator.language : "en";
+		bridge.start(lang);
+	} catch {
+		alive = false;
+		uninstall();
+		cb.onError();
+		return null;
+	}
+	return {
+		stop: () => {
+			if (!alive) return;
+			alive = false;
+			uninstall();
+			try {
+				bridge.stop();
+			} catch {
+				// already dead
+			}
+		},
+	};
+}
+
+function startWeb(
+	Ctor: RecognitionCtor,
+	cb: { onFinal: (text: string) => void; onEnd: () => void; onError: () => void },
+): Dictation | null {
 	const rec = new Ctor();
 	rec.lang = typeof navigator !== "undefined" && navigator.language ? navigator.language : "en";
 	rec.continuous = true;

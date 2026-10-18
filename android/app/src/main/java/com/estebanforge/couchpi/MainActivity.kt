@@ -4,11 +4,19 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
+import android.util.Log
 import android.view.View
 import android.view.WindowInsets
+import android.webkit.JavascriptInterface
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
@@ -18,6 +26,7 @@ import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import org.json.JSONObject
 
 // ADR-0003: one Activity, one WebView, full-screen. An icon and a container,
 // nothing more: no IPC bridge, no bundled assets, no FCM. The URL is set on
@@ -111,10 +120,153 @@ class MainActivity : Activity() {
         // offsets its own content via env(safe-area-inset-*) (viewport-fit
         // cover), so the shell applies no padding of its own.
         web = view
+        view.addJavascriptInterface(speech, "CouchPiSpeech")
         setContentView(view)
         @Suppress("DEPRECATION") // pre-35 devices; ignored on 35+
         window.statusBarColor = Color.TRANSPARENT
         view.loadUrl(url)
+    }
+
+    // Native dictation: the Android WebView ships no Web Speech API, so
+    // the shell exposes the platform SpeechRecognizer to the page. Same
+    // contract the web path offers: finals only, an end, an error. The
+    // page installs window.__couchPiDictation callbacks before start().
+    private val speech = SpeechBridge()
+
+    private var pendingSpeechLang: String? = null
+
+    private inner class SpeechBridge {
+        private var recognizer: SpeechRecognizer? = null
+
+        // True while the page wants listening: the recognizer restarts
+        // per phrase and silence is retried instead of reported.
+        private var wanting = false
+
+        @JavascriptInterface
+        fun available(): Boolean = SpeechRecognizer.isRecognitionAvailable(this@MainActivity)
+
+        @JavascriptInterface
+        fun start(lang: String) {
+            runOnUiThread {
+                if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) !=
+                    PackageManager.PERMISSION_GRANTED
+                ) {
+                    pendingSpeechLang = lang
+                    requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), speechReq)
+                    return@runOnUiThread
+                }
+                begin(lang)
+            }
+        }
+
+        // The permission-grant path lands here too: listening starts only
+        // through this gate.
+        fun begin(lang: String) {
+            wanting = true
+            listen(lang)
+        }
+
+        @JavascriptInterface
+        fun stop() {
+            runOnUiThread {
+                wanting = false
+                recognizer?.stopListening()
+            }
+        }
+
+        private fun listen(lang: String) {
+            recognizer?.destroy()
+            recognizer = null
+            // The service needs a beat to release the mic after a long
+            // session; an instant re-arm races it into ERROR_CLIENT.
+            Handler(Looper.getMainLooper()).postDelayed({ if (wanting) arm(lang) }, 250)
+        }
+
+        private fun arm(lang: String) {
+            if (!wanting) return
+            val rec = SpeechRecognizer.createSpeechRecognizer(this@MainActivity)
+            recognizer = rec
+            rec.setRecognitionListener(
+                object : RecognitionListener {
+                    override fun onResults(results: Bundle) {
+                        val text = results
+                            .getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                            ?.firstOrNull()
+                        Log.i(TAG, "results: wanting=$wanting text=${text?.take(40)}")
+                        if (!text.isNullOrBlank()) emit("onFinal", text)
+                        if (wanting) listen(lang) else finish()
+                    }
+
+                    override fun onError(error: Int) {
+                        Log.w(TAG, "recognition error $error (wanting=$wanting)")
+                        // Silence while the page still wants listening is a
+                        // pause, not a failure: re-arm and keep waiting.
+                        // CLIENT and RECOGNIZER_BUSY are restart races, not
+                        // real failures, while a session is still wanted.
+                        if (wanting && (
+                                error == SpeechRecognizer.ERROR_NO_MATCH ||
+                                    error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT ||
+                                    error == SpeechRecognizer.ERROR_CLIENT ||
+                                    error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY
+                                )
+                        ) {
+                            listen(lang)
+                            return
+                        }
+                        wanting = false
+                        emit("onError", null)
+                        finish()
+                    }
+
+                    override fun onPartialResults(partialResults: Bundle?) {}
+
+                    override fun onBeginningOfSpeech() {}
+
+                    override fun onEndOfSpeech() {}
+
+                    override fun onReadyForSpeech(params: Bundle?) {}
+
+                    override fun onBufferReceived(buffer: ByteArray?) {}
+
+                    override fun onRmsChanged(rmsdB: Float) {}
+
+                    override fun onEvent(eventType: Int, params: Bundle?) {}
+                },
+            )
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang)
+            }
+            rec.startListening(intent)
+        }
+
+        private fun finish() {
+            recognizer?.destroy()
+            recognizer = null
+            web?.evaluateJavascript("window.__couchPiDictation&&window.__couchPiDictation.onEnd()", null)
+        }
+
+        private fun emit(fn: String, arg: String?) {
+            val a = arg?.let { JSONObject.quote(it) } ?: ""
+            web?.evaluateJavascript("window.__couchPiDictation&&window.__couchPiDictation.$fn($a)", null)
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != speechReq) return
+        val lang = pendingSpeechLang
+        pendingSpeechLang = null
+        if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED && lang != null) {
+            speech.begin(lang)
+        } else {
+            web?.evaluateJavascript("window.__couchPiDictation&&window.__couchPiDictation.onError()", null)
+        }
     }
 
     @Deprecated("Deprecated in Java")
@@ -203,5 +355,8 @@ class MainActivity : Activity() {
         // :8443 — Wicket stacks publish 0.0.0.0:443 machine-wide.
         const val DEFAULT_URL = "https://box.example.ts.net:8443"
         const val PREF_URL = "url"
+        const val speechReq = 7002
+
+        private const val TAG = "CouchPiSpeech"
     }
 }

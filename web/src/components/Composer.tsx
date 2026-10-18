@@ -6,7 +6,6 @@
 import { Sheet, Toast } from "konsta/react";
 import { useEffect, useRef, useState } from "react";
 import { getModels, sendKeys, sendPrompt, setModel, setThinking, uploadImage } from "../api";
-import { type Dictation, startDictation } from "../chat/dictate";
 import { dispositionFor } from "../chat/disposition";
 import { ESC_SETTLE_MS, orderKeys, type QuickKey } from "../chat/quick-keys";
 import { useSheetBack } from "../nav";
@@ -52,52 +51,6 @@ export function Composer(props: {
 	// One request per intent: a double-tap on send (or Alt+Enter while a
 	// send is in flight) must not POST twice - pi would queue both.
 	const sending = useRef(false);
-	// Dictation: browser speech recognition, finals commit into the
-	// draft. The mic hides where the API is missing (some WebViews).
-	const [listening, setListening] = useState(false);
-	const dictation = useRef<Dictation | null>(null);
-	useEffect(
-		() => () => {
-			dictation.current?.stop();
-		},
-		[],
-	);
-	const toggleDictation = () => {
-		if (listening) {
-			dictation.current?.stop();
-			dictation.current = null;
-			setListening(false);
-			return;
-		}
-		const handle = startDictation({
-			onFinal: (t) => setText((prev) => (prev ? `${prev} ${t}` : t)),
-			onEnd: () => {
-				dictation.current = null;
-				setListening(false);
-				// An end that lands almost immediately after start means no
-				// microphone or a blocked engine: tell the user instead of
-				// silently doing nothing. A real session ending is quiet.
-				if (Date.now() - startedAt < 600) {
-					setToast("Dictation unavailable");
-					setTimeout(() => setToast(""), 2200);
-				}
-			},
-			onError: () => {
-				dictation.current = null;
-				setListening(false);
-				setToast("Dictation unavailable");
-				setTimeout(() => setToast(""), 2200);
-			},
-		});
-		if (!handle) {
-			setToast("Dictation unavailable");
-			setTimeout(() => setToast(""), 2200);
-			return;
-		}
-		const startedAt = Date.now();
-		dictation.current = handle;
-		setListening(true);
-	};
 
 	useEffect(() => {
 		localStorage.setItem(draftStoreKey, text);
@@ -467,32 +420,17 @@ export function Composer(props: {
 						spellCheck={false}
 						className="max-h-[50vh] min-h-[44px] w-full min-w-0 flex-1 resize-none rounded-xl bg-base-100 px-3 py-2.5 text-[16px] outline-none"
 					/>
-					{/* One morphing action slot: voice when the box is empty,
-					    send the moment there is text, mic again after the send. */}
 					<button
 						type="button"
-						aria-label={
-							hasText ? "Send" : listening ? "Stop dictation" : "Start dictation"
-						}
-						onClick={() => {
-							if (!hasText) {
-								toggleDictation();
-								return;
-							}
-							if (listening) toggleDictation();
-							onSubmit();
-						}}
-						disabled={hasText && !canSend}
+						aria-label="Send"
+						onClick={() => onSubmit()}
+						disabled={!canSend}
 						className={`mb-0.5 grid h-11 w-11 shrink-0 place-items-center rounded-full text-[16px] transition-colors active:scale-95 ${
-							!hasText && listening
-								? "animate-pulse bg-accent/20 text-accent ring-1 ring-accent/60"
-								: hasText && canSend
-									? "bg-primary text-base-100 text-[17px]"
-									: "bg-base-300 text-muted"
-							}`}
-						>
-							{hasText ? "➤" : "🎙"}
-						</button>
+							canSend ? "bg-primary text-base-100 text-[17px]" : "bg-base-300 text-muted"
+						}`}
+					>
+						➤
+					</button>
 				</div>
 			</div>
 
