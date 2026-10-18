@@ -119,6 +119,34 @@ func TestModelsCacheCorruptFileRunsPi(t *testing.T) {
 	}
 }
 
+func TestParseModelListContext(t *testing.T) {
+	tsv := "provider\tmodel\tcontext\tmax-out\tthinking\timages\n" +
+		"zai\tglm-5\t1M\t32000\tyes\tyes\n" +
+		"p\tm2\t300K\t1\t1\t1\n" +
+		"p\tm3\t200000\t1\t1\t1\n" +
+		"p\tm4\tjunk\t1\t1\t1\n" +
+		"p\tm5\n"
+	rows := parseModelList(tsv)
+	if len(rows) != 5 {
+		t.Fatalf("rows %+v", rows)
+	}
+	if rows[0].ID != "zai/glm-5" || rows[0].Context != 1_000_000 {
+		t.Fatalf("rows[0] = %+v, want context 1000000 from 1M", rows[0])
+	}
+	if rows[1].ID != "p/m2" || rows[1].Context != 300_000 {
+		t.Fatalf("rows[1] = %+v, want context 300000 from 300K", rows[1])
+	}
+	if rows[2].ID != "p/m3" || rows[2].Context != 200000 {
+		t.Fatalf("rows[2] = %+v, want plain digits through", rows[2])
+	}
+	if rows[3].ID != "p/m4" || rows[3].Context != 0 {
+		t.Fatalf("rows[3] = %+v, want context 0 on junk", rows[3])
+	}
+	if rows[4].ID != "p/m5" || rows[4].Context != 0 {
+		t.Fatalf("rows[4] = %+v, want context 0 when absent", rows[4])
+	}
+}
+
 func TestAPIModelsUsesCache(t *testing.T) {
 	a, _, h := streamTestApp(t)
 	cacheRows(t, a.models.path, time.Now(),

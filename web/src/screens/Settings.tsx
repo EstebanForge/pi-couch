@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { getVersion } from "../api";
 import { orderKeys, QUICK_KEYS } from "../chat/quick-keys";
 import { DirBrowser } from "../components/DirBrowser";
+import { FaArrowDown, FaArrowUp } from "../components/fa";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { useSheetBack } from "../nav";
 import {
@@ -125,7 +126,7 @@ export default function SettingsScreen() {
 										onClick={() => move(id, -1)}
 										className="min-h-[36px] min-w-[44px] rounded-lg bg-base-300 px-3 text-base-content active:scale-95 disabled:opacity-30"
 									>
-										↑
+										<FaArrowUp size={14} />
 									</button>
 									<button
 										type="button"
@@ -134,7 +135,7 @@ export default function SettingsScreen() {
 										onClick={() => move(id, 1)}
 										className="min-h-[36px] min-w-[44px] rounded-lg bg-base-300 px-3 text-base-content active:scale-95 disabled:opacity-30"
 									>
-										↓
+										<FaArrowDown size={14} />
 									</button>
 								</span>
 							</div>

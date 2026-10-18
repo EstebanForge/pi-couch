@@ -3,6 +3,7 @@ package server
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -66,6 +67,16 @@ func userLine(id, parent, text string) string {
 	return `{"type":"message","id":"` + id + `","parentId":` + p + `,"timestamp":"2026-10-10T12:00:01.000Z","message":{"role":"user","content":"` + text + `","timestamp":1760000001000}}`
 }
 
+// asstLineServer is an assistant message with a usage record, for
+// status-frame assertions.
+func asstLineServer(id, parent string, total int64) string {
+	p := "null"
+	if parent != "" {
+		p = `"` + parent + `"`
+	}
+	return fmt.Sprintf(`{"type":"message","id":"%s","parentId":%s,"timestamp":"2026-10-10T12:00:04.000Z","message":{"role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"input":10,"output":5,"totalTokens":%d,"cost":{"total":0.01}}}}`, id, p, total)
+}
+
 func streamTestApp(t *testing.T) (*app, string, http.Handler) {
 	t.Helper()
 	root := t.TempDir()
@@ -87,6 +98,7 @@ func streamTestApp(t *testing.T) (*app, string, http.Handler) {
 		watcher:     w,
 		answered:    newDialogMemos(),
 		models:      newModelsCache(filepath.Join(t.TempDir(), "models.json")),
+		memory:      newMemoryProbe(),
 		dialogWake:  make(chan struct{}, 1),
 		dialogLatch: map[string]*dialogWire{},
 	}
@@ -196,6 +208,20 @@ func TestJSONTranscriptStream(t *testing.T) {
 	}
 	if len(ap.Items) != 1 || ap.Items[0].Seq != 1 {
 		t.Fatalf("append items=%+v", ap.Items)
+	}
+
+	// A finished turn carries its usage forward as ctx_tokens. The
+	// assistant item itself lands first as an append; the status frame
+	// follows in the same tick.
+	writeLines(t, path, asstLineServer("c", "b", 4096))
+	waitFrame(t, frames, 8*time.Second, "append")
+	f = waitFrame(t, frames, 8*time.Second, "status")
+	var st transcriptStatus
+	if err := json.Unmarshal([]byte(f.data), &st); err != nil {
+		t.Fatal(err)
+	}
+	if st.CtxTokens != 4096 {
+		t.Fatalf("status ctx_tokens = %d, want 4096", st.CtxTokens)
 	}
 
 	// A branch switch is a fork APPENDED to the jsonl: same item count,

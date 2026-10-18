@@ -1,6 +1,7 @@
-import { Fab, Panel } from "konsta/react";
-import { Fragment, useEffect, useState } from "react";
-import { createQuickAgent, getVersion, type SessionsPatch } from "../api";
+import { Fab } from "konsta/react";
+import { useEffect, useState } from "react";
+import { createQuickAgent, type SessionMeta, type SessionsPatch } from "../api";
+import { FaBell, FaBellSlash, FaGear, FaMagnifyingGlass, FaPlus, FaXmark } from "../components/fa";
 import { NewAgentSheet } from "../components/NewAgentSheet";
 import { NewSessionSheet } from "../components/NewSessionSheet";
 import { Spinner } from "../components/Spinner";
@@ -8,18 +9,17 @@ import { short, tildify } from "../fmt";
 import { navigate, useSheetBack } from "../nav";
 import { quickPath } from "../prefs";
 import { type PushState, pushState, togglePush } from "../push";
-import { grouped, useSessions } from "../state/sessions";
+import { splitDriven, useSessions } from "../state/sessions";
 import { isWaiting, STATUS_DOT } from "../status";
 import { connectStream } from "../stream";
 
-const LIST_WINDOW = 15;
+const LIST_WINDOW = 10;
 const WINDOW_STEP = 5;
 const SEARCH_WINDOW = 50;
 const SEARCH_DEBOUNCE_MS = 300;
 
 export default function HomeList() {
 	const { sessions, total, badges, driven, awaiting, status, error, load, apply } = useSessions();
-	const [menuOpen, setMenuOpen] = useState(false);
 	const [query, setQuery] = useState("");
 	const [limit, setLimit] = useState(LIST_WINDOW);
 	const [loadingMore, setLoadingMore] = useState(false);
@@ -32,14 +32,6 @@ export default function HomeList() {
 	const [agentSheetOpen, setAgentSheetOpen] = useState(false);
 	const [quickBusy, setQuickBusy] = useState(false);
 	const [quickError, setQuickError] = useState("");
-	const [version, setVersion] = useState<string | null>(null);
-
-	useEffect(() => {
-		getVersion()
-			.then(setVersion)
-			.catch(() => {});
-	}, []);
-
 	// Load more refetches a bigger window from the server (the store
 	// only holds what was asked for). The spinner must paint first and
 	// the step lands after a deliberate 500ms beat, so the load is
@@ -87,23 +79,17 @@ export default function HomeList() {
 		return () => stream.close();
 	}, [apply]);
 
-	// The client re-filters so a stray upsert for a non-matching session
-	// cannot surface mid-search.
-	const ordered = grouped(sessions, badges).filter((s) => {
-		if (!needle) return true;
-		return (
-			s.name.toLowerCase().includes(needle) ||
-			s.first_user.toLowerCase().includes(needle) ||
-			s.cwd.toLowerCase().includes(needle)
-		);
-	});
-	const visible = ordered.slice(0, limit);
-	// First non-active row: the Earlier divider renders before it when
-	// actives exist and the boundary sits inside the visible window.
-	const boundary = ordered.findIndex((s) => {
-		const st = badges[s.path] ?? "unknown";
-		return st !== "working" && st !== "blocked";
-	});
+	// Priority split: driven sessions (the herdr sidebar agents) float
+	// above the recency window, once each. Search is a flat list over
+	// everything, driven rows included.
+	const { priority, recents } = splitDriven(sessions, driven);
+	const matches = (s: SessionMeta) =>
+		!needle ||
+		s.name.toLowerCase().includes(needle) ||
+		s.first_user.toLowerCase().includes(needle) ||
+		s.cwd.toLowerCase().includes(needle);
+	const visible = recents.filter(matches).slice(0, limit);
+	const searchList = needle ? sessions.filter(matches) : [];
 
 	const flipPush = () => {
 		void togglePush(push).then(setPush);
@@ -135,6 +121,39 @@ export default function HomeList() {
 			.finally(() => setQuickBusy(false));
 	};
 
+	const card = (s: SessionMeta) => {
+		const st = badges[s.path] ?? "unknown";
+		return (
+			<button
+				type="button"
+				onClick={() => navigate(`/sessions/${encodeURIComponent(s.key)}`, { dir: "fwd" })}
+				className="flex w-full items-center gap-3 rounded-2xl bg-base-200 px-4 py-3 text-left active:scale-[0.99]"
+			>
+				{isWaiting(st) && st === "working" ? (
+					<Spinner size={13} className={awaiting[s.path] ? "text-accent" : "text-primary"} />
+				) : (
+					<span
+						title={awaiting[s.path] ? `${st} · waiting for input` : st}
+						className={`h-2.5 w-2.5 shrink-0 rounded-full ${awaiting[s.path] ? "bg-accent" : (STATUS_DOT[st] ?? "bg-muted")}`}
+					/>
+				)}
+				<span className="min-w-0 flex-1">
+					<span className="block truncate text-[15px] font-medium">
+						{short(s.name || s.first_user || s.key, 60)}
+					</span>
+					<span className="block truncate text-xs text-muted">{short(tildify(s.cwd), 48)}</span>
+					{(driven[s.path]?.label || driven[s.path]?.title) && (
+						<span className="block truncate text-[11px] text-muted/70">
+							{[driven[s.path]?.label, driven[s.path]?.title].filter(Boolean).join(" · ")}
+						</span>
+					)}
+				</span>
+			</button>
+		);
+	};
+
+	const showPriority = !needle && priority.length > 0;
+
 	return (
 		<div
 			className="mx-auto flex min-h-dvh max-w-3xl flex-col"
@@ -145,23 +164,22 @@ export default function HomeList() {
 				style={{ paddingTop: "var(--safe-top, 0px)" }}
 			>
 				<div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-3">
+					{/* The Pi Agent mark, the same three paths as the Android
+					    launcher icon (800x800 box). */}
+					<svg width="22" height="22" viewBox="0 0 800 800" aria-hidden="true">
+						<path d="M165.29,165.29H517.36V400H400V282.65H165.29Z" fill="#F09082" />
+						<path d="M165.29,282.65H282.65V400H400V517.36H282.65V634.72H165.29Z" fill="#4D9ABF" />
+						<path d="M517.36,400H634.72V634.72H517.36Z" fill="#F1BE58" />
+					</svg>
+					<h1 className="text-lg font-semibold">Couch Pi</h1>
 					<button
 						type="button"
-						aria-label="Menu"
-						onClick={() => setMenuOpen(true)}
-						className="grid h-11 w-11 place-items-center rounded-xl text-muted"
+						aria-label="Settings"
+						onClick={() => navigate("/settings", { dir: "fwd" })}
+						className="ml-auto grid h-11 w-11 place-items-center rounded-xl text-muted"
 					>
-						<svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
-							<path
-								d="M3 5h14M3 10h14M3 15h14"
-								stroke="currentColor"
-								strokeWidth="2"
-								strokeLinecap="round"
-							/>
-						</svg>
+						<FaGear size={20} />
 					</button>
-					<h1 className="text-lg font-semibold">Couch Pi</h1>
-					<span className="ml-auto text-sm text-muted">{status === "ok" ? `${total}` : ""}</span>
 					{push !== "unsupported" && (
 						<button
 							type="button"
@@ -170,12 +188,7 @@ export default function HomeList() {
 							onClick={flipPush}
 							className={`grid h-11 w-11 place-items-center rounded-xl ${push === "on" ? "text-warning" : "text-muted"}`}
 						>
-							<svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
-								<path
-									d="M12 3a6 6 0 0 0-6 6v3.2l-1.6 3.2a.7.7 0 0 0 .6 1h14a.7.7 0 0 0 .6-1L18 12.2V9a6 6 0 0 0-6-6Zm-2 15a2 2 0 0 0 4 0"
-									fill="currentColor"
-								/>
-							</svg>
+							{push === "on" ? <FaBell size={20} /> : <FaBellSlash size={20} />}
 						</button>
 					)}
 				</div>
@@ -192,18 +205,10 @@ export default function HomeList() {
 						autoComplete="off"
 						className="w-full rounded-xl border border-muted/40 bg-transparent py-3 pl-10 pr-10 text-[16px] text-base-content placeholder:text-muted focus:border-primary/60 focus:outline-none"
 					/>
-					<svg
+					<FaMagnifyingGlass
+						size={18}
 						className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted"
-						width="18"
-						height="18"
-						viewBox="0 0 24 24"
-						aria-hidden="true"
-					>
-						<path
-							d="M10.5 3a7.5 7.5 0 1 0 4.7 13.4l4.2 4.2 1.4-1.4-4.2-4.2A7.5 7.5 0 0 0 10.5 3Zm0 2a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11Z"
-							fill="currentColor"
-						/>
-					</svg>
+					/>
 					{query !== "" && (
 						<button
 							type="button"
@@ -211,14 +216,7 @@ export default function HomeList() {
 							onClick={() => setQuery("")}
 							className="absolute top-1/2 right-1 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-lg text-muted"
 						>
-							<svg width="16" height="16" viewBox="0 0 20 20" aria-hidden="true">
-								<path
-									d="m5 5 10 10M15 5 5 15"
-									stroke="currentColor"
-									strokeWidth="2"
-									strokeLinecap="round"
-								/>
-							</svg>
+							<FaXmark size={16} />
 						</button>
 					)}
 				</div>
@@ -237,76 +235,51 @@ export default function HomeList() {
 				{status === "ok" && sessions.length === 0 && (
 					<p className="mt-6 px-1 text-sm text-muted">No sessions.</p>
 				)}
-				{status === "ok" && sessions.length > 0 && ordered.length === 0 && (
+				{status === "ok" &&
+					sessions.length > 0 &&
+					!needle &&
+					priority.length === 0 &&
+					recents.length === 0 && (
+						<p className="mt-6 px-1 text-sm text-muted">No sessions match.</p>
+					)}
+				{status === "ok" && needle && searchList.length === 0 && sessions.length > 0 && (
 					<p className="mt-6 px-1 text-sm text-muted">No sessions match.</p>
 				)}
-				<ul className="mt-2 flex flex-col gap-2">
-					{visible.map((s, i) => {
-						const st = badges[s.path] ?? "unknown";
-						return (
-							<Fragment key={s.key}>
-								{i === boundary && boundary > 0 && (
-									<li aria-hidden="true" className="my-1 flex items-center gap-3">
-										<span className="h-px flex-1 bg-base-300" />
-										<span className="text-[11px] uppercase tracking-widest text-muted">
-											Earlier
-										</span>
-										<span className="h-px flex-1 bg-base-300" />
-									</li>
-								)}
-								<li>
-									<button
-										type="button"
-										onClick={() =>
-											navigate(`/sessions/${encodeURIComponent(s.key)}`, {
-												dir: "fwd",
-											})
-										}
-										className="flex w-full items-center gap-3 rounded-2xl bg-base-200 px-4 py-3 text-left active:scale-[0.99]"
-									>
-										{isWaiting(st) && st === "working" ? (
-											<Spinner
-												size={13}
-												className={awaiting[s.path] ? "text-accent" : "text-primary"}
-											/>
-										) : (
-											<span
-												title={awaiting[s.path] ? `${st} · waiting for input` : st}
-												className={`h-2.5 w-2.5 shrink-0 rounded-full ${awaiting[s.path] ? "bg-accent" : (STATUS_DOT[st] ?? "bg-muted")}`}
-											/>
-										)}
-										<span className="min-w-0 flex-1">
-											<span className="block truncate text-[15px] font-medium">
-												{short(s.name || s.first_user || s.key, 60)}
-											</span>
-											<span className="block truncate text-xs text-muted">
-												{short(tildify(s.cwd), 48)}
-											</span>
-											{(driven[s.path]?.label || driven[s.path]?.title) && (
-												<span className="block truncate text-[11px] text-muted/70">
-													{[driven[s.path]?.label, driven[s.path]?.title]
-														.filter(Boolean)
-														.join(" · ")}
-												</span>
-											)}
-										</span>
-									</button>
-								</li>
-							</Fragment>
-						);
-					})}
-				</ul>
-				{status === "ok" && limit < total && (
-					<button
-						type="button"
-						onClick={loadMore}
-						disabled={loadingMore}
-						className="mx-auto mt-3 flex items-center gap-2 rounded-xl bg-base-200 px-5 py-3 text-sm text-muted active:scale-[0.99]"
-					>
-						{loadingMore && <Spinner size={14} />}
-						Load more ({total - limit} earlier)
-					</button>
+				{showPriority && (
+					<section aria-label="priority" className="mt-2">
+						<div className="px-1 pb-2 text-[11px] uppercase tracking-widest text-muted">
+							priority
+						</div>
+						<ul className="flex flex-col gap-2">
+							{priority.map((s) => (
+								<li key={s.key}>{card(s)}</li>
+							))}
+						</ul>
+						<div aria-hidden="true" className="my-4 flex items-center gap-3">
+							<span className="h-px flex-1 bg-base-300" />
+							<span className="text-[11px] uppercase tracking-widest text-muted">earlier</span>
+							<span className="h-px flex-1 bg-base-300" />
+						</div>
+					</section>
 				)}
+				<ul className={showPriority ? "flex flex-col gap-2" : "mt-2 flex flex-col gap-2"}>
+					{(needle ? searchList : visible).map((s) => (
+						<li key={s.key}>{card(s)}</li>
+					))}
+				</ul>
+				{status === "ok" &&
+					(needle ? searchList.length > 0 : visible.length > 0) &&
+					limit < total && (
+						<button
+							type="button"
+							onClick={loadMore}
+							disabled={loadingMore}
+							className="mx-auto mt-3 flex items-center gap-2 rounded-xl bg-base-200 px-5 py-3 text-sm text-muted active:scale-[0.99]"
+						>
+							{loadingMore && <Spinner size={14} />}
+							Load more{needle ? ` (${total - limit} earlier)` : ""}
+						</button>
+					)}
 			</main>
 
 			{/* Side menu: opens only from the home hamburger, no edge swipe,
@@ -361,16 +334,7 @@ export default function HomeList() {
 				</div>
 				<Fab
 					aria-label={fabOpen ? "Close menu" : "New agent"}
-					icon={
-						<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
-							<path
-								d={fabOpen ? "M6 6l12 12M18 6L6 18" : "M12 5v14M5 12h14"}
-								stroke="currentColor"
-								strokeWidth="2"
-								strokeLinecap="round"
-							/>
-						</svg>
-					}
+					icon={fabOpen ? <FaXmark size={24} /> : <FaPlus size={24} />}
 					onClick={() => setFabOpen(!fabOpen)}
 					colors={{
 						bgMaterial: "bg-primary",
@@ -379,38 +343,6 @@ export default function HomeList() {
 					}}
 				/>
 			</div>
-			<Panel
-				side="left"
-				opened={menuOpen}
-				onBackdropClick={() => setMenuOpen(false)}
-				className="bg-base-300 text-base-content"
-			>
-				{/* fixed-position overlay escapes the body safe-area inset,
-				    so the content carries its own top offset */}
-				<div
-					className="flex h-full flex-col p-4"
-					style={{ paddingTop: "calc(var(--safe-top, 0px) + 1rem)" }}
-				>
-					<p className="px-2 pb-2 text-xs uppercase tracking-widest text-muted">Menu</p>
-					<button
-						type="button"
-						onClick={() => {
-							setMenuOpen(false);
-							navigate("/settings", { dir: "fwd" });
-						}}
-						className="flex w-full items-center gap-3 rounded-xl px-2 py-3 text-left text-[15px] active:scale-[0.99]"
-					>
-						<svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true">
-							<path
-								d="M10 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm7-3a7 7 0 0 1-.1 1.2l2 1.6-2 3.4-2.4-1a7 7 0 0 1-2 1.2L12 19H8l-.5-2.6a7 7 0 0 1-2-1.2l-2.4 1-2-3.4 2-1.6A7 7 0 0 1 3 10c0-.4 0-.8.1-1.2l-2-1.6 2-3.4 2.4 1a7 7 0 0 1 2-1.2L8 1h4l.5 2.6a7 7 0 0 1 2 1.2l2.4-1 2 3.4-2 1.6c.1.4.1.8.1 1.2Z"
-								fill="currentColor"
-							/>
-						</svg>
-						Settings
-					</button>
-					<p className="mt-auto px-2 pt-3 text-xs text-muted">Couch Pi {version ?? "…"}</p>
-				</div>
-			</Panel>
 		</div>
 	);
 }

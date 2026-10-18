@@ -5,6 +5,7 @@ import { Sheet, Toast } from "konsta/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChangeFile, ChangesDiff, ChangesList, PendingComment } from "../api";
 import { getChanges, getDiff, sendAllComments } from "../api";
+import { FaXmark } from "../components/fa";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { connectStream } from "../stream";
 
@@ -274,7 +275,7 @@ export default function ChangesScreen({ sessionKey }: { sessionKey: string }) {
 								onClick={() => discard(i)}
 								className="shrink-0 rounded-lg px-2 py-1 text-muted active:scale-95"
 							>
-								✕
+								<FaXmark size={14} />
 							</button>
 						</div>
 					))}

@@ -2,6 +2,7 @@ package pi
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -27,8 +28,11 @@ type SessionMeta struct {
 	Entries     int       `json:"entries"`
 	TotalTokens int64     `json:"total_tokens"`
 	TotalCost   float64   `json:"total_cost"`
-	Model       string    `json:"model"`
-	Thinking    string    `json:"thinking"`
+	// CtxTokens is the newest turn's usage total, a stand-in for the
+	// current context-window fill.
+	CtxTokens int64  `json:"ctx_tokens,omitempty"`
+	Model     string `json:"model"`
+	Thinking  string `json:"thinking"`
 	// Todos is the latest rpiv-todo-state checklist; empty when the
 	// session never ran the todo extension.
 	Todos []Todo `json:"todos,omitempty"`
@@ -256,6 +260,7 @@ func (ix *Index) parse(path, key string, st os.FileInfo) (SessionMeta, bool) {
 		if u := e.Usage; u != nil {
 			meta.TotalTokens += u.TotalTokens
 			meta.TotalCost += u.Cost.Total
+			meta.CtxTokens = u.TotalTokens
 		}
 		switch e.Type {
 		case "session_info":
@@ -290,6 +295,7 @@ func (ix *Index) parse(path, key string, st os.FileInfo) (SessionMeta, bool) {
 			if m.Usage != nil {
 				meta.TotalTokens += m.Usage.TotalTokens
 				meta.TotalCost += m.Usage.Cost.Total
+				meta.CtxTokens = m.Usage.TotalTokens
 			}
 			if m.Model != "" {
 				meta.Model = m.Provider + "/" + m.Model
@@ -378,6 +384,58 @@ func (ix *Index) TranscriptBefore(key string, before int, limit int) ([]ViewItem
 		more = true
 	}
 	return older, more, nil
+}
+
+// ItemImage returns the decoded bytes of the item's first image block
+// with its mime type. Image parts (user attachments, read-tool results)
+// ride the transcript as counts only, so clients fetch bytes here.
+func (ix *Index) ItemImage(key string, seq int) ([]byte, string, error) {
+	meta, ok := ix.Meta(key)
+	if !ok {
+		return nil, "", fmt.Errorf("session %q not found", key)
+	}
+	st, err := os.Stat(meta.Path)
+	if err != nil {
+		return nil, "", err
+	}
+	entries, err := ix.tailEntries(key, meta.Path, st)
+	if err != nil {
+		return nil, "", err
+	}
+	path := ActivePath(entries)
+	pos := 0
+	for _, e := range path {
+		var vs []ViewItem
+		switch {
+		case e.Message != nil:
+			vs = messageItems(e, 0)
+		case e.Type == "compaction", e.Type == "model_change", e.Type == "branch_summary", e.Type == "custom_message":
+			vs = []ViewItem{{Kind: "marker"}}
+		}
+		start := pos
+		pos += len(vs)
+		if seq < start || seq >= pos {
+			continue
+		}
+		if e.Message != nil {
+			for _, b := range e.Message.Blocks() {
+				if b.Type != "image" || b.Data == "" {
+					continue
+				}
+				raw, err := base64.StdEncoding.DecodeString(b.Data)
+				if err != nil {
+					return nil, "", fmt.Errorf("item %d image in %q: %w", seq, key, err)
+				}
+				mime := b.MimeType
+				if mime == "" {
+					mime = "application/octet-stream"
+				}
+				return raw, mime, nil
+			}
+		}
+		return nil, "", fmt.Errorf("item %d has no image in %q", seq, key)
+	}
+	return nil, "", fmt.Errorf("item %d not found in %q", seq, key)
 }
 
 // FullItem returns one transcript item with no render truncation, so
@@ -663,9 +721,11 @@ func messageItems(e Entry, textLimit int) []ViewItem {
 	case "toolResult":
 		it := ViewItem{Kind: "tool_result", ToolName: m.ToolName, IsError: m.IsError, DurationMs: m.DurationMs}
 		for _, b := range m.Blocks() {
-			if b.Type == "text" {
+			if b.Type == "text" && it.Text == "" {
 				it.Text, it.Truncated = limit(b.Text)
-				break
+			}
+			if b.Type == "image" {
+				it.Images++
 			}
 		}
 		out = append(out, it)

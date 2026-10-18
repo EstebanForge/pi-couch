@@ -4,6 +4,7 @@ import { Toast } from "konsta/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FilesList, FileView } from "../api";
 import { getFiles, getFileView } from "../api";
+import { FaFileLines, FaFolder } from "../components/fa";
 import { ScreenHeader } from "../components/ScreenHeader";
 
 const fmtSize = (n: number): string => {
@@ -128,7 +129,13 @@ export default function FilesScreen({ sessionKey }: { sessionKey: string }) {
 										}
 										className="flex w-full items-center gap-3 rounded-xl bg-base-200 px-4 py-2.5 text-left active:scale-[0.99]"
 									>
-										<span className="shrink-0 text-muted">{e.dir ? "▸" : "·"}</span>
+										<span className="shrink-0 text-muted">
+											{e.dir ? (
+												<FaFolder size={14} />
+											) : (
+												<FaFileLines size={13} className="opacity-60" />
+											)}
+										</span>
 										<span className="min-w-0 flex-1 truncate text-[14px]">{e.name}</span>
 										{!e.dir && (
 											<span className="shrink-0 text-xs text-muted">{fmtSize(e.size)}</span>

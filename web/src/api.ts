@@ -12,6 +12,7 @@ export type SessionMeta = {
 	entries: number;
 	total_tokens: number;
 	total_cost: number;
+	ctx_tokens?: number;
 	model: string;
 	thinking: string;
 };
@@ -88,7 +89,8 @@ export type TranscriptReset = {
 	awaiting?: boolean;
 	dialog?: BridgeDialog | null;
 	todos?: Todo[];
-	meta?: { name: string; first_user: string; cwd: string } | null;
+	memory?: string;
+	meta?: { name: string; first_user: string; cwd: string; ctx_tokens?: number; total_cost?: number } | null;
 };
 
 export type TranscriptAppend = { items: StreamItem[] };
@@ -96,9 +98,11 @@ export type TranscriptStatus = {
 	status: string;
 	model: string;
 	thinking: string;
+	ctx_tokens?: number;
 	awaiting?: boolean;
 	dialog?: BridgeDialog | null;
 	todos?: Todo[];
+	memory?: string;
 };
 
 export async function getSessions(limit?: number, q?: string): Promise<SessionsSnapshot> {
@@ -361,11 +365,12 @@ export const sendKeys = (key: string, keys: string[]) =>
 export const sendTextInput = (key: string, text: string) =>
 	postJSONBody(`/api/sessions/${encodeURIComponent(key)}/terminal/input`, { text });
 
-export async function getModels(q: string): Promise<string[]> {
+export type ModelRow = { id: string; context?: number };
+
+export async function getModels(q: string): Promise<ModelRow[]> {
 	const res = await fetch(`/api/models?q=${encodeURIComponent(q)}`);
 	if (!res.ok) throw new Error(`models ${res.status}`);
-	const rows = (await res.json()) as { id: string }[];
-	return rows.map((r) => r.id);
+	return (await res.json()) as ModelRow[];
 }
 
 export async function uploadImage(file: File): Promise<string> {

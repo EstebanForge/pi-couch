@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { type DirsResponse, getDirs } from "../api";
+import { FaTurnUp } from "./fa";
 
 // Shared jailed folder browser over /api/dirs: home-rooted on the
 // machine running herdr, hidden folders behind a toggle, client-side
@@ -49,7 +50,7 @@ export function DirBrowser({
 						onClick={() => load(browse.parent)}
 						className="min-h-[36px] rounded-lg px-2 text-[13px] text-accent active:scale-95"
 					>
-						↑
+						<FaTurnUp size={14} />
 					</button>
 				)}
 				<div className="min-w-0 flex-1 truncate text-[12px] text-muted" title={browse?.path}>

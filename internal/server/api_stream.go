@@ -44,19 +44,24 @@ type transcriptReset struct {
 	// Todos is the extension todo checklist, latest state. Nil when the
 	// session never ran the todo extension.
 	Todos []pi.Todo `json:"todos,omitempty"`
+	// Memory is the agent memory server's health class, probed against
+	// AGENTMEMORY_URL. Empty until the first probe lands.
+	Memory string `json:"memory,omitempty"`
 	// Meta names the session for the header: deep links have no list
 	// snapshot to look the title up in.
 	Meta *sessionHeader `json:"meta,omitempty"`
 }
 
 type sessionHeader struct {
-	Name      string `json:"name"`
-	FirstUser string `json:"first_user"`
-	Cwd       string `json:"cwd"`
+	Name      string  `json:"name"`
+	FirstUser string  `json:"first_user"`
+	Cwd       string  `json:"cwd"`
+	CtxTokens int64   `json:"ctx_tokens,omitempty"`
+	TotalCost float64 `json:"total_cost,omitempty"`
 }
 
 func headerOf(m pi.SessionMeta) *sessionHeader {
-	return &sessionHeader{Name: m.Name, FirstUser: m.FirstUser, Cwd: m.Cwd}
+	return &sessionHeader{Name: m.Name, FirstUser: m.FirstUser, Cwd: m.Cwd, CtxTokens: m.CtxTokens, TotalCost: m.TotalCost}
 }
 
 type transcriptAppend struct {
@@ -67,6 +72,9 @@ type transcriptStatus struct {
 	Status   string `json:"status"`
 	Model    string `json:"model"`
 	Thinking string `json:"thinking"`
+	// CtxTokens rides the newest turn's usage so the composer can
+	// render a live context-window fill.
+	CtxTokens int64 `json:"ctx_tokens,omitempty"`
 	// Awaiting: the agent sits in a blocking pi dialog while still
 	// reporting working. Omitted when false.
 	Awaiting bool `json:"awaiting,omitempty"`
@@ -79,6 +87,9 @@ type transcriptStatus struct {
 	// a checklist clear must reach the client as an empty array, not
 	// as an absent key that reads as keep-what-you-have.
 	Todos []pi.Todo `json:"todos"`
+	// Memory is the agent memory server's health class; rides frames
+	// whenever it changes.
+	Memory string `json:"memory,omitempty"`
 }
 
 // dialogWire is the open pi dialog as the phone sees it: the bridge
@@ -241,6 +252,7 @@ func (a *app) apiStreamTranscript(w http.ResponseWriter, r *http.Request) {
 	status, model, thinking := "", "", ""
 	var lastAwaiting bool
 	var lastTodos []pi.Todo
+	var lastCtx int64
 	var lastDialog *dialogWire
 	var lastSend time.Time
 	placeholder := false
@@ -267,6 +279,7 @@ func (a *app) apiStreamTranscript(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		cur := itemFps(items)
+		mem := a.memory.class(r.Context())
 		badges := a.herdr.Badges(r.Context())
 		st := badges[meta.Path]
 		awaiting := a.awaiting.isAwaiting(meta.Path)
@@ -284,17 +297,17 @@ func (a *app) apiStreamTranscript(w http.ResponseWriter, r *http.Request) {
 				sent = true
 			}
 		} else {
-			if !send("reset", transcriptReset{Items: items, Status: st, Model: meta.Model, Thinking: meta.Thinking, Awaiting: awaiting, Dialog: dw, Todos: meta.Todos, Meta: headerOf(meta)}) {
+			if !send("reset", transcriptReset{Items: items, Status: st, Model: meta.Model, Thinking: meta.Thinking, Awaiting: awaiting, Dialog: dw, Todos: meta.Todos, Memory: mem, Meta: headerOf(meta)}) {
 				return
 			}
 			prev = cur
 			status, model, thinking = st, meta.Model, meta.Thinking
 			sent = true
 		}
-		if st != status || meta.Model != model || meta.Thinking != thinking || awaiting != lastAwaiting || !slices.Equal(meta.Todos, lastTodos) || !dialogEqual(dw, lastDialog) {
-			status, model, thinking, lastAwaiting, lastTodos = st, meta.Model, meta.Thinking, awaiting, meta.Todos
+		if st != status || meta.Model != model || meta.Thinking != thinking || awaiting != lastAwaiting || !slices.Equal(meta.Todos, lastTodos) || meta.CtxTokens != lastCtx || !dialogEqual(dw, lastDialog) {
+			status, model, thinking, lastAwaiting, lastTodos, lastCtx = st, meta.Model, meta.Thinking, awaiting, meta.Todos, meta.CtxTokens
 			lastDialog = dw
-			if !send("status", transcriptStatus{Status: st, Model: meta.Model, Thinking: meta.Thinking, Awaiting: awaiting, Todos: meta.Todos, Dialog: dw}) {
+			if !send("status", transcriptStatus{Status: st, Model: meta.Model, Thinking: meta.Thinking, CtxTokens: meta.CtxTokens, Awaiting: awaiting, Todos: meta.Todos, Dialog: dw, Memory: mem}) {
 				return
 			}
 			sent = true

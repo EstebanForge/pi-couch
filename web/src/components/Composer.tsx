@@ -5,11 +5,29 @@
 
 import { Sheet, Toast } from "konsta/react";
 import { useEffect, useRef, useState } from "react";
-import { getModels, sendKeys, sendPrompt, setModel, setThinking, uploadImage } from "../api";
+import {
+	getModels,
+	type ModelRow,
+	sendKeys,
+	sendPrompt,
+	setModel,
+	setThinking,
+	uploadImage,
+} from "../api";
 import { dispositionFor } from "../chat/disposition";
 import { ESC_SETTLE_MS, orderKeys, type QuickKey } from "../chat/quick-keys";
 import { useSheetBack } from "../nav";
 import { effectiveEnterSends, quickKeyOrder, quickKeysEnabled } from "../prefs";
+import {
+	FaBrain,
+	FaCheck,
+	FaChevronDown,
+	FaPaperclip,
+	FaPaperPlane,
+	FaSparkles,
+	FaTableCellsLarge,
+	FaXmark,
+} from "./fa";
 import { Spinner } from "./Spinner";
 
 const MAX_FILES = 10;
@@ -24,6 +42,9 @@ export function Composer(props: {
 	status: string;
 	model: string;
 	thinking: string;
+	ctxTokens: number;
+	memory: string | null;
+	cost: number;
 	addPending: (text: string, queued: boolean) => number;
 	markPending: (id: number, state: "sent" | "queued" | "unconfirmed") => void;
 	removePending: (id: number) => void;
@@ -35,10 +56,10 @@ export function Composer(props: {
 	const [files, setFiles] = useState<Attachment[]>([]);
 	const [notice, setNotice] = useState("");
 	const [toast, setToast] = useState("");
-	const [sheet, setSheet] = useState<"none" | "model" | "thinking">("none");
+	const [sheet, setSheet] = useState<"none" | "model" | "thinking" | "commands" | "attach">("none");
 	useSheetBack(sheet !== "none", () => setSheet("none"));
 	const [modelQuery, setModelQuery] = useState("");
-	const [modelRows, setModelRows] = useState<string[]>([]);
+	const [modelRows, setModelRows] = useState<ModelRow[]>([]);
 	const [modelsLoading, setModelsLoading] = useState(false);
 	const [modelMark, setModelMark] = useState(false);
 	const [thinkingMark, setThinkingMark] = useState(false);
@@ -191,6 +212,14 @@ export function Composer(props: {
 
 	// Model search: 300ms debounce over /api/models. Old rows stay
 	// visible while a new query loads; only a cold, empty list spins.
+	// Rows also feed the context fill below the card, so the catalog
+	// is fetched once at mount (the server cache serves it warm).
+	useEffect(() => {
+		getModels("")
+			.then(setModelRows)
+			.catch(() => {});
+	}, []);
+
 	useEffect(() => {
 		if (sheet !== "model") return;
 		setModelsLoading(true);
@@ -278,6 +307,20 @@ export function Composer(props: {
 	const showModel = chosenModel ?? props.model;
 	const showThinking = chosenThinking ?? props.thinking;
 
+	// Context fill in pi's own bar format: 23.5%/1.0M. Without either
+	// number there is no line.
+	const ctxWindow = modelRows.find((r) => r.id === showModel)?.context ?? 0;
+	const ctxPct =
+		props.ctxTokens > 0 && ctxWindow > 0
+			? Math.min(100, (props.ctxTokens / ctxWindow) * 100).toFixed(1)
+			: null;
+	const ctxWin =
+		ctxWindow >= 1_000_000
+			? `${(ctxWindow / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`
+			: ctxWindow >= 1_000
+				? `${Math.round(ctxWindow / 1_000)}K`
+				: "";
+
 	return (
 		<>
 			{/* quick keys strip */}
@@ -331,72 +374,8 @@ export function Composer(props: {
 			)}
 
 			{/* composer card */}
-			<div className="border-t border-base-300 bg-base-200/60 px-2 pt-1 pb-safe">
-				<div className="flex items-center gap-1 pb-1">
-					<button
-						type="button"
-						onClick={() => {
-							setModelQuery("");
-							setSheet("model");
-						}}
-						className="max-w-[55%] truncate rounded-full bg-base-300 px-2.5 py-1 text-[11px] text-base-content active:scale-95"
-					>
-						{modelMark && <Spinner size={12} className="mr-1 text-primary" />}
-						{showModel || "model"}
-					</button>
-					<button
-						type="button"
-						onClick={() => setSheet("thinking")}
-						className="rounded-full bg-base-300 px-2.5 py-1 text-[11px] text-base-content active:scale-95"
-					>
-						{thinkingMark && <Spinner size={12} className="mr-1 text-primary" />}
-						{showThinking || "thinking"}
-					</button>
-					<div className="ml-auto flex items-center gap-1">
-						{files.map((f) => (
-							<span
-								key={f.id}
-								className={`flex max-w-[110px] items-center gap-1 rounded-full px-2 py-1 text-[10px] ${
-									f.error ? "bg-error/30 text-error" : "bg-base-300 text-muted"
-								}`}
-							>
-								<span className="flex min-w-0 items-center gap-1">
-									{f.path ? "✓" : f.error ? "✕" : <Spinner size={10} className="text-muted" />}
-									<span className="truncate">{f.name}</span>
-								</span>
-								<button
-									type="button"
-									aria-label="Remove"
-									className="shrink-0"
-									onClick={() => setFiles((cur) => cur.filter((x) => x.id !== f.id))}
-								>
-									✕
-								</button>
-							</span>
-						))}
-						<button
-							type="button"
-							aria-label="Attach image"
-							className="grid h-9 w-9 place-items-center rounded-full text-muted active:scale-95"
-							onClick={() => fileInput.current?.click()}
-						>
-							📎
-						</button>
-					</div>
-				</div>
-				<input
-					ref={fileInput}
-					type="file"
-					// No accept filter: any file rides the prompt as a path
-					// for the agent's own file tools.
-					multiple
-					hidden
-					onChange={(e) => {
-						void pickFiles(e.target.files);
-						e.target.value = "";
-					}}
-				/>
-				<div className="flex items-end gap-2">
+			<div className="px-2 pt-1 pb-safe">
+				<div className="rounded-2xl border border-base-300 bg-base-200 p-1.5">
 					<textarea
 						ref={ta}
 						value={text}
@@ -418,21 +397,185 @@ export function Composer(props: {
 						autoCorrect="off"
 						autoCapitalize="off"
 						spellCheck={false}
-						className="max-h-[50vh] min-h-[44px] w-full min-w-0 flex-1 resize-none rounded-xl bg-base-100 px-3 py-2.5 text-[16px] outline-none"
+						className="max-h-[50vh] min-h-[40px] w-full resize-none bg-transparent px-2 py-2 text-[16px] outline-none"
 					/>
-					<button
-						type="button"
-						aria-label="Send"
-						onClick={() => onSubmit()}
-						disabled={!canSend}
-						className={`mb-0.5 grid h-11 w-11 shrink-0 place-items-center rounded-full text-[16px] transition-colors active:scale-95 ${
-							canSend ? "bg-primary text-base-100 text-[17px]" : "bg-base-300 text-muted"
-						}`}
-					>
-						➤
-					</button>
+					<input
+						ref={fileInput}
+						type="file"
+						// No accept filter: any file rides the prompt as a path
+						// for the agent's own file tools.
+						multiple
+						hidden
+						onChange={(e) => {
+							void pickFiles(e.target.files);
+							e.target.value = "";
+						}}
+					/>
+					<div className="flex items-center gap-0.5">
+						<button
+							type="button"
+							aria-label="Commands"
+							className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-muted active:scale-95"
+							onClick={() => setSheet("commands")}
+						>
+							<FaTableCellsLarge size={18} />
+						</button>
+						<div className="relative shrink-0">
+							<button
+								type="button"
+								aria-label="Attach image"
+								className="grid h-9 w-9 place-items-center rounded-full text-muted active:scale-95"
+								onClick={() => setSheet("attach")}
+							>
+								<FaPaperclip size={18} />
+							</button>
+							{files.length > 0 && (
+								<span className="absolute -top-0.5 -right-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-primary px-1 text-[10px] text-base-100">
+									{files.length}
+								</span>
+							)}
+						</div>
+						<button
+							type="button"
+							onClick={() => {
+								setModelQuery("");
+								setSheet("model");
+							}}
+							className="flex min-w-0 max-w-[46%] shrink items-center gap-1 rounded-full bg-base-300 px-3 py-1.5 text-[12px] text-base-content active:scale-95"
+						>
+							<FaSparkles size={13} className="shrink-0 text-primary" />
+							{modelMark && <Spinner size={12} className="shrink-0 text-primary" />}
+							<span className="truncate">{showModel || "model"}</span>
+							<FaChevronDown size={12} className="shrink-0 text-muted" />
+						</button>
+						<button
+							type="button"
+							onClick={() => setSheet("thinking")}
+							className="shrink-0 rounded-full bg-base-300 px-3 py-1.5 text-[12px] text-base-content active:scale-95"
+						>
+							{thinkingMark && <Spinner size={12} className="mr-1 text-primary" />}
+							{showThinking || "thinking"}
+						</button>
+						<div className="ml-auto" />
+						<button
+							type="button"
+							aria-label="Send"
+							onClick={() => onSubmit()}
+							disabled={!canSend}
+							className={`grid h-10 w-10 shrink-0 place-items-center rounded-full text-[16px] transition-colors active:scale-95 ${
+								canSend ? "bg-primary text-base-100 text-[17px]" : "bg-base-300 text-muted"
+							}`}
+						>
+							<FaPaperPlane size={17} />
+						</button>
+					</div>
 				</div>
+				{(ctxPct !== null || props.cost > 0 || props.memory) && (
+					<div className="flex items-center justify-center gap-3 px-3 py-1 text-[11px] text-muted">
+						{ctxPct !== null && (
+							<span className="flex items-center gap-1.5">
+								ctx
+								<span className="h-1 w-10 overflow-hidden rounded-full bg-base-300">
+									<span
+										className="block h-full rounded-full bg-primary/70"
+										style={{ width: `${ctxPct}%` }}
+									/>
+								</span>
+								{ctxPct}%{ctxWin && `/${ctxWin}`}
+							</span>
+						)}
+						{props.cost > 0 && <span>${props.cost.toFixed(2)}</span>}
+						{props.memory && (
+							<span aria-label={"memory " + props.memory}>
+								<FaBrain size={13} />
+							</span>
+						)}
+					</div>
+				)}
 			</div>
+
+			{/* commands sheet: placeholder panel, real commands land later */}
+			<Sheet
+				className="pb-safe-all"
+				opened={sheet === "commands"}
+				onBackdropClick={() => setSheet("none")}
+			>
+				<div className="p-3">
+					<div className="mb-2 px-3 text-[13px] text-muted">Commands</div>
+					{["Command one", "Command two", "Command three"].map((c) => (
+						<button
+							key={c}
+							type="button"
+							className="block w-full rounded-xl px-3 py-2.5 text-left text-[14px] active:bg-base-200"
+						>
+							{c}
+						</button>
+					))}
+					<div className="px-3 py-3 text-[12px] text-muted">More commands land here soon.</div>
+				</div>
+			</Sheet>
+
+			{/* attach sheet: the paperclip badge carries the count; this
+				sheet is the management surface */}
+			<Sheet
+				className="pb-safe-all"
+				opened={sheet === "attach"}
+				onBackdropClick={() => setSheet("none")}
+			>
+				<div className="p-3">
+					<div className="mb-1 px-3 text-[13px] text-muted">
+						{files.length > 0 ? `${files.length} attachment${files.length === 1 ? "" : "s"}` : "No attachments"}
+					</div>
+					{files.map((f) => (
+						<div key={f.id} className="flex items-center gap-2 rounded-xl px-3 py-2.5 active:bg-base-200">
+							<span className="shrink-0">
+								{f.path ? (
+									<FaCheck size={13} className="text-primary" />
+								) : f.error ? (
+									<FaXmark size={13} className="text-error" />
+								) : (
+									<Spinner size={13} className="text-muted" />
+								)}
+							</span>
+							<span className="min-w-0 flex-1 truncate text-[14px]">{f.name}</span>
+							{f.error && <span className="shrink-0 text-[11px] text-error">{f.error}</span>}
+							<button
+								type="button"
+								aria-label={`Remove ${f.name}`}
+								className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-muted active:scale-95"
+								onClick={() => setFiles((cur) => cur.filter((x) => x.id !== f.id))}
+							>
+								<FaXmark size={14} />
+							</button>
+						</div>
+					))}
+					{files.length === 0 && (
+						<div className="px-3 py-3 text-[12px] text-muted">
+							Attach files and the agent reads them by path.
+						</div>
+					)}
+					<div className="mt-2 flex gap-2">
+						<button
+							type="button"
+							className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-base-300 px-3 py-2.5 text-[14px] active:scale-95 disabled:opacity-50"
+							disabled={files.length === 0}
+							onClick={() => setFiles([])}
+						>
+							<FaXmark size={13} />
+							Remove all
+						</button>
+						<button
+							type="button"
+							className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-primary px-3 py-2.5 text-[14px] text-base-100 active:scale-95 disabled:opacity-50"
+							disabled={files.length >= MAX_FILES}
+							onClick={() => fileInput.current?.click()}
+						>
+							<FaPaperclip size={13} />
+							Add attachment
+						</button>
+					</div>
+				</div>
+			</Sheet>
 
 			{/* model sheet */}
 			<Sheet
@@ -459,14 +602,14 @@ export function Composer(props: {
 					<div className="max-h-[45vh] overflow-y-auto">
 						{modelRows.map((m) => (
 							<button
-								key={m}
+								key={m.id}
 								type="button"
 								className={`block w-full rounded-xl px-3 py-2.5 text-left text-[14px] active:bg-base-200 ${
-									m === props.model ? "text-primary" : ""
+									m.id === props.model ? "text-primary" : ""
 								}`}
-								onClick={() => applyModel(m)}
+								onClick={() => applyModel(m.id)}
 							>
-								{m}
+								{m.id}
 							</button>
 						))}
 						{modelsLoading && modelRows.length === 0 ? (

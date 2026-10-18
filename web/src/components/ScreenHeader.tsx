@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { FaChevronLeft } from "./fa";
 
 // Konsta's Navbar pins below the safe-area inset, leaving a transparent
 // strip above it where scrolled content ghosts through, and renders
@@ -23,16 +24,7 @@ export function ScreenHeader(props: {
 						onClick={props.onBack}
 						className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-muted active:scale-95"
 					>
-						<svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
-							<path
-								d="M12.5 4 6.5 10l6 6"
-								stroke="currentColor"
-								strokeWidth="2"
-								strokeLinecap="round"
-								strokeLinejoin="round"
-								fill="none"
-							/>
-						</svg>
+						<FaChevronLeft size={20} />
 					</button>
 				)}
 				<div className="min-w-0 flex-1">

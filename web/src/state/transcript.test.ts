@@ -72,6 +72,42 @@ describe("reduceAppend", () => {
 });
 
 describe("reduceStatus", () => {
+	// ctx rides the newest turn's usage: absent keeps, present sets,
+	// and a reset seeds it from the header.
+	it("tracks ctx from resets and statuses", () => {
+		const s: DriverState = reduceReset(emptyDriver, {
+			items: [],
+			status: "working",
+			model: "a/b",
+			thinking: "low",
+			meta: { name: "n", first_user: "f", cwd: "/p", ctx_tokens: 4096 },
+		});
+		expect(s.ctx).toBe(4096);
+		expect(reduceStatus(s, { status: "working", model: "a/b", thinking: "low" }).ctx).toBe(4096);
+		expect(
+			reduceStatus(s, { status: "working", model: "a/b", thinking: "low", ctx_tokens: 8192 }).ctx,
+		).toBe(8192);
+	});
+
+	it("tracks memory health from resets and statuses", () => {
+		const s: DriverState = reduceReset(emptyDriver, {
+			items: [],
+			status: "working",
+			model: "a/b",
+			thinking: "low",
+			memory: "healthy",
+		});
+		expect(s.memory).toBe("healthy");
+		// absent on a status keeps the current value, a new class wins
+		expect(reduceStatus(s, { status: "working", model: "a/b", thinking: "low" }).memory).toBe(
+			"healthy",
+		);
+		expect(
+			reduceStatus(s, { status: "working", model: "a/b", thinking: "low", memory: "down" })
+				.memory,
+		).toBe("down");
+	});
+
 	it("updates only the triple", () => {
 		const s: DriverState = reduceReset(emptyDriver, {
 			items: [item(0, "text", "x")],

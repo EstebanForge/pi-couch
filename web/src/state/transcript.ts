@@ -22,10 +22,12 @@ export type DriverState = {
 	status: string; // herdr badge: working, blocked, done, idle, ""
 	model: string;
 	thinking: string;
+	ctx: number; // newest turn's usage total, for the context fill
+	memory: string | null; // agent memory server health class
 	awaiting: boolean; // dialog chrome on the pane: pi waits on the human
 	dialog: BridgeDialog | null; // bridge-reported open pi dialog (kind + title)
 	todos: Todo[]; // extension todo checklist, latest state
-	header: { name: string; first_user: string; cwd: string } | null;
+	header: { name: string; first_user: string; cwd: string; ctx_tokens?: number; total_cost?: number } | null;
 	pending: PendingMsg[];
 };
 
@@ -34,6 +36,8 @@ export const emptyDriver: DriverState = {
 	status: "",
 	model: "",
 	thinking: "",
+	ctx: 0,
+	memory: null,
 	awaiting: false,
 	dialog: null,
 	todos: [],
@@ -89,6 +93,8 @@ export function reduceReset(_s: DriverState, p: TranscriptReset): DriverState {
 		awaiting: p.awaiting ?? false,
 		dialog: p.dialog ?? null,
 		todos: p.todos ?? [],
+		ctx: p.meta?.ctx_tokens ?? 0,
+		memory: p.memory ?? null,
 		header: p.meta ?? null,
 		pending: [],
 	};
@@ -118,6 +124,8 @@ export function reduceStatus(s: DriverState, p: TranscriptStatus): DriverState {
 		status: p.status,
 		model: p.model,
 		thinking: p.thinking,
+		ctx: p.ctx_tokens ?? s.ctx,
+		memory: p.memory ?? s.memory,
 		awaiting: p.awaiting ?? false,
 		dialog: p.dialog === undefined ? s.dialog : p.dialog,
 		todos: p.todos ?? s.todos,

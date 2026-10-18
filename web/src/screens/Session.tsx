@@ -16,6 +16,14 @@ import {
 } from "../api";
 import { Composer } from "../components/Composer";
 import { DialogActions } from "../components/DialogActions";
+import {
+	FaCaretDown,
+	FaCaretRight,
+	FaCheck,
+	FaChevronLeft,
+	FaCircle,
+	FaEllipsis,
+} from "../components/fa";
 import { Markdown } from "../components/Markdown";
 import { Spinner } from "../components/Spinner";
 import { navigate, useSheetBack } from "../nav";
@@ -112,6 +120,14 @@ function itemRow(it: StreamItem, expanded: boolean, sessionKey: string) {
 				<div className="flex justify-end px-3 py-1">
 					<div className="max-w-[85%] rounded-2xl bg-primary/20 px-3 py-2 text-[15px] whitespace-pre-wrap">
 						{it.text}
+						{!!it.images && (
+							<img
+								src={`/api/sessions/${encodeURIComponent(sessionKey)}/items/${it.seq}/image`}
+								alt="attached image"
+								loading="lazy"
+								className="mt-1 max-h-64 rounded-xl"
+							/>
+						)}
 					</div>
 				</div>
 			);
@@ -165,6 +181,14 @@ function itemRow(it: StreamItem, expanded: boolean, sessionKey: string) {
 					) : (
 						<span className="line-clamp-1 text-muted">{it.text}</span>
 					)}
+					{!!it.images && (
+						<img
+							src={`/api/sessions/${encodeURIComponent(sessionKey)}/items/${it.seq}/image`}
+							alt="tool result image"
+							loading="lazy"
+							className="mt-1 max-h-64 rounded-xl border border-base-300"
+						/>
+					)}
 				</div>
 			);
 		default:
@@ -178,7 +202,15 @@ function itemRow(it: StreamItem, expanded: boolean, sessionKey: string) {
 	}
 }
 
-function Block({ block, sessionKey, st }: { block: WorkBlock; sessionKey: string; st: DriverState }) {
+function Block({
+	block,
+	sessionKey,
+	st,
+}: {
+	block: WorkBlock;
+	sessionKey: string;
+	st: DriverState;
+}) {
 	const [override, setOverride] = useState<boolean | null>(null);
 	if (block.type === "status") {
 		return st.dialog || st.awaiting ? (
@@ -209,7 +241,7 @@ function Block({ block, sessionKey, st }: { block: WorkBlock; sessionKey: string
 				className="flex min-h-9 w-full items-center gap-2 rounded-lg bg-base-200 px-2 py-2 text-left text-[12px] text-muted"
 				onClick={() => setOverride(!open)}
 			>
-				<span className="font-mono">{open ? "▾" : "▸"}</span>
+				<span>{open ? <FaCaretDown size={12} /> : <FaCaretRight size={12} />}</span>
 				<span>
 					{block.items.length} {block.items.length === 1 ? "step" : "steps"} · {names}
 					{block.items.length > 3 ? "…" : ""}
@@ -287,8 +319,13 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 	const blocks = useMemo(() => {
 		const q = query?.trim().toLowerCase();
 		const items = q ? state.items.filter((it) => it.text.toLowerCase().includes(q)) : state.items;
-		const base = items.length > LIMIT ? groupWorkBlocks(items.slice(items.length - LIMIT)) : groupWorkBlocks(items);
-		return state.dialog || state.awaiting || isWaiting(state.status) ? [...base, { type: "status" as const }] : base;
+		const base =
+			items.length > LIMIT
+				? groupWorkBlocks(items.slice(items.length - LIMIT))
+				: groupWorkBlocks(items);
+		return state.dialog || state.awaiting || isWaiting(state.status)
+			? [...base, { type: "status" as const }]
+			: base;
 	}, [state.items, state.dialog, state.awaiting, state.status, query]);
 
 	// One history page per top touch. Skipped mid-search: the filtered
@@ -412,7 +449,7 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 					aria-label="Back"
 					className="flex size-11 items-center justify-center text-[18px] active:scale-95"
 				>
-					←
+					<FaChevronLeft size={20} />
 				</button>
 				<div className="flex min-w-0 items-center gap-2">
 					{isWaiting(state.status) ? (
@@ -463,7 +500,7 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 					className="ml-auto min-h-[36px] shrink-0 rounded-lg px-3 text-[13px] text-base-content active:scale-95"
 					onClick={() => setOverflow(true)}
 				>
-					⋯
+					<FaEllipsis size={18} />
 				</button>
 			</div>
 			{query !== null && (
@@ -575,6 +612,9 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 				status={state.status}
 				model={state.model}
 				thinking={state.thinking}
+				ctxTokens={state.ctx}
+				memory={state.memory}
+				cost={state.header?.total_cost ?? 0}
 				sendAgent={
 					pendingAgent
 						? (body) =>
@@ -672,8 +712,12 @@ function TodosCard({ todos }: { todos: Todo[] }) {
 				className="flex min-h-[36px] w-full items-center gap-2 text-left"
 			>
 				<span className="text-[11px] tracking-widest text-muted uppercase">Todos</span>
-				<span className="text-[11px] text-muted">· {done}/{todos.length}</span>
-				<span className="ml-auto text-[11px] text-muted">{open ? "▾" : "▸"}</span>
+				<span className="text-[11px] text-muted">
+					· {done}/{todos.length}
+				</span>
+				<span className="ml-auto text-muted">
+					{open ? <FaCaretDown size={12} /> : <FaCaretRight size={12} />}
+				</span>
 			</button>
 			{open && (
 				<ul className="max-h-40 space-y-1 overflow-y-auto pt-1">
@@ -697,7 +741,7 @@ function TodoRow({ todo }: { todo: Todo }) {
 				<Spinner size={11} className="shrink-0 text-primary" />
 			) : (
 				<span className={`shrink-0 ${done ? "text-success" : "text-muted"}`}>
-					{done ? "✓" : "○"}
+					{done ? <FaCheck size={11} /> : <FaCircle size={9} className="opacity-50" />}
 				</span>
 			)}
 			<span className="min-w-0 truncate">{todo.subject}</span>

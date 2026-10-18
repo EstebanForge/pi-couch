@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -14,7 +15,8 @@ import (
 
 // modelRow is one pi --list-models line as "provider/model".
 type modelRow struct {
-	ID string `json:"id"`
+	ID      string `json:"id"`
+	Context int    `json:"context,omitempty"`
 }
 
 // The catalog is static per pi release but pi --list-models takes
@@ -122,6 +124,7 @@ func piBinary() (string, error) {
 
 // parseModelList reads the TSV table: provider, model, context, max-out,
 // thinking, images. Rows with fewer than two columns are junk, not data.
+// The context column is pi's compact form: 1M, 300K, 128K, or digits.
 func parseModelList(tsv string) []modelRow {
 	var rows []modelRow
 	for _, line := range strings.Split(tsv, "\n") {
@@ -129,9 +132,33 @@ func parseModelList(tsv string) []modelRow {
 		if len(f) < 2 || f[0] == "provider" {
 			continue
 		}
-		rows = append(rows, modelRow{ID: f[0] + "/" + f[1]})
+		ctx := 0
+		if len(f) > 2 {
+			ctx = parseContextWindow(f[2])
+		}
+		rows = append(rows, modelRow{ID: f[0] + "/" + f[1], Context: ctx})
 	}
 	return rows
+}
+
+// parseContextWindow expands pi's compact window sizes; anything else
+// reads as no window.
+func parseContextWindow(s string) int {
+	s = strings.ToUpper(strings.TrimSpace(s))
+	mult := 1
+	switch {
+	case strings.HasSuffix(s, "M"):
+		mult = 1_000_000
+		s = strings.TrimSuffix(s, "M")
+	case strings.HasSuffix(s, "K"):
+		mult = 1_000
+		s = strings.TrimSuffix(s, "K")
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return 0
+	}
+	return n * mult
 }
 
 // filterModels substring-matches the query against ids, capped.

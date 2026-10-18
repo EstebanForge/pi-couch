@@ -3,22 +3,19 @@ import { getSessions, type SessionMeta, type SessionsPatch, type SessionsSnapsho
 
 type Status = "idle" | "loading" | "ok" | "error";
 
-// Active-first grouping, the templ list's rule: working and blocked
-// float above the rest, recency order holds inside both groups (the
-// snapshots arrive mtime-desc, so a stable partition is enough). The
-// badges map is keyed by session path (the herdr agent's session file),
-// not by key.
-export function grouped(
+// Priority split for the home list: sessions herdr drives (the driven
+// map is keyed by session path) float above the recency list, once
+// each. A driven session without a loaded meta has no card yet.
+export function splitDriven(
 	sessions: SessionsSnapshot["sessions"],
-	badges: SessionsSnapshot["badges"],
-): SessionsSnapshot["sessions"] {
-	const actives: SessionsSnapshot["sessions"] = [];
-	const rest: SessionsSnapshot["sessions"] = [];
+	driven: SessionsSnapshot["driven"],
+): { priority: SessionsSnapshot["sessions"]; recents: SessionsSnapshot["sessions"] } {
+	const priority: SessionsSnapshot["sessions"] = [];
+	const recents: SessionsSnapshot["sessions"] = [];
 	for (const s of sessions) {
-		const st = badges[s.path] ?? "unknown";
-		(st === "working" || st === "blocked" ? actives : rest).push(s);
+		(driven[s.path] ? priority : recents).push(s);
 	}
-	return [...actives, ...rest];
+	return { priority, recents };
 }
 
 // Stream upsert frames carry unordered new-or-changed metas; the store

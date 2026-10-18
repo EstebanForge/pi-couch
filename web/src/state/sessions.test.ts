@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SessionMeta } from "../api";
-import { dropSessions, grouped, mergeUpserts } from "./sessions";
+import { dropSessions, mergeUpserts, splitDriven } from "./sessions";
 
 const meta = (key: string, mtime: string): SessionMeta => ({
 	key,
@@ -20,32 +20,39 @@ const meta = (key: string, mtime: string): SessionMeta => ({
 
 const keys = (rows: SessionMeta[]) => rows.map((s) => s.key);
 
-describe("grouped", () => {
-	it("floats working and blocked above the rest, keeping recency inside groups", () => {
-		const rows = [
-			meta("a", "2026-01-04T00:00:00Z"),
-			meta("b", "2026-01-03T00:00:00Z"),
-			meta("c", "2026-01-02T00:00:00Z"),
-			meta("d", "2026-01-01T00:00:00Z"),
+// Stream upsert frames carry unordered new-or-changed metas; the store
+// list stays mtime-desc with one entry per key.
+describe("splitDriven", () => {
+	it("lifts driven sessions into priority, mtime desc, without repeats", () => {
+		const list = [
+			meta("a", "2026-10-17T12:00:00Z"),
+			meta("b", "2026-10-17T11:00:00Z"),
+			meta("c", "2026-10-17T10:00:00Z"),
 		];
-		const badges = { "/p/b": "working", "/p/d": "blocked" };
-		expect(keys(grouped(rows, badges))).toEqual(["b", "d", "a", "c"]);
+		const { priority, recents } = splitDriven(list, { "/p/b": { status: "working" } });
+		expect(keys(priority)).toEqual(["b"]);
+		expect(keys(recents)).toEqual(["a", "c"]);
 	});
 
-	it("treats an empty badge map as recency order untouched", () => {
-		const rows = [meta("a", "2026-01-02T00:00:00Z"), meta("b", "2026-01-01T00:00:00Z")];
-		expect(keys(grouped(rows, {}))).toEqual(["a", "b"]);
+	it("keeps everything in recents when nothing is driven", () => {
+		const list = [meta("a", "2026-10-17T12:00:00Z")];
+		const { priority, recents } = splitDriven(list, {});
+		expect(keys(priority)).toEqual([]);
+		expect(keys(recents)).toEqual(["a"]);
 	});
 
-	it("keeps relative order when every session is active", () => {
-		const rows = [meta("a", "2026-01-02T00:00:00Z"), meta("b", "2026-01-01T00:00:00Z")];
-		const badges = { "/p/a": "working", "/p/b": "blocked" };
-		expect(keys(grouped(rows, badges))).toEqual(["a", "b"]);
+	it("keeps driven rows outside the loaded window out of recents only by presence", () => {
+		// a driven session whose meta is not loaded yet simply has no card
+		const list = [meta("a", "2026-10-17T12:00:00Z")];
+		const { priority, recents } = splitDriven(list, {
+			"/p/ghost": { status: "working" },
+			"/p/a": { status: "idle" },
+		});
+		expect(keys(priority)).toEqual(["a"]);
+		expect(keys(recents)).toEqual([]);
 	});
 });
 
-// Stream upsert frames carry unordered new-or-changed metas; the store
-// list stays mtime-desc with one entry per key.
 describe("session merge helpers", () => {
 	it("merges upserts, replacing by key and sorting mtime desc", () => {
 		const list = [meta("a", "2026-10-17T10:00:00Z"), meta("b", "2026-10-17T09:00:00Z")];

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { FaCaretDown, FaCaretRight, FaCheck, FaCopy } from "./fa";
 
 /** Assistant text renders as markdown (GFM). Raw HTML never renders:
  * there is no rehype-raw, so tags arrive as escaped plain text. User
@@ -36,20 +37,11 @@ function nodeText(node: unknown): string {
 }
 
 function CopyGlyph() {
-	return (
-		<svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-			<rect x="5.5" y="5.5" width="8" height="8" rx="1.5" />
-			<path d="M10.5 3.5h-6a2 2 0 0 0-2 2v6" />
-		</svg>
-	);
+	return <FaCopy size={14} />;
 }
 
 function CheckGlyph() {
-	return (
-		<svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-			<path d="m3 8.5 3.5 3.5L13 5" />
-		</svg>
-	);
+	return <FaCheck size={14} />;
 }
 
 function CopyButton({ text, className }: { text: string; className: string }) {
@@ -68,7 +60,13 @@ function CopyButton({ text, className }: { text: string; className: string }) {
 			aria-label={state === "done" ? "Copied" : "Copy code"}
 			className={`flex h-9 w-9 items-center justify-center rounded-md bg-base-200/90 text-muted shadow active:scale-95 ${className}`}
 		>
-			{state === "done" ? <CheckGlyph /> : state === "failed" ? <span className="text-[10px]">err</span> : <CopyGlyph />}
+			{state === "done" ? (
+				<CheckGlyph />
+			) : state === "failed" ? (
+				<span className="text-[10px]">err</span>
+			) : (
+				<CopyGlyph />
+			)}
 		</button>
 	);
 }
@@ -158,7 +156,7 @@ function CodeFold({ text, lang }: { text: string; lang?: string }) {
 					aria-expanded={open}
 					className="flex flex-1 items-center gap-1 px-2 py-1"
 				>
-					<span>{open ? "▾" : "▸"}</span>
+					<span>{open ? <FaCaretDown size={12} /> : <FaCaretRight size={12} />}</span>
 					<span>
 						{lang || "code"} · {lines} lines
 					</span>
