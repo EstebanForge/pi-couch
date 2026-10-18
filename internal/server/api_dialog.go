@@ -189,6 +189,12 @@ func (a *app) answerFreeText(w http.ResponseWriter, r *http.Request, ctx context
 			return false
 		}
 		m := parsePiDialog(pr.Text)
+		if m == nil && editorPaneEmpty(pr.Text) {
+			// An emptied editor parses nil (no buffer rows); a sweep
+			// that emptied it must still be completable - type into the
+			// empty buffer and submit.
+			m = &piDialog{Kind: "editor"}
+		}
 		if m != nil && m.Kind == "editor" {
 			// The editor buffer is editable in one step: rewrite and
 			// submit, like pi's own accept.
@@ -330,75 +336,123 @@ func piConfirmOnScreen(text string) bool {
 // preview) and submits in one step, like pi's own accept: park the
 // cursor at the buffer end (ctrl+e, a generous down-walk, ctrl+e
 // again - herdr has no end key), backspace the old content (no-ops
-// once empty), type the replacement - raw newlines insert real lines
-// in pi's editor - verify the repaint, then enter. Refuses rather
-// than guessing when the pane no longer shows the editor.
+// once empty), prove the buffer empty, type the replacement - raw
+// newlines insert real lines in pi's editor - verify the repaint,
+// then enter. Nothing is typed until the buffer reads empty: junk
+// under the typed text is how commits got corrupted, so a sweep
+// that cannot empty the buffer refuses with 409 instead of typing.
 func (a *app) editEditorSubmit(w http.ResponseWriter, r *http.Request, ctx context.Context, paneID, sessionPath string, cur *piDialog, text string) bool {
 	want := editorBufferOf(strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n"))
 	if want == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
 		return false
 	}
-	for attempt := 0; attempt < 3; attempt++ {
-		joined := cur.Body
-		lines := strings.Count(joined, "\n") + 1
-		// A scrolled pane's Body is only the painted window; the draft
-		// in the session jsonl is the full pre-edit buffer. Sweeping by
-		// the fragment leaves junk the typed text then appends to.
-		sweep := utf8.RuneCountInString(joined) + 32
-		if a.idx != nil {
-			if meta, ok := a.idx.ByPath(sessionPath); ok {
-				if draft := a.idx.ToolCallDraft(meta.Key); draft != "" {
-					if n := utf8.RuneCountInString(draft) + 32; n > sweep {
-						sweep = n
-					}
+	refuse := func() bool {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+		return false
+	}
+	// A scrolled pane's Body is only the painted window; the draft in
+	// the session jsonl is the full pre-edit buffer. Trust it only
+	// while the pane parse agrees with it - a stale or diverged draft
+	// would size the sweep wrong in the other direction.
+	sweep := utf8.RuneCountInString(cur.Body) + 32
+	if a.idx != nil {
+		if meta, ok := a.idx.ByPath(sessionPath); ok {
+			if draft := a.idx.ToolCallDraft(meta.Key); draft != "" && editorBufferMatches(cur, draft) {
+				if n := utf8.RuneCountInString(draft) + 32; n > sweep {
+					sweep = n
 				}
 			}
 		}
-		walk := make([]string, 0, lines+10)
-		walk = append(walk, "ctrl+e")
-		for i := 0; i < lines+8; i++ {
-			walk = append(walk, "down")
-		}
-		walk = append(walk, "ctrl+e")
-		bs := make([]string, sweep)
-		for i := range bs {
-			bs[i] = "backspace"
-		}
-		if !a.paneSend(w, ctx, paneID, "", walk) {
-			return false
-		}
-		if !a.paneSend(w, ctx, paneID, "", bs) {
-			return false
-		}
-		for _, chunk := range editorChunks(want) {
-			if !a.paneSend(w, ctx, paneID, chunk, nil) {
-				return false
-			}
-		}
+	}
+	// A head-window paint hides the buffer's tail behind its "↓ N
+	// more" rule; the down count must cover those rows or the sweep
+	// deletes from mid-buffer.
+	lines := strings.Count(cur.Body, "\n") + 1 + cur.HiddenBelow
+	walk := make([]string, 0, lines+10)
+	walk = append(walk, "ctrl+e")
+	for i := 0; i < lines+8; i++ {
+		walk = append(walk, "down")
+	}
+	walk = append(walk, "ctrl+e")
+	bs := make([]string, sweep)
+	for i := range bs {
+		bs[i] = "backspace"
+	}
+	if !a.paneSend(w, ctx, paneID, "", walk) || !a.paneSend(w, ctx, paneID, "", bs) {
+		return false
+	}
+	emptied := false
+	prevLen, stale, blind := -1, 0, 0
+	gateDeadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(gateDeadline) {
 		select {
 		case <-ctx.Done():
-			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-			return false
-		case <-time.After(250 * time.Millisecond):
+			return refuse()
+		case <-time.After(200 * time.Millisecond):
 		}
 		pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 30)
 		if err != nil {
-			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-			return false
+			return refuse()
+		}
+		if editorPaneEmpty(pr.Text) {
+			emptied = true
+			break
 		}
 		m := parsePiDialog(pr.Text)
-		if m != nil && m.Kind == "editor" {
-			if editorBufferMatches(m, want) {
-				return a.answerSend(w, ctx, paneID, []string{"enter"})
+		if m == nil || m.Kind != "editor" {
+			// A read can land mid-repaint and parse nothing; only a pane
+			// that stays unparseable means pi left the dialog.
+			blind++
+			if blind >= 3 {
+				return refuse()
 			}
-			cur = m
 			continue
 		}
-		break
+		blind = 0
+		// A draft-sized sweep is hundreds of keystrokes; herdr is
+		// still delivering them while we poll. Wait for the buffer to
+		// stop shrinking - a plateau with content left is a failed
+		// sweep, never a reason to blind-retype.
+		n := utf8.RuneCountInString(editorBufferOf(m.Body))
+		if n == prevLen {
+			stale++
+			if stale >= 2 {
+				return refuse()
+			}
+		} else {
+			stale, prevLen = 0, n
+		}
 	}
-	writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-	return false
+	if !emptied {
+		return refuse()
+	}
+	for _, chunk := range editorChunks(want) {
+		if !a.paneSend(w, ctx, paneID, chunk, nil) {
+			return false
+		}
+	}
+	// pi repaints after the burst; poll briefly instead of one fixed
+	// wait so a slow paint cannot force a spurious refusal.
+	for poll := 0; poll < 6; poll++ {
+		select {
+		case <-ctx.Done():
+			return refuse()
+		case <-time.After(150 * time.Millisecond):
+		}
+		pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 30)
+		if err != nil {
+			return refuse()
+		}
+		m := parsePiDialog(pr.Text)
+		if m == nil || m.Kind != "editor" {
+			return refuse()
+		}
+		if editorBufferMatches(m, want) {
+			return a.answerSend(w, ctx, paneID, []string{"enter"})
+		}
+	}
+	return refuse()
 }
 
 // editorBufferOf normalizes a commit-message buffer for comparison:
@@ -416,26 +470,24 @@ func editorBufferOf(s string) string {
 
 // editorBufferMatches compares the repaint against the intended
 // message. A long buffer outgrows the editor viewport, so the pane
-// then only paints the tail under its "↑ N more" rule - the painted
-// lines must be a suffix of the message, with the indicator's count
-// accounting for the hidden lines (±2 for wrap drift).
+// then only paints the tail under its "↑ N more" rule. Painted rows
+// are visual - a long line wraps at the pane width - so both sides
+// are flattened before comparing; the hidden count is a sanity bound
+// rather than an exact window, because wrapped rows shift the unit.
 func editorBufferMatches(m *piDialog, want string) bool {
-	have := strings.Split(editorBufferOf(m.Body), "\n")
-	wantLines := strings.Split(editorBufferOf(want), "\n")
-	if !m.Scrolled {
-		return strings.Join(have, "\n") == strings.Join(wantLines, "\n")
+	flat := func(s string) string {
+		return strings.Join(strings.Fields(s), "")
 	}
-	if len(have) > len(wantLines) {
+	have := flat(editorBufferOf(m.Body))
+	full := flat(editorBufferOf(want))
+	if !m.Scrolled {
+		return have == full
+	}
+	if len(have) > len(full) || !strings.HasSuffix(full, have) {
 		return false
 	}
-	tail := wantLines[len(wantLines)-len(have):]
-	for i := range have {
-		if have[i] != tail[i] {
-			return false
-		}
-	}
-	hidden := len(wantLines) - len(have)
-	return m.HiddenAbove >= hidden-2 && m.HiddenAbove <= hidden+2
+	wantLines := strings.Split(editorBufferOf(want), "\n")
+	return m.HiddenAbove >= 0 && m.HiddenAbove <= len(wantLines)+8
 }
 
 // editorChunks splits a commit message into sends pi's editor will

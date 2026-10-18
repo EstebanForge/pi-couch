@@ -309,3 +309,70 @@ func TestParsePiDialogEditorBufferKeepsBlank(t *testing.T) {
 		t.Fatalf("body=%q, want %q", d.Body, want)
 	}
 }
+
+// The empty gate needs to tell an emptied editor (rules with nothing
+// between them) from a gone dialog - parsePiDialog returns nil for
+// both, which would make the gate re-sweep a closed dialog forever.
+func TestEditorPaneEmpty(t *testing.T) {
+	empty := " Commit staged changes with this message?\n" +
+		"────────────────────────────────────────────\n" +
+		"\n" +
+		"────────────────────────────────────────────\n\n" +
+		" enter submit  shift+enter/ctrl+j newline  escape/ctrl+c cancel  ctrl+g external editor"
+	full := " Commit staged changes with this message?\n" +
+		"────────────────────────────────────────────\n" +
+		"feat: subject\n\nbody\n" +
+		"────────────────────────────────────────────\n\n" +
+		" enter submit  shift+enter/ctrl+j newline  escape/ctrl+c cancel  ctrl+g external editor"
+	if !editorPaneEmpty(empty) {
+		t.Fatal("emptied editor not detected")
+	}
+	if editorPaneEmpty(full) {
+		t.Fatal("full editor read as empty")
+	}
+	if editorPaneEmpty("some transcript text\nand more") {
+		t.Fatal("non-editor read as empty")
+	}
+}
+
+// Painted rows are visual: a line longer than the pane width wraps,
+// so the match must flatten both sides instead of comparing lines.
+func TestEditorBufferMatchesWrapped(t *testing.T) {
+	want := "feat: subject\n\nthis body line is far longer than the editor pane width and wraps onto a second visual row"
+	m := &piDialog{Kind: "editor", Scrolled: true, HiddenAbove: 2,
+		Body: "this body line is far longer than the editor\npane width and wraps onto a second visual row"}
+	if !editorBufferMatches(m, want) {
+		t.Fatal("wrapped tail rejected")
+	}
+	whole := &piDialog{Kind: "editor", Body: want}
+	if !editorBufferMatches(whole, want) {
+		t.Fatal("exact match rejected")
+	}
+	if editorBufferMatches(m, "feat: other\n\nunrelated text") {
+		t.Fatal("junk accepted")
+	}
+}
+
+// The emptied editor must stay visible to the wire: the sweep that
+// emptied it leaves a state parsePiDialog reads as nil.
+func TestPiEmptyEditorDialog(t *testing.T) {
+	empty := " Commit staged changes with this message?\n" +
+		"\n" +
+		"────────────────────────────────────────────\n" +
+		"────────────────────────────────────────────\n\n" +
+		" enter submit  shift+enter/ctrl+j newline  escape/ctrl+c cancel  ctrl+g external editor\n\n" +
+		"────────────────────────────────────────────\n" +
+		"~/.cache/probe (main)\n" +
+		"↑181k ↓1.2k R181k CH98.9% $0.033 6.1%/1.0M (auto)\n" +
+		"💻 example-box"
+	d := piEmptyEditorDialog(empty)
+	if d == nil || d.Kind != "editor" || d.Title != "Commit staged changes with this message?" || d.Body != "" {
+		t.Fatalf("empty editor: %+v", d)
+	}
+	if piEmptyEditorDialog(editorPaint("feat: still full\n")) != nil {
+		t.Fatal("non-empty editor matched")
+	}
+	if piEmptyEditorDialog("plain transcript, no dialog") != nil {
+		t.Fatal("prose matched")
+	}
+}

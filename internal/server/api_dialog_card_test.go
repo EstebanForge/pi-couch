@@ -93,20 +93,26 @@ func TestEditorChunks(t *testing.T) {
 // tail plus its "↑ N more" rule. The verify must accept the painted
 // tail as a suffix of the intended message - the old exact match
 // 409'd a rewrite that had actually landed (the live bug).
-func TestDialogAnswerEditorScrolledVerify(t *testing.T) {
-	scrolled := " Commit staged changes with this message?\n" +
+// editorPaint builds pi's editor overlay paint with the given buffer
+// body; an empty body is the emptied editor the answer flow's gate
+// must see before it types.
+func editorPaint(body string) string {
+	return " Commit staged changes with this message?\n" +
 		"────────────────────────────────────────────\n" +
-		"──── ↑ 4 more ────\n" +
-		"body line three\nbody line four\n" +
+		body +
 		"────────────────────────────────────────────\n\n" +
 		" enter submit  shift+enter/ctrl+j newline  escape/ctrl+c cancel  ctrl+g external editor"
+}
+
+func TestDialogAnswerEditorScrolledVerify(t *testing.T) {
+	scrolled := editorPaint("──── ↑ 4 more ────\nbody line three\nbody line four\n")
 	var sends int32
 	var sessPath string
 	var lastText string
 	sock := herdrFake(t, fakeHerdrOpts{
 		sessPath: &sessPath, sends: &sends, lastText: &lastText,
 		paneText: &scrolled,
-		paneSeq:  []string{scrolled},
+		paneSeq:  []string{scrolled, editorPaint("\n"), scrolled, scrolled},
 	})
 	a, sub, _ := streamTestAppWithHerdr(t, sock)
 	sessPath = filepath.Join(sub, "s1.jsonl")
@@ -134,15 +140,12 @@ func TestDialogAnswerEditorScrolledVerify(t *testing.T) {
 }
 
 func TestDialogAnswerEditorSubmit(t *testing.T) {
-	editor := " Commit staged changes with this message?\n" +
-		"────────────────────────────────────────────\n" +
-		"probe commit\n" +
-		"────────────────────────────────────────────\n\n" +
-		" enter submit  shift+enter/ctrl+j newline  escape/ctrl+c cancel  ctrl+g external editor"
+	editor := editorPaint("probe commit\n")
 	var sends int32
 	var sessPath string
 	pane := editor
-	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath, sends: &sends, paneText: &pane})
+	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath, sends: &sends, paneText: &pane,
+		paneSeq: []string{editor, editorPaint("\n"), editor, editor}})
 	a, sub, _ := streamTestAppWithHerdr(t, sock)
 	sessPath = filepath.Join(sub, "s1.jsonl")
 
@@ -392,23 +395,15 @@ func TestDialogAnswerFreeTextWrappedEcho(t *testing.T) {
 // stays its own answer, so the memo claim must be released after a
 // successful edit.
 func TestDialogAnswerEditorEdit(t *testing.T) {
-	editor := " Commit staged changes with this message?\n" +
-		"────────────────────────────────────────────\n" +
-		"probe commit\n" +
-		"────────────────────────────────────────────\n\n" +
-		" enter submit  shift+enter/ctrl+j newline  escape/ctrl+c cancel  ctrl+g external editor"
-	edited := " Commit staged changes with this message?\n" +
-		"────────────────────────────────────────────\n" +
-		"new subject\n\nnew body\n" +
-		"────────────────────────────────────────────\n\n" +
-		" enter submit  shift+enter/ctrl+j newline  escape/ctrl+c cancel  ctrl+g external editor"
+	editor := editorPaint("probe commit\n")
+	edited := editorPaint("new subject\n\nnew body\n")
 	var sends int32
 	var sessPath string
 	var lastText string
 	var keysLog [][]string
 	sock := herdrFake(t, fakeHerdrOpts{
 		sessPath: &sessPath, sends: &sends, paneText: &editor, lastText: &lastText, keysLog: &keysLog,
-		paneSeq: []string{edited},
+		paneSeq: []string{edited, editorPaint("\n"), edited, edited},
 	})
 	a, sub, _ := streamTestAppWithHerdr(t, sock)
 	sessPath = filepath.Join(sub, "s1.jsonl")

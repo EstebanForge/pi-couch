@@ -375,3 +375,74 @@ func piDialogEqual(a, b *piDialog) bool {
 	}
 	return true
 }
+
+// editorPaneEmpty reports whether a pane reads as pi's editor dialog
+// with an emptied buffer: the hint and the closing rule present, no
+// content between the rules. pi paints its status footer below the
+// hint, so the hint line is anchored first and the footer ignored.
+// parsePiDialog cannot make that call - it returns nil for both an
+// emptied editor and a gone dialog - and the answer flow's empty gate
+// must never re-sweep a dialog that closed.
+func editorPaneEmpty(text string) bool {
+	lines := strings.Split(text, "\n")
+	hint := -1
+	for i := len(lines) - 1; i >= 0; i-- {
+		if piEditorHintRe.MatchString(strings.TrimSpace(lines[i])) {
+			hint = i
+			break
+		}
+	}
+	if hint < 0 {
+		return false
+	}
+	i := hint - 1
+	for i >= 0 && strings.TrimSpace(lines[i]) == "" {
+		i--
+	}
+	if i < 0 || !piDividerRe.MatchString(strings.TrimSpace(lines[i])) {
+		return false
+	}
+	i--
+	for i >= 0 {
+		line := strings.TrimSpace(lines[i])
+		if piDividerRe.MatchString(line) {
+			return true
+		}
+		if line != "" {
+			return false
+		}
+		i--
+	}
+	return false
+}
+
+// piEmptyEditorDialog recognizes an editor overlay whose buffer the
+// answer flow already emptied: parsePiDialog refuses an empty buffer,
+// but the state is real and must stay answerable, or the wire loses
+// the dialog and the card dead-ends mid-edit.
+func piEmptyEditorDialog(text string) *piDialog {
+	if !editorPaneEmpty(text) {
+		return nil
+	}
+	lines := strings.Split(text, "\n")
+	title := ""
+	for i, raw := range lines {
+		if !piDividerRe.MatchString(strings.TrimSpace(raw)) {
+			continue
+		}
+		// The overlay title sits just above the buffer's top rule,
+		// padded by blanks.
+		for j := i - 1; j >= 0; j-- {
+			ln := strings.TrimSpace(lines[j])
+			if ln == "" {
+				continue
+			}
+			if !piDividerRe.MatchString(ln) {
+				title = ln
+			}
+			break
+		}
+		break
+	}
+	return &piDialog{Kind: "editor", Title: title}
+}

@@ -171,13 +171,14 @@ func streamTestAppWithHerdr(t *testing.T, sock string) (*app, string, http.Handl
 		t.Fatal(err)
 	}
 	a := &app{
-		logger:     slog.New(slog.NewTextHandler(testDiscard{}, nil)),
-		idx:        pi.NewIndex(root),
-		herdr:      herdr.NewAt(sock),
-		watcher:    w,
-		answered:   newDialogMemos(),
-		models:     newModelsCache(filepath.Join(t.TempDir(), "models.json")),
-		dialogWake: make(chan struct{}, 1),
+		logger:      slog.New(slog.NewTextHandler(testDiscard{}, nil)),
+		idx:         pi.NewIndex(root),
+		herdr:       herdr.NewAt(sock),
+		watcher:     w,
+		answered:    newDialogMemos(),
+		models:      newModelsCache(filepath.Join(t.TempDir(), "models.json")),
+		dialogWake:  make(chan struct{}, 1),
+		dialogLatch: map[string]*dialogWire{},
 	}
 	return a, sub, a.guard(a.routes())
 }

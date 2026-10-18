@@ -181,6 +181,9 @@ func (d *awaitingDetector) tick(ctx context.Context) {
 				externalEditorRe.MatchString(plain) ||
 				selectCounterRe.MatchString(plain)
 			st.dialog = parsePiDialog(pr.Text)
+			if st.dialog == nil {
+				st.dialog = piEmptyEditorDialog(plain)
+			}
 		}
 		if st.awaiting || st.dialog != nil {
 			next[a.Session.Value] = st

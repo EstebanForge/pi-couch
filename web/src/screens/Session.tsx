@@ -331,7 +331,12 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 	// must not be answered from here.
 	const sheetReady = !!(
 		state.dialog &&
-		((state.dialog.options?.length ?? 0) > 0 || state.dialog.body || state.dialog.kind === "input")
+		((state.dialog.options?.length ?? 0) > 0 ||
+			state.dialog.body ||
+			state.dialog.kind === "input" ||
+			// An emptied editor buffer is legitimate: the card's empty
+			// box plus Submit is the recovery path after a refused sweep.
+			state.dialog.kind === "editor")
 	);
 
 	// Hold the last card while the sheet slides out: unmounting at the

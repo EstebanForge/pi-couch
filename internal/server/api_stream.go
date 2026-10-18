@@ -109,6 +109,7 @@ type dialogWire struct {
 // save a default.
 func (a *app) dialogWireFor(path string, d BridgeDialog, ok bool) *dialogWire {
 	if !ok {
+		a.forgetDialogParse(path)
 		return nil
 	}
 	w := &dialogWire{ID: d.ID, Kind: d.Kind, Title: d.Title}
@@ -133,8 +134,41 @@ func (a *app) dialogWireFor(path string, d BridgeDialog, ok bool) *dialogWire {
 		for _, o := range p.Options {
 			w.Options = append(w.Options, dialogOptionWire{Label: o.Label, Description: o.Description})
 		}
+		a.rememberDialogParse(path, w)
+		return w
+	}
+	// A single tick's pane read can flake (mid-repaint, a wrapping
+	// rule); dropping the body then closes the phone card mid-answer,
+	// so the last good composition for THIS dialog id is served
+	// until the parse recovers.
+	if l := a.latchedDialogParse(path); l != nil && l.ID == d.ID {
+		return l
 	}
 	return w
+}
+
+func (a *app) rememberDialogParse(path string, w *dialogWire) {
+	if a.dialogLatch == nil {
+		return
+	}
+	a.dialogMu.Lock()
+	a.dialogLatch[path] = w
+	a.dialogMu.Unlock()
+}
+
+func (a *app) latchedDialogParse(path string) *dialogWire {
+	a.dialogMu.Lock()
+	defer a.dialogMu.Unlock()
+	return a.dialogLatch[path]
+}
+
+func (a *app) forgetDialogParse(path string) {
+	if a.dialogLatch == nil {
+		return
+	}
+	a.dialogMu.Lock()
+	delete(a.dialogLatch, path)
+	a.dialogMu.Unlock()
 }
 
 // dialogEqual compares wire dialogs so the status event fires when the
