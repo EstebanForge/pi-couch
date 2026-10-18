@@ -128,7 +128,12 @@ export function reduceStatus(s: DriverState, p: TranscriptStatus): DriverState {
 // results, bash, custom) into one collapsible row: the biggest scroll
 // length win on a 360px phone. Speech (user/text) and markers stay solo.
 // Blocks render collapsed; the reader opens them on demand.
-export type WorkBlock = { type: "item"; item: StreamItem } | { type: "block"; items: StreamItem[] };
+export type WorkBlock =
+	| { type: "item"; item: StreamItem }
+	| { type: "block"; items: StreamItem[] }
+	// The Working/blocked marker rides the list as a pseudo-block so
+	// follow output scrolls it into view like any other row.
+	| { type: "status" };
 
 const FOLDABLE = new Set(["thinking", "tool_call", "tool_result", "bash", "custom"]);
 

@@ -1,6 +1,6 @@
 import { Dialog, DialogButton } from "konsta/react";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { Virtuoso } from "react-virtuoso";
+import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import {
 	agentSession,
 	closeSession,
@@ -75,6 +75,7 @@ function driver(s: DriverState, a: Action): DriverState {
 }
 
 function itemKey(b: WorkBlock): string {
+	if (b.type === "status") return "b-status";
 	return b.type === "item" ? `s${b.item.seq}` : `b${b.items[0].seq}`;
 }
 
@@ -177,8 +178,23 @@ function itemRow(it: StreamItem, expanded: boolean, sessionKey: string) {
 	}
 }
 
-function Block({ block, sessionKey }: { block: WorkBlock; sessionKey: string }) {
+function Block({ block, sessionKey, st }: { block: WorkBlock; sessionKey: string; st: DriverState }) {
 	const [override, setOverride] = useState<boolean | null>(null);
+	if (block.type === "status") {
+		return st.dialog || st.awaiting ? (
+			<div className="flex items-center gap-2 px-3 py-2 text-[13px] text-accent">
+				<Spinner size={14} />
+				{st.dialog
+					? `pi asks: ${st.dialog.title || st.dialog.kind} — open Terminal`
+					: "Waiting for input — open Terminal"}
+			</div>
+		) : (
+			<div className="flex items-center gap-2 px-3 py-2 text-[13px] text-muted">
+				<Spinner size={14} className={st.status === "blocked" ? "text-error" : "text-primary"} />
+				{st.status === "blocked" ? "Waiting for you" : "Working"}
+			</div>
+		);
+	}
 	if (block.type === "item") {
 		return itemRow(block.item, true, sessionKey);
 	}
@@ -231,6 +247,7 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 	useSheetBack(confirmClose, () => setConfirmClose(false));
 	const [notice, setNotice] = useState("");
 	const pinned = useRef(true);
+	const virtuoso = useRef<VirtuosoHandle | null>(null);
 	const scroller = useRef<HTMLDivElement | null>(null);
 	const dragStart = useRef<{ y: number } | null>(null);
 	const taBlur = useRef<HTMLTextAreaElement | null>(null);
@@ -270,9 +287,9 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 	const blocks = useMemo(() => {
 		const q = query?.trim().toLowerCase();
 		const items = q ? state.items.filter((it) => it.text.toLowerCase().includes(q)) : state.items;
-		if (items.length > LIMIT) return groupWorkBlocks(items.slice(items.length - LIMIT));
-		return groupWorkBlocks(items);
-	}, [state.items, query]);
+		const base = items.length > LIMIT ? groupWorkBlocks(items.slice(items.length - LIMIT)) : groupWorkBlocks(items);
+		return state.dialog || state.awaiting || isWaiting(state.status) ? [...base, { type: "status" as const }] : base;
+	}, [state.items, state.dialog, state.awaiting, state.status, query]);
 
 	// One history page per top touch. Skipped mid-search: the filtered
 	// block list would desync firstItemIndex bookkeeping.
@@ -491,6 +508,7 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 				}}
 			>
 				<Virtuoso
+					ref={virtuoso}
 					data={blocks}
 					computeItemKey={(_, b) => itemKey(b)}
 					firstItemIndex={firstItemIndex}
@@ -502,7 +520,7 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 					}}
 					initialTopMostItemIndex={Math.max(0, blocks.length - 1)}
 					className="h-full"
-					itemContent={(_, b) => <Block block={b} sessionKey={sessionKey} />}
+					itemContent={(_, b) => <Block block={b} sessionKey={sessionKey} st={state} />}
 					components={{
 						Header: () =>
 							loadingOlder ? (
@@ -513,23 +531,6 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 							) : !moreHistory && state.items.length > 0 ? (
 								<div className="py-2 text-center text-[11px] text-muted/60">
 									Start of the thread
-								</div>
-							) : null,
-						Footer: () =>
-							state.dialog || state.awaiting ? (
-								<div className="flex items-center gap-2 px-3 py-2 text-[13px] text-accent">
-									<Spinner size={14} className="text-accent" />
-									{state.dialog
-										? `pi asks: ${state.dialog.title || state.dialog.kind} — open Terminal`
-										: "Waiting for input — open Terminal"}
-								</div>
-							) : isWaiting(state.status) ? (
-								<div className="flex items-center gap-2 px-3 py-2 text-[13px] text-muted">
-									<Spinner
-										size={14}
-										className={state.status === "blocked" ? "text-error" : "text-primary"}
-									/>
-									{state.status === "blocked" ? "Waiting for you" : "Working"}
 								</div>
 							) : null,
 					}}
@@ -587,6 +588,8 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 				addPending={(text, queued) => {
 					const id = nextPendingId();
 					dispatch({ t: "add-pending", id, text, queued });
+					pinned.current = true;
+					virtuoso.current?.autoscrollToBottom();
 					return id;
 				}}
 				markPending={(id, mark) => dispatch({ t: "mark-pending", id, state: mark })}
