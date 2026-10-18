@@ -86,7 +86,6 @@ func streamTestApp(t *testing.T) (*app, string, http.Handler) {
 		herdr:      herdr.New(),
 		watcher:    w,
 		answered:   newDialogMemos(),
-		reveals:    newRevealStore(),
 		models:     newModelsCache(filepath.Join(t.TempDir(), "models.json")),
 		dialogWake: make(chan struct{}, 1),
 	}

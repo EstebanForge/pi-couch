@@ -86,7 +86,7 @@ func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, tex
 		return a.answerSend(w, ctx, paneID, keys)
 
 	case answer == "type":
-		return a.answerFreeText(w, r, ctx, paneID, text)
+		return a.answerFreeText(w, r, ctx, paneID, path, text)
 
 	case answer == "escape":
 		pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 30)
@@ -176,7 +176,7 @@ func (a *app) settleWalk(w http.ResponseWriter, r *http.Request, ctx context.Con
 // screen may already be there, or the questionnaire still needs its
 // "Type something." row selected), type the text, verify pi echoed it
 // onto the input line, then submit with enter.
-func (a *app) answerFreeText(w http.ResponseWriter, r *http.Request, ctx context.Context, paneID, text string) bool {
+func (a *app) answerFreeText(w http.ResponseWriter, r *http.Request, ctx context.Context, paneID, sessionPath, text string) bool {
 	trimmed := strings.TrimSpace(text)
 	if trimmed == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
@@ -192,7 +192,7 @@ func (a *app) answerFreeText(w http.ResponseWriter, r *http.Request, ctx context
 		if m != nil && m.Kind == "editor" {
 			// The editor buffer is editable in one step: rewrite and
 			// submit, like pi's own accept.
-			return a.editEditorSubmit(w, r, ctx, paneID, m, text)
+			return a.editEditorSubmit(w, r, ctx, paneID, sessionPath, m, text)
 		}
 		if m != nil && m.InputMode {
 			// rpiv activates input mode the moment the cursor lands on
@@ -333,7 +333,7 @@ func piConfirmOnScreen(text string) bool {
 // once empty), type the replacement - raw newlines insert real lines
 // in pi's editor - verify the repaint, then enter. Refuses rather
 // than guessing when the pane no longer shows the editor.
-func (a *app) editEditorSubmit(w http.ResponseWriter, r *http.Request, ctx context.Context, paneID string, cur *piDialog, text string) bool {
+func (a *app) editEditorSubmit(w http.ResponseWriter, r *http.Request, ctx context.Context, paneID, sessionPath string, cur *piDialog, text string) bool {
 	want := editorBufferOf(strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n"))
 	if want == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
@@ -342,13 +342,26 @@ func (a *app) editEditorSubmit(w http.ResponseWriter, r *http.Request, ctx conte
 	for attempt := 0; attempt < 3; attempt++ {
 		joined := cur.Body
 		lines := strings.Count(joined, "\n") + 1
+		// A scrolled pane's Body is only the painted window; the draft
+		// in the session jsonl is the full pre-edit buffer. Sweeping by
+		// the fragment leaves junk the typed text then appends to.
+		sweep := utf8.RuneCountInString(joined) + 32
+		if a.idx != nil {
+			if meta, ok := a.idx.ByPath(sessionPath); ok {
+				if draft := a.idx.ToolCallDraft(meta.Key); draft != "" {
+					if n := utf8.RuneCountInString(draft) + 32; n > sweep {
+						sweep = n
+					}
+				}
+			}
+		}
 		walk := make([]string, 0, lines+10)
 		walk = append(walk, "ctrl+e")
 		for i := 0; i < lines+8; i++ {
 			walk = append(walk, "down")
 		}
 		walk = append(walk, "ctrl+e")
-		bs := make([]string, utf8.RuneCountInString(joined)+32)
+		bs := make([]string, sweep)
 		for i := range bs {
 			bs[i] = "backspace"
 		}

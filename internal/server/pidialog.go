@@ -186,17 +186,18 @@ func parsePiEditorBlock(lines []string) *piDialog {
 			i--
 			break
 		}
-		// pi's viewport rules: "──── ↑ 4 more ────" hides the lines
-		// above (a tail window), "──── ↓ 5 more ────" hides the lines
-		// below (a head window). Either way the body is a fragment.
+		// pi's viewport rules: "──── ↑ 4 more ────" is the tail
+		// window's top edge - the walk stops there. "──── ↓ 5 more
+		// ────" is the head window's bottom edge - the buffer lives
+		// above it, so the walk continues past it.
 		if m := piScrollMoreRe.FindStringSubmatch(line); m != nil {
 			n, _ := strconv.Atoi(m[2])
 			scrolled = true
 			if m[1] == "↑" {
 				hiddenAbove = n
-			} else {
-				hiddenBelow = n
+				break
 			}
+			hiddenBelow = n
 			i--
 			continue
 		}

@@ -377,6 +377,67 @@ func (ix *Index) FullItem(key string, seq int) (SessionMeta, ViewItem, error) {
 // applies; FullItem passes 0 for none.
 const renderLimit = 400
 
+// ToolCallDraft returns the full draft message behind the session's
+// latest editor-dialog tool call. pi's commit gate previews the tool
+// arguments, so the session file carries the complete text that the
+// pane can only paint in windows. Empty when no draft-shaped call
+// exists.
+func (ix *Index) ToolCallDraft(key string) string {
+	meta, ok := ix.Meta(key)
+	if !ok {
+		return ""
+	}
+	f, err := os.Open(meta.Path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return ""
+	}
+	const window = 256 << 10
+	start := st.Size() - window
+	if start < 0 {
+		start = 0
+	}
+	raw := make([]byte, st.Size()-start)
+	if _, err = f.ReadAt(raw, start); err != nil && err != io.EOF {
+		return ""
+	}
+	// windowAt zero-pads short files, and the window's first line can
+	// be a partial entry - both fail to unmarshal and skip cleanly.
+	lines := strings.Split(string(bytes.TrimLeft(raw, "\x00")), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		var e Entry
+		if json.Unmarshal([]byte(lines[i]), &e) != nil || e.Message == nil {
+			continue
+		}
+		for _, b := range e.Message.Blocks() {
+			if b.Type != "toolCall" {
+				continue
+			}
+			var args struct {
+				Subject string `json:"subject"`
+				Body    string `json:"body"`
+				Message string `json:"message"`
+			}
+			if json.Unmarshal(b.Arguments, &args) != nil {
+				continue
+			}
+			switch {
+			case args.Subject != "" && args.Body != "":
+				return args.Subject + "\n\n" + args.Body
+			case args.Body != "":
+				return args.Body
+			case args.Message != "":
+				return args.Message
+			}
+		}
+	}
+	return ""
+}
+
 func (ix *Index) branchItems(key string, textLimit int) ([]ViewItem, error) {
 	meta, ok := ix.Meta(key)
 	if !ok {

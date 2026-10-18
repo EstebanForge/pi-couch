@@ -119,17 +119,15 @@ func (a *app) dialogWireFor(path string, d BridgeDialog, ok bool) *dialogWire {
 		w.Body = p.Body
 		w.Cursor = p.Cursor
 		w.Scrolled = p.Scrolled
-		if p.Scrolled && p.Kind == "editor" && a.reveals != nil {
-			key := revealKey(path, p)
-			if st := a.reveals.get(key); st != "" {
-				w.Body = st
-				w.Scrolled = false
-			} else if paneID := a.awaiting.paneFor(path); paneID != "" && a.reveals.start(key) {
-				go func() {
-					stitched := a.revealEditorBuffer(context.Background(), paneID, p)
-					a.reveals.done(key, stitched)
-					a.wakeDialog()
-				}()
+		if p.Scrolled && p.Kind == "editor" {
+			// The pane only paints a window of the buffer, but the tool
+			// call behind the dialog carries the whole draft - prefill
+			// from it; walking the pane's cursor risks pi's history.
+			if m, ok := a.idx.ByPath(path); ok {
+				if draft := a.idx.ToolCallDraft(m.Key); draft != "" {
+					w.Body = draft
+					w.Scrolled = false
+				}
 			}
 		}
 		for _, o := range p.Options {

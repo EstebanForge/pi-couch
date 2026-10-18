@@ -51,11 +51,10 @@ type app struct {
 	answered      *dialogMemos           // per-dialog answer claims; dedupes double taps
 	models        *modelsCache           // pi catalog: memory, state file, then pi
 	dialogWake    chan struct{}          // cap 1: a dialog changed; stream loops push now
-	reveals       *revealStore           // scrolled editor buffers stitched whole for the card
 }
 
 func Run(ctx context.Context, logger *slog.Logger, addr string, idx *pi.Index, hc *herdr.Client, w *pi.Watcher, st *store.Store, pusher *push.Sender, allowedOrigin string) error {
-	a := &app{logger: logger, idx: idx, herdr: hc, watcher: w, st: st, pusher: pusher, allowedOrigin: allowedOrigin, answered: newDialogMemos(), models: newModelsCache(filepath.Join(st.Dir(), "models.json")), dialogWake: make(chan struct{}, 1), reveals: newRevealStore()}
+	a := &app{logger: logger, idx: idx, herdr: hc, watcher: w, st: st, pusher: pusher, allowedOrigin: allowedOrigin, answered: newDialogMemos(), models: newModelsCache(filepath.Join(st.Dir(), "models.json")), dialogWake: make(chan struct{}, 1)}
 	if pusher != nil {
 		a.vapidPublic = pusher.Public
 	}
