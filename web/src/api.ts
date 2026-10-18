@@ -90,7 +90,13 @@ export type TranscriptReset = {
 	dialog?: BridgeDialog | null;
 	todos?: Todo[];
 	memory?: string;
-	meta?: { name: string; first_user: string; cwd: string; ctx_tokens?: number; total_cost?: number } | null;
+	meta?: {
+		name: string;
+		first_user: string;
+		cwd: string;
+		ctx_tokens?: number;
+		total_cost?: number;
+	} | null;
 };
 
 export type TranscriptAppend = { items: StreamItem[] };

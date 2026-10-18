@@ -103,8 +103,7 @@ describe("reduceStatus", () => {
 			"healthy",
 		);
 		expect(
-			reduceStatus(s, { status: "working", model: "a/b", thinking: "low", memory: "down" })
-				.memory,
+			reduceStatus(s, { status: "working", model: "a/b", thinking: "low", memory: "down" }).memory,
 		).toBe("down");
 	});
 

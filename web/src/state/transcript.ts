@@ -27,7 +27,13 @@ export type DriverState = {
 	awaiting: boolean; // dialog chrome on the pane: pi waits on the human
 	dialog: BridgeDialog | null; // bridge-reported open pi dialog (kind + title)
 	todos: Todo[]; // extension todo checklist, latest state
-	header: { name: string; first_user: string; cwd: string; ctx_tokens?: number; total_cost?: number } | null;
+	header: {
+		name: string;
+		first_user: string;
+		cwd: string;
+		ctx_tokens?: number;
+		total_cost?: number;
+	} | null;
 	pending: PendingMsg[];
 };
 
