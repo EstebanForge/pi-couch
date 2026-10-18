@@ -325,50 +325,40 @@ export default function HomeList() {
 					className="fixed inset-0 z-40 bg-black/50"
 				/>
 			)}
-			<div
-				className="fixed right-4 z-50 flex flex-col items-end gap-2 transition-all"
-				style={{
-					position: "fixed",
-					bottom: "calc(var(--safe-bottom, 0px) + 80px)",
-					left: "auto",
-					top: "auto",
-					opacity: fabOpen ? 1 : 0,
-					transform: fabOpen ? "none" : "translateY(8px)",
-					pointerEvents: fabOpen ? "auto" : "none",
-				}}
-			>
-				{quickError && (
-					<div className="max-w-64 rounded-lg bg-error-content/10 px-3 py-1.5 text-[12px] text-error">
-						{quickError}
-					</div>
-				)}
-				<FabAction
-					label="New workspace"
-					onClick={() => {
-						setFabOpen(false);
-						setCreateOpen(true);
-					}}
-				/>
-				<FabAction
-					label="New agent"
-					onClick={() => {
-						setFabOpen(false);
-						setAgentSheetOpen(true);
-					}}
-				/>
-				<FabAction label="Quick agent" busy={quickBusy} onClick={runQuickAgent} />
-			</div>
 			{/* position:fixed overlays escape root/body padding, so the FAB
-			    carries its own safe-area offset (the pb-safe-all rule) */}
-			<div
-				className="pb-safe-all fixed right-4 bottom-4 z-50"
-				style={{
-					position: "fixed",
-					bottom: "calc(var(--safe-bottom, 0px) + 16px)",
-					left: "auto",
-					top: "auto",
-				}}
-			>
+			    carries its own safe-area offset via pb-safe-all. The pill
+			    stack anchors inside the same wrapper (bottom-full), so it
+			    sits just above the FAB at any inset and any FAB size. */}
+			<div className="pb-safe-all fixed right-4 bottom-4 z-50">
+				<div
+					className="absolute bottom-full right-0 mb-2 flex w-max flex-col items-end gap-2 transition-all"
+					style={{
+						opacity: fabOpen ? 1 : 0,
+						transform: fabOpen ? "none" : "translateY(8px)",
+						pointerEvents: fabOpen ? "auto" : "none",
+					}}
+				>
+					{quickError && (
+						<div className="max-w-64 rounded-lg bg-error-content/10 px-3 py-1.5 text-[12px] text-error">
+							{quickError}
+						</div>
+					)}
+					<FabAction
+						label="New workspace"
+						onClick={() => {
+							setFabOpen(false);
+							setCreateOpen(true);
+						}}
+					/>
+					<FabAction
+						label="New agent"
+						onClick={() => {
+							setFabOpen(false);
+							setAgentSheetOpen(true);
+						}}
+					/>
+					<FabAction label="Quick agent" busy={quickBusy} onClick={runQuickAgent} />
+				</div>
 				<Fab
 					aria-label={fabOpen ? "Close menu" : "New agent"}
 					icon={
