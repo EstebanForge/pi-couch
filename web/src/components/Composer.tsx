@@ -6,7 +6,7 @@
 import { Sheet, Toast } from "konsta/react";
 import { useEffect, useRef, useState } from "react";
 import { getModels, sendKeys, sendPrompt, setModel, setThinking, uploadImage } from "../api";
-import { type Dictation, dictationSupported, startDictation } from "../chat/dictate";
+import { type Dictation, startDictation } from "../chat/dictate";
 import { dispositionFor } from "../chat/disposition";
 import { ESC_SETTLE_MS, orderKeys, type QuickKey } from "../chat/quick-keys";
 import { useSheetBack } from "../nav";
@@ -467,30 +467,32 @@ export function Composer(props: {
 						spellCheck={false}
 						className="max-h-[50vh] min-h-[44px] w-full min-w-0 flex-1 resize-none rounded-xl bg-base-100 px-3 py-2.5 text-[16px] outline-none"
 					/>
-					{dictationSupported() && (
-						<button
-							type="button"
-							aria-label={listening ? "Stop dictation" : "Start dictation"}
-							onClick={toggleDictation}
-							className={`mb-0.5 grid h-11 w-11 shrink-0 place-items-center rounded-full text-[16px] active:scale-95 ${
-								listening
-									? "animate-pulse bg-accent/20 text-accent ring-1 ring-accent/60"
+					{/* One morphing action slot: voice when the box is empty,
+					    send the moment there is text, mic again after the send. */}
+					<button
+						type="button"
+						aria-label={
+							hasText ? "Send" : listening ? "Stop dictation" : "Start dictation"
+						}
+						onClick={() => {
+							if (!hasText) {
+								toggleDictation();
+								return;
+							}
+							if (listening) toggleDictation();
+							onSubmit();
+						}}
+						disabled={hasText && !canSend}
+						className={`mb-0.5 grid h-11 w-11 shrink-0 place-items-center rounded-full text-[16px] transition-colors active:scale-95 ${
+							!hasText && listening
+								? "animate-pulse bg-accent/20 text-accent ring-1 ring-accent/60"
+								: hasText && canSend
+									? "bg-primary text-base-100 text-[17px]"
 									: "bg-base-300 text-muted"
 							}`}
 						>
-							🎙
+							{hasText ? "➤" : "🎙"}
 						</button>
-					)}
-					<button
-						type="button"
-						disabled={!canSend}
-						onClick={onSubmit}
-						className={`mb-0.5 grid h-11 w-11 shrink-0 place-items-center rounded-full text-[17px] active:scale-95 ${
-							canSend ? "bg-primary text-base-100" : "bg-base-300 text-muted/50"
-						}`}
-					>
-						➤
-					</button>
 				</div>
 			</div>
 
