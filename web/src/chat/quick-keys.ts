@@ -29,8 +29,8 @@ export const QUICK_KEYS: QuickKey[] = [
 	},
 	// Space drives extension dialogs (space cycles a settings value or
 	// toggles multi-select); in pi's plain editor it inserts the
-	// character. herdr 22 has no page-up/down key (invalid_key in every
-	// spelling), so long selects scroll with held arrows.
+	// character. herdr 22 silently no-ops unknown key names (an ok
+	// reply proves nothing), so long selects scroll with held arrows.
 	{ id: "space", label: "Space", action: { kind: "keys", keys: ["space"] }, enabled: hasDriver },
 	{ id: "enter", label: "⏎", action: { kind: "keys", keys: ["enter"] }, enabled: hasDriver },
 	{ id: "left", label: "←", action: { kind: "keys", keys: ["left"] }, enabled: hasDriver },
