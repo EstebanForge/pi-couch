@@ -48,28 +48,32 @@ func (a *app) apiDialogAnswer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// Claim before any key goes out: a double-tap racing the pane
-	// re-reads would send a second Enter, which answers whatever pi
-	// shows next. Any outcome that did not complete a send releases
-	// the claim so a corrected retry can proceed.
 	if !a.answered.Claim(req.ID) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
 		return
 	}
-	if !a.answerDispatch(w, r, req.Answer, req.Text, meta.Path) {
+	// Claim before any key goes out: a double-tap racing the pane
+	// re-reads would send a second Enter, which answers whatever pi
+	// shows next. Any outcome that did not complete a send releases
+	// the claim so a corrected retry can proceed; option and free-text
+	// answers release on success too, because a multi-question rpiv
+	// dialog keeps one id across its questions - only confirms,
+	// escapes and editor submits are one-shot per id.
+	sent, oneShot := a.answerDispatch(w, r, req.Answer, req.Text, meta.Path)
+	if !sent || !oneShot {
 		a.answered.Release(req.ID)
 	}
 }
 
 // answerDispatch runs one answer attempt; true means keys were sent
 // and the 200 already written.
-func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, text, path string) bool {
+func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, text, path string) (bool, bool) {
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
 	paneID, err := a.herdr.TargetForPath(ctx, path)
 	if err != nil {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-		return false
+		return false, false
 	}
 
 	switch {
@@ -77,13 +81,13 @@ func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, tex
 		pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 30)
 		if err != nil || !piConfirmOnScreen(pr.Text) {
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-			return false
+			return false, true
 		}
 		keys := []string{"enter"}
 		if answer == "no" {
 			keys = []string{"down", "enter"}
 		}
-		return a.answerSend(w, ctx, paneID, keys)
+		return a.answerSend(w, ctx, paneID, keys), true
 
 	case answer == "type":
 		return a.answerFreeText(w, r, ctx, paneID, path, text)
@@ -92,12 +96,12 @@ func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, tex
 		pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 30)
 		if err != nil || !dialogOpen(pr.Text) {
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-			return false
+			return false, true
 		}
-		return a.answerSend(w, ctx, paneID, []string{"esc"})
+		return a.answerSend(w, ctx, paneID, []string{"esc"}), true
 
 	default:
-		return a.answerOption(w, r, ctx, paneID, answer)
+		return a.answerOption(w, r, ctx, paneID, answer), false
 	}
 }
 
@@ -111,7 +115,50 @@ func (a *app) answerOption(w http.ResponseWriter, r *http.Request, ctx context.C
 	if !a.settleWalk(w, r, ctx, paneID, want) {
 		return false
 	}
-	return a.answerSend(w, ctx, paneID, []string{"enter"})
+	ok := a.answerSend(w, ctx, paneID, []string{"enter"})
+	if ok {
+		a.maybeAutoSubmit(w, r, ctx, paneID)
+	}
+	return ok
+}
+
+// maybeAutoSubmit finishes a multi-question rpiv questionnaire: pi
+// ends on a "Ready to submit your answers?" review screen whose first
+// row is "Submit answers" - answering the last question only parks
+// there, and an unsubmitted questionnaire records a decline. The read
+// right after the answer races pi's repaint, so any paint without the
+// review row just means wait and read again.
+func (a *app) maybeAutoSubmit(w http.ResponseWriter, r *http.Request, ctx context.Context, paneID string) {
+	for attempt := 0; attempt < 4; attempt++ {
+		pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 30)
+		if err != nil {
+			return
+		}
+		m := parsePiDialog(pr.Text)
+		if m == nil {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(250 * time.Millisecond):
+			}
+			continue
+		}
+		if !m.MultiQuestion {
+			// A single-question dialog closes on its own.
+			return
+		}
+		for _, o := range m.Options {
+			if strings.EqualFold(o.Label, "submit answers") {
+				a.paneSend(w, ctx, paneID, "", []string{"enter"})
+				return
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
 }
 
 // settleWalk aims pi's dialog cursor at the option labeled want and
@@ -176,17 +223,17 @@ func (a *app) settleWalk(w http.ResponseWriter, r *http.Request, ctx context.Con
 // screen may already be there, or the questionnaire still needs its
 // "Type something." row selected), type the text, verify pi echoed it
 // onto the input line, then submit with enter.
-func (a *app) answerFreeText(w http.ResponseWriter, r *http.Request, ctx context.Context, paneID, sessionPath, text string) bool {
+func (a *app) answerFreeText(w http.ResponseWriter, r *http.Request, ctx context.Context, paneID, sessionPath, text string) (bool, bool) {
 	trimmed := strings.TrimSpace(text)
 	if trimmed == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
-		return false
+		return false, false
 	}
 	for attempt := 0; attempt < 4; attempt++ {
 		pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 30)
 		if err != nil {
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-			return false
+			return false, false
 		}
 		m := parsePiDialog(pr.Text)
 		if m == nil && editorPaneEmpty(pr.Text) {
@@ -198,20 +245,24 @@ func (a *app) answerFreeText(w http.ResponseWriter, r *http.Request, ctx context
 		if m != nil && m.Kind == "editor" {
 			// The editor buffer is editable in one step: rewrite and
 			// submit, like pi's own accept.
-			return a.editEditorSubmit(w, r, ctx, paneID, sessionPath, m, text)
+			return a.editEditorSubmit(w, r, ctx, paneID, sessionPath, m, text), true
 		}
 		if m != nil && m.InputMode {
 			// rpiv activates input mode the moment the cursor lands on
 			// the free-text row - no enter to open it; enter submits.
-			return a.typeAndSubmit(w, r, ctx, paneID, trimmed)
+			ok := a.typeAndSubmit(w, r, ctx, paneID, trimmed)
+			if ok {
+				a.maybeAutoSubmit(w, r, ctx, paneID)
+			}
+			return ok, false
 		}
 		if m != nil && m.Kind == "input" {
 			// pi's native input widget.
-			return a.typeAndSubmit(w, r, ctx, paneID, trimmed)
+			return a.typeAndSubmit(w, r, ctx, paneID, trimmed), false
 		}
 		if m == nil {
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-			return false
+			return false, false
 		}
 		own := -1
 		for i := range m.Options {
@@ -223,13 +274,13 @@ func (a *app) answerFreeText(w http.ResponseWriter, r *http.Request, ctx context
 		if own < 0 {
 			// No free-text row and no input widget: nothing to type into.
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-			return false
+			return false, false
 		}
 		if m.Cursor == own {
 			// On the row yet not in input mode: the dialog changed under
 			// us; refuse rather than guess.
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-			return false
+			return false, false
 		}
 		steps := aimSteps(m.Cursor, own, len(m.Options))
 		downs := make([]string, steps)
@@ -237,18 +288,18 @@ func (a *app) answerFreeText(w http.ResponseWriter, r *http.Request, ctx context
 			downs[i] = "down"
 		}
 		if !a.paneSend(w, ctx, paneID, "", downs) {
-			return false
+			return false, false
 		}
 		select {
 		case <-ctx.Done():
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-			return false
+			return false, false
 		case <-time.After(250 * time.Millisecond):
 		}
 	}
 	// pi never showed its input line.
 	writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-	return false
+	return false, false
 }
 
 // typeAndSubmit types the answer into pi's input line and only presses

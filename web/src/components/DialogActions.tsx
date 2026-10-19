@@ -27,6 +27,21 @@ export function DialogActions({ k, dialog }: { k: string; dialog: BridgeDialog }
 	// a fragment whose subject would be silently lost on a rewrite.
 	const [message, setMessage] = useState(dialog.scrolled ? "" : (dialog.body ?? ""));
 	const servedBody = useRef(message);
+	// A multi-question rpiv dialog keeps one id across its questions, so
+	// a successful answer never brings the closing dialog:null frame -
+	// the next question's paint arrives instead. New served content
+	// means pi moved on: re-arm the card or the second question renders
+	// permanently disabled.
+	const servedSig = useRef("");
+	useEffect(() => {
+		const sig = `${dialog.title}\n${(dialog.options ?? []).map((o) => o.label).join("\n")}`;
+		if (servedSig.current !== "" && sig !== servedSig.current) {
+			setBusy(false);
+			setActive("");
+			setFailed(false);
+		}
+		servedSig.current = sig;
+	}, [dialog.title, dialog.options]);
 	useEffect(() => {
 		const next = dialog.scrolled ? "" : (dialog.body ?? "");
 		// A stream tick never touches text mid-typing: the box only

@@ -166,12 +166,12 @@ export default function HomeList() {
 				<div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-3">
 					{/* The Pi Agent mark, the same three paths as the Android
 					    launcher icon (800x800 box). */}
-					<svg width="22" height="22" viewBox="0 0 800 800" aria-hidden="true">
+					<svg width="31" height="31" viewBox="0 0 800 800" aria-hidden="true">
 						<path d="M165.29,165.29H517.36V400H400V282.65H165.29Z" fill="#F09082" />
 						<path d="M165.29,282.65H282.65V400H400V517.36H282.65V634.72H165.29Z" fill="#4D9ABF" />
 						<path d="M517.36,400H634.72V634.72H517.36Z" fill="#F1BE58" />
 					</svg>
-					<h1 className="text-lg font-semibold">Couch Pi</h1>
+					<h1 className="text-lg font-semibold">Couch</h1>
 					<button
 						type="button"
 						aria-label="Settings"

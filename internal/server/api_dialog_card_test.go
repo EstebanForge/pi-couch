@@ -139,6 +139,124 @@ func TestDialogAnswerEditorScrolledVerify(t *testing.T) {
 	_ = want
 }
 
+// A multi-question rpiv dialog keeps ONE dialog id across all its
+// questions, so option answers must be repeatable per id - only
+// confirms, escapes and editor submits are one-shot. The second
+// question's answer must pass; a re-answer of the same question is a
+// harmless re-pick and must pass too.
+func TestDialogAnswerMemoAllowsNextQuestion(t *testing.T) {
+	q1 := " ←  □ Slice  ■ Named  ✓ Submit →\n Which drink?\n❯ 1. Coffee\n     Hot.\n  2. Tea\n     Cold.\n" +
+		" Enter to select · ↑/↓ to navigate · n to add notes · Tab to switch questions · Esc to cancel · Ctrl+] to collapse"
+	q2 := " ←  □ Slice  ■ Named  ✓ Submit →\n Which size?\n❯ 1. Big\n  2. Small\n" +
+		" Enter to select · ↑/↓ to navigate · n to add notes · Tab to switch questions · Esc to cancel · Ctrl+] to collapse"
+	var sends int32
+	var sessPath string
+	pane := q1
+	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath, sends: &sends, paneText: &pane, paneAfterSend: &pane})
+	a, sub, _ := streamTestAppWithHerdr(t, sock)
+	sessPath = filepath.Join(sub, "s1.jsonl")
+
+	a.bridgeMu.Lock()
+	a.bridge = map[string]bridgeEntry{}
+	a.bridge[sessPath] = bridgeEntry{
+		dialog:  BridgeDialog{ID: "dmulti", Kind: "custom", Title: "Which drink?"},
+		expires: time.Now().Add(time.Minute),
+	}
+	a.bridgeMu.Unlock()
+
+	post := func(body string) int {
+		req := httptest.NewRequest(http.MethodPost, "/api/sessions/s1/dialog/answer", strings.NewReader(body))
+		req.Host = "127.0.0.1:8090"
+		rec := httptest.NewRecorder()
+		a.guard(a.routes()).ServeHTTP(rec, req)
+		return rec.Code
+	}
+	if code := post(`{"id":"dmulti","answer":"Coffee"}`); code != http.StatusOK {
+		t.Fatalf("q1 answer code=%d", code)
+	}
+	// pi advances the tab to the next question under the same dialog id.
+	pane = q2
+	if code := post(`{"id":"dmulti","answer":"Big"}`); code != http.StatusOK {
+		t.Fatalf("q2 answer code=%d, want the memo to allow the next question", code)
+	}
+	if code := post(`{"id":"dmulti","answer":"Big"}`); code != http.StatusOK {
+		t.Fatalf("re-answer code=%d, want option answers repeatable", code)
+	}
+	if n := atomic.LoadInt32(&sends); n != 3 {
+		t.Fatalf("sends=%d, want one enter per answer", n)
+	}
+}
+
+// Answering a MID questionnaire question advances to the next
+// question and must not touch the submit flow.
+func TestDialogAnswerMultiMidQuestionNoSubmit(t *testing.T) {
+	q1 := " ←  □ Drink  □ Size  ✓ Submit →\n Which drink?\n❯ 1. Coffee\n  2. Tea\n" +
+		" Enter to select · ↑/↓ to navigate · n to add notes · Tab to switch questions · Esc to cancel · Ctrl+] to collapse"
+	q2 := " ←  ■ Drink  □ Size  ✓ Submit →\n Which size?\n❯ 1. Big\n  2. Small\n" +
+		" Enter to select · ↑/↓ to navigate · n to add notes · Tab to switch questions · Esc to cancel · Ctrl+] to collapse"
+	var sends int32
+	var sessPath string
+	post := q2
+	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath, sends: &sends, paneText: &q1, paneAfterSend: &post})
+	a, sub, _ := streamTestAppWithHerdr(t, sock)
+	sessPath = filepath.Join(sub, "s1.jsonl")
+
+	a.bridgeMu.Lock()
+	a.bridge = map[string]bridgeEntry{}
+	a.bridge[sessPath] = bridgeEntry{
+		dialog:  BridgeDialog{ID: "dmid", Kind: "custom", Title: "Which drink?"},
+		expires: time.Now().Add(time.Minute),
+	}
+	a.bridgeMu.Unlock()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/s1/dialog/answer", strings.NewReader(`{"id":"dmid","answer":"Coffee"}`))
+	req.Host = "127.0.0.1:8090"
+	rec := httptest.NewRecorder()
+	a.guard(a.routes()).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("q1 answer code=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if n := atomic.LoadInt32(&sends); n != 1 {
+		t.Fatalf("sends=%d, want only the answering enter", n)
+	}
+}
+
+// Answering the LAST question parks pi on the review screen; the
+// endpoint must press "Submit answers" itself or pi records a decline.
+func TestDialogAnswerMultiAutoSubmits(t *testing.T) {
+	q2 := " ←  ■ Drink  □ Size  ✓ Submit →\n Which size?\n❯ 1. Big\n  2. Small\n" +
+		" Enter to select · ↑/↓ to navigate · n to add notes · Tab to switch questions · Esc to cancel · Ctrl+] to collapse"
+	small := " ←  ■ Drink  ■ Size  ✓ Submit →\n Which size?\n  1. Big\n❯ 2. Small\n" +
+		" Enter to select · ↑/↓ to navigate · n to add notes · Tab to switch questions · Esc to cancel · Ctrl+] to collapse"
+	review := " ←  ■ Drink  ■ Size  ✓ Submit →\n Review your answers\n\n  ● Drink\n    → Coffee\n  ● Size\n    → Small\n\n" +
+		" Ready to submit your answers?\n❯ 1. Submit answers\n  2. Cancel\n" +
+		" Enter to select · ↑/↓ to navigate · n to add a note · Esc to cancel"
+	var sends int32
+	var sessPath string
+	seq := []string{small, review, review, review}
+	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath, sends: &sends, paneText: &q2, paneSeq: seq})
+	a, sub, _ := streamTestAppWithHerdr(t, sock)
+	sessPath = filepath.Join(sub, "s1.jsonl")
+
+	a.bridgeMu.Lock()
+	a.bridge = map[string]bridgeEntry{}
+	a.bridge[sessPath] = bridgeEntry{
+		dialog:  BridgeDialog{ID: "dsub", Kind: "custom", Title: "Which size?"},
+		expires: time.Now().Add(time.Minute),
+	}
+	a.bridgeMu.Unlock()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/s1/dialog/answer", strings.NewReader(`{"id":"dsub","answer":"Small"}`))
+	req.Host = "127.0.0.1:8090"
+	rec := httptest.NewRecorder()
+	a.guard(a.routes()).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("final answer code=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if n := atomic.LoadInt32(&sends); n != 3 {
+		t.Fatalf("sends=%d, want down + answering enter + review submit enter", n)
+	}
+}
 func TestDialogAnswerEditorSubmit(t *testing.T) {
 	editor := editorPaint("probe commit\n")
 	var sends int32

@@ -70,6 +70,63 @@ func TestParsePiDialogAskUser(t *testing.T) {
 	}
 }
 
+const multiAskScreen = ` ←  □ Slice  ■ Named  ✓ Submit →
+ Which drink?
+❯ 1. Coffee
+     Hot.
+  2. Tea
+     Cold.
+ Enter to select · ↑/↓ to navigate · n to add notes · Tab to switch questions · Esc to cancel · Ctrl+] to collapse
+~/.cache/probe-ui (main)`
+
+func TestParsePiDialogMultiQuestion(t *testing.T) {
+	d := parsePiDialog(multiAskScreen)
+	if d == nil {
+		t.Fatal("multi-question screen must parse")
+	}
+	if d.Kind != "select" {
+		t.Errorf("kind=%q, want select", d.Kind)
+	}
+	if d.Title != "Which drink?" {
+		t.Errorf("title=%q, want the question line (tab bar excluded)", d.Title)
+	}
+	if len(d.Options) != 2 {
+		t.Fatalf("options=%d, want 2", len(d.Options))
+	}
+	if d.Options[0].Label != "Coffee" || d.Options[1].Label != "Tea" {
+		t.Errorf("options=%+v", d.Options)
+	}
+	if d.Cursor != 0 {
+		t.Errorf("cursor=%d", d.Cursor)
+	}
+}
+
+func TestParsePiDialogMultiQuestionCapture(t *testing.T) {
+	raw, err := os.ReadFile("testdata/multi-question-capture.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := parsePiDialog(string(raw))
+	if d == nil {
+		t.Fatal("the live multi-question capture must parse")
+	}
+	if d.Kind != "select" {
+		t.Errorf("kind=%q, want select", d.Kind)
+	}
+	if d.Title != "Capture probe: please leave this questionnaire open until it closes by itself?" {
+		t.Errorf("title=%q", d.Title)
+	}
+	if len(d.Options) != 3 {
+		t.Fatalf("options=%d, want 3", len(d.Options))
+	}
+	if d.Options[0].Label != "Leave it open" || d.Options[0].Description == "" {
+		t.Errorf("option 0 = %+v, want the label with its description", d.Options[0])
+	}
+	if d.Cursor != 0 {
+		t.Errorf("cursor=%d", d.Cursor)
+	}
+}
+
 func TestParsePiDialogEditorFromLiveCapture(t *testing.T) {
 	raw, err := os.ReadFile("/tmp/editor-screen.txt")
 	if err != nil {

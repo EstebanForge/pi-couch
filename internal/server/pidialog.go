@@ -32,6 +32,13 @@ type piDialog struct {
 	// sits on the "Type something." row and its label is now the live
 	// draft. The answer flow keys its phase transition on this.
 	InputMode bool
+	// MultiQuestion carries the multi-question tab bar's answered
+	// markers: a questionnaire holding one dialog id across questions
+	// ends on a ✓ Submit tab, so the answer flow submits when every
+	// tab reads answered.
+	MultiQuestion bool
+	TabsAnswered  int
+	TabsTotal     int
 	// Scrolled marks an editor whose buffer outgrew its viewport: pi
 	// paints the visible tail plus a rule carrying "↑ N more", so the
 	// body is the tail only. HiddenAbove is that N. HiddenBelow is the
@@ -45,10 +52,11 @@ type piDialog struct {
 var (
 	// The rpiv ask-user questionnaire: "Enter to select · ↑/↓ to
 	// navigate · n to add notes · Esc to cancel · Ctrl+] to collapse".
-	piAskHintRe = regexp.MustCompile(`(?i)enter to select\s*[·•]\s*↑/↓ to navigate(\s*[·•]\s*(space to toggle|n to add notes))*\s*[·•]\s*esc to cancel`)
+	piAskHintRe = regexp.MustCompile(`(?i)enter to select\s*[·•]\s*↑/↓ to navigate(\s*[·•]\s*(space to toggle|n to add (?:a )?notes?|tab to switch questions))*\s*[·•]\s*esc to cancel`)
 	// The extension editor: "enter submit  shift+enter/ctrl+j newline
 	// escape/ctrl+c cancel  ctrl+g external editor".
 	piEditorHintRe = regexp.MustCompile(`(?i)enter\s+submit\s+shift\+enter/ctrl\+j\s+newline\s+escape/ctrl\+c\s+cancel`)
+	piTabBarRe     = regexp.MustCompile(`(?m)^\s*←.*✓ Submit.*→\s*$\n?`)
 	// The questionnaire's free-text row: selecting it opens pi's input
 	// widget, so the card renders a text field in its place.
 	piOwnAnswerRe = regexp.MustCompile(`(?i)^type something`)
@@ -79,7 +87,9 @@ func piHintKind(plain string) (kind string, hintIndex int) {
 	for end > 0 && strings.TrimSpace(lines[end-1]) == "" {
 		end--
 	}
-	const window = 6
+	// pi's footer can carry a notification line next to the folder and
+	// context meter, pushing the hint past six trailing lines.
+	const window = 10
 	start := end - window
 	if start < 0 {
 		start = 0
@@ -105,12 +115,33 @@ func piHintKind(plain string) (kind string, hintIndex int) {
 }
 
 // parsePiDialog extracts the dialog a pane shows, or nil when no pi
-// dialog hint anchors the screen.
+// dialog hint anchors the screen. The multi-question tab bar's
+// answered markers ride along on whatever dialog the paint holds.
 func parsePiDialog(text string) *piDialog {
+	d := parsePiDialogInner(text)
+	if d == nil {
+		return nil
+	}
+	plain := ansiRe.ReplaceAllString(text, "")
+	for _, l := range strings.Split(plain, "\n") {
+		if piTabBarRe.MatchString(l) {
+			d.MultiQuestion = true
+			d.TabsAnswered = strings.Count(l, "■")
+			d.TabsTotal = d.TabsAnswered + strings.Count(l, "□")
+			break
+		}
+	}
+	return d
+}
+
+func parsePiDialogInner(text string) *piDialog {
 	if text == "" {
 		return nil
 	}
 	plain := ansiRe.ReplaceAllString(text, "")
+	// The multi-question tab bar ('← □ Q1 ■ Q2 ✓ Submit →') is chrome,
+	// not content - without the strip it masquerades as the title.
+	plain = piTabBarRe.ReplaceAllString(plain, "")
 	kind, hint := piHintKind(plain)
 	if hint < 0 {
 		return nil

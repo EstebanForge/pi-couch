@@ -1,0 +1,30 @@
+     call('pane.send_input', {'pane_id':'w18:p2','keys':['escape']})
+     print('CAPTURED and escaped')
+ else:
+     print('NO DIALOG SEEN; last pane saved to /tmp/mq-last.txt')
+ EOF (yield 35.0s · cwd: ~/Dev/EstebanForge/couch-pi)
+
+ elapsed 1.9s · session_id=1352 · log: /tmp/pi-unified-exec-1352-1b101eba.log
+
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ←  □ Capture   □ Second   ✓ Submit  →
+
+
+ Capture probe: please leave this questionnaire open until it closes by itself?
+
+❯ 1. Leave it open
+     Leave this dialog untouched for a few seconds - the probe reads the pane and dismisses it for you.
+  2. Escaped already
+     If you already escaped it, fire again by asking me to retry the capture.
+  3. Type something.
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+ Enter to select · ↑/↓ to navigate · n to add notes · Tab to switch questions · Esc to cancel · Ctrl+] to collapse
+
+
+
+~/Dev/EstebanForge/couch-pi (main)
+↑33M ↓1.2M R546M CH99.8% $16.229 22.3%/1.0M (auto)                                                           (zai) glm-5.3-flash • high
+💻 example-box 🧠 unified-exec: 1 session running
