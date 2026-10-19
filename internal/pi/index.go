@@ -287,6 +287,16 @@ func (ix *Index) parse(path, key string, st os.FileInfo) (SessionMeta, bool) {
 					todoIdx = i
 				}
 			}
+			// pi's auto-namer labels the window with a short name; pi and
+			// herdr display it instead of the long session_info name.
+			if e.CustomType == "pi-auto-name" && len(e.Data) > 0 {
+				var an struct {
+					WindowName string `json:"windowName"`
+				}
+				if json.Unmarshal(e.Data, &an) == nil && an.WindowName != "" {
+					meta.Name = an.WindowName
+				}
+			}
 		case "message":
 			m := e.Message
 			if m == nil {

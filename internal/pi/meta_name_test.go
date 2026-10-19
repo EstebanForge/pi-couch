@@ -42,6 +42,27 @@ func TestMetaSessionNameLatestWins(t *testing.T) {
 	}
 }
 
+func TestMetaAutoNameWindowWins(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "sess")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(sub, "s1.jsonl")
+	writeSession(t, path, headerLine,
+		sessNameLine("n1", "", "Create Docs Map To Drive Full Adversarial Review Of Baluard"),
+		`{"type":"custom","customType":"pi-auto-name","data":{"sessionName":"Create Docs Map To Drive Full Adversarial Review Of Baluard","windowName":"Baluard Review Map"},"id":"a1","parentId":"n1","timestamp":"2026-10-10T12:00:06.000Z"}`)
+
+	ix := NewIndex(dir)
+	meta, ok := ix.Meta("s1")
+	if !ok {
+		t.Fatal("meta not found")
+	}
+	if meta.Name != "Baluard Review Map" {
+		t.Fatalf("name = %q, want the auto-namer's short window name", meta.Name)
+	}
+}
+
 func TestMetaSessionNameClearWins(t *testing.T) {
 	dir := t.TempDir()
 	sub := filepath.Join(dir, "sess")

@@ -166,27 +166,27 @@ export function DialogActions({ k, dialog }: { k: string; dialog: BridgeDialog }
 					pi refused that answer - it may have moved on. Try again or cancel.
 				</p>
 			)}
-			<div className="mt-3 flex items-center gap-2">
+			<div className="mt-3 flex items-center justify-end gap-2">
+				<button
+					type="button"
+					disabled={busy}
+					onClick={() => answer("escape", "escape")}
+					className="flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl bg-base-300 px-4 py-2 text-[14px] text-base-content active:scale-[0.99] disabled:opacity-50"
+				>
+					{active === "escape" && <Spinner size={14} />}
+					Cancel
+				</button>
 				{isEditor && (
 					<button
 						type="button"
 						disabled={busy}
 						onClick={saveEdit}
-						className="flex min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-[14px] font-medium text-primary-content active:scale-[0.99] disabled:opacity-50"
+						className="flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-[14px] font-medium text-primary-content active:scale-[0.99] disabled:opacity-50"
 					>
 						{active === "submit" && <Spinner size={14} />}
 						Submit
 					</button>
 				)}
-				<button
-					type="button"
-					disabled={busy}
-					onClick={() => answer("escape", "escape")}
-					className="flex min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-xl bg-base-300 px-4 py-2 text-[14px] text-base-content active:scale-[0.99] disabled:opacity-50"
-				>
-					{active === "escape" && <Spinner size={14} />}
-					Cancel
-				</button>
 			</div>
 		</div>
 	);

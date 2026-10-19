@@ -567,10 +567,10 @@ export function Composer(props: {
 							Attach files and the agent reads them by path.
 						</div>
 					)}
-					<div className="mt-2 flex gap-2">
+					<div className="mt-2 flex justify-end gap-2">
 						<button
 							type="button"
-							className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-base-300 px-3 py-2.5 text-[14px] active:scale-95 disabled:opacity-50"
+							className="flex items-center gap-2 rounded-xl bg-base-300 px-3 py-2.5 text-[14px] active:scale-95 disabled:opacity-50"
 							disabled={files.length === 0}
 							onClick={() => setFiles([])}
 						>
@@ -579,7 +579,7 @@ export function Composer(props: {
 						</button>
 						<button
 							type="button"
-							className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-primary px-3 py-2.5 text-[14px] text-base-100 active:scale-95 disabled:opacity-50"
+							className="flex items-center gap-2 rounded-xl bg-primary px-3 py-2.5 text-[14px] text-base-100 active:scale-95 disabled:opacity-50"
 							disabled={files.length >= MAX_FILES}
 							onClick={() => fileInput.current?.click()}
 						>
