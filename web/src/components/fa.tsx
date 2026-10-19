@@ -227,3 +227,4 @@ export function FaFileLines(props: FaProps) {
 		</Fa>
 	);
 }
+

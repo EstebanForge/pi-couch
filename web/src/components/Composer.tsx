@@ -348,11 +348,19 @@ export function Composer(props: {
 									onPointerDown={(e) => e.preventDefault()}
 									onMouseDown={(e) => e.preventDefault()}
 									onClick={() => (k.action.kind === "queue" ? runQueue() : runKey(k))}
-									className={`h-11 min-w-[44px] shrink-0 rounded-lg border border-base-300 border-b-2 border-b-base-300/70 bg-base-200 px-2 font-mono text-[13px] active:scale-95 ${
-										enabled ? "text-base-content" : "text-muted/40"
+									className={`h-11 min-w-[44px] shrink-0 rounded-lg border px-2 font-mono text-[13px] active:scale-95 ${
+										k.id === "enter"
+											? "border-primary/70 border-b-2 border-b-primary/50 bg-base-200 text-primary"
+											: `border-base-300 border-b-2 border-b-base-300/70 bg-base-200 ${enabled ? "text-base-content" : "text-muted/40"}`
 									}`}
 								>
-									{k.label}
+									{k.id === "enter" ? (
+										// U+23CE rides a fallback font; pin it to the line box so
+										// it centers on the arrows' optical row
+										<span className="inline-block leading-none">⏎</span>
+									) : (
+										k.label
+									)}
 								</button>
 							);
 						})}
@@ -524,10 +532,15 @@ export function Composer(props: {
 			>
 				<div className="p-3">
 					<div className="mb-1 px-3 text-[13px] text-muted">
-						{files.length > 0 ? `${files.length} attachment${files.length === 1 ? "" : "s"}` : "No attachments"}
+						{files.length > 0
+							? `${files.length} attachment${files.length === 1 ? "" : "s"}`
+							: "No attachments"}
 					</div>
 					{files.map((f) => (
-						<div key={f.id} className="flex items-center gap-2 rounded-xl px-3 py-2.5 active:bg-base-200">
+						<div
+							key={f.id}
+							className="flex items-center gap-2 rounded-xl px-3 py-2.5 active:bg-base-200"
+						>
 							<span className="shrink-0">
 								{f.path ? (
 									<FaCheck size={13} className="text-primary" />
