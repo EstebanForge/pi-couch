@@ -199,12 +199,16 @@
 .md li {
 	margin: 0.15em 0;
 }
+.md {
+	overflow-wrap: anywhere;
+}
 .md code {
 	background: var(--color-base-300);
 	border-radius: 0.25rem;
 	padding: 0.1em 0.35em;
 	font-size: 0.85em;
 	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	overflow-wrap: anywhere;
 }
 .md pre {
 	background: var(--color-base-300);
@@ -212,6 +216,7 @@
 	padding: 0.6rem 0.75rem;
 	overflow-x: auto;
 	margin: 0.45em 0;
+	max-width: 100%;
 }
 .md pre code {
 	background: transparent;

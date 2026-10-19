@@ -93,11 +93,11 @@ function FullText({ k, it }: { k: string; it: StreamItem }) {
 	const [full, setFull] = useState<string | null>(null);
 	const [failed, setFailed] = useState(false);
 	if (full !== null) {
-		return <div className="max-h-72 overflow-y-auto whitespace-pre-wrap text-muted">{full}</div>;
+		return <div className="max-h-72 overflow-y-auto whitespace-pre-wrap break-words text-muted">{full}</div>;
 	}
 	return (
 		<>
-			<div className="whitespace-pre-wrap text-muted">{it.text}</div>
+			<div className="whitespace-pre-wrap break-words text-muted">{it.text}</div>
 			<button
 				type="button"
 				onClick={() => {
@@ -118,7 +118,7 @@ function itemRow(it: StreamItem, expanded: boolean, sessionKey: string) {
 		case "user":
 			return (
 				<div className="flex justify-end px-3 py-1">
-					<div className="max-w-[85%] rounded-2xl bg-primary/20 px-3 py-2 text-[15px] whitespace-pre-wrap">
+					<div className="max-w-[85%] rounded-2xl bg-primary/20 px-3 py-2 text-[15px] whitespace-pre-wrap [overflow-wrap:anywhere]">
 						{it.text}
 						{!!it.images && (
 							<img
@@ -141,7 +141,7 @@ function itemRow(it: StreamItem, expanded: boolean, sessionKey: string) {
 			);
 		case "thinking":
 			return (
-				<div className="px-3 py-0.5 text-[13px] text-muted italic whitespace-pre-wrap">
+				<div className="px-3 py-0.5 text-[13px] text-muted italic whitespace-pre-wrap break-words">
 					{it.text}
 				</div>
 			);
@@ -177,7 +177,7 @@ function itemRow(it: StreamItem, expanded: boolean, sessionKey: string) {
 					{it.truncated ? (
 						<FullText k={sessionKey} it={it} />
 					) : expanded ? (
-						<div className="whitespace-pre-wrap text-muted">{it.text}</div>
+						<div className="whitespace-pre-wrap break-words text-muted">{it.text}</div>
 					) : (
 						<span className="line-clamp-1 text-muted">{it.text}</span>
 					)}
