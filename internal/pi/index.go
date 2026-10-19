@@ -264,9 +264,9 @@ func (ix *Index) parse(path, key string, st os.FileInfo) (SessionMeta, bool) {
 		}
 		switch e.Type {
 		case "session_info":
-			if e.Name != "" {
-				meta.Name = e.Name
-			}
+			// pi: the latest session_info entry is the session name and an
+			// empty name explicitly clears it (getSessionName walks in reverse)
+			meta.Name = strings.TrimSpace(e.Name)
 		case "model_change":
 			if e.ModelID != "" {
 				meta.Model = e.Provider + "/" + e.ModelID

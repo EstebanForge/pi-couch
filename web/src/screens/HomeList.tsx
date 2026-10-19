@@ -139,7 +139,7 @@ export default function HomeList() {
 				)}
 				<span className="min-w-0 flex-1">
 					<span className="block truncate text-[15px] font-medium">
-						{short(s.name || s.first_user || s.key, 60)}
+						{short(s.name || s.cwd.split("/").filter(Boolean).pop() || s.key, 60)}
 					</span>
 					<span className="block truncate text-xs text-muted">{short(tildify(s.cwd), 48)}</span>
 					{(driven[s.path]?.label || driven[s.path]?.title) && (
