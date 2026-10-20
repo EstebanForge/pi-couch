@@ -90,6 +90,16 @@ if (history.state === null) {
 
 export function navigate(to: string, opts: { replace?: boolean; dir?: Dir } = {}): void {
 	transition(opts.dir ?? "fwd", () => {
+		// A sheet marker still on top must be stripped HERE: the sheet's
+		// own cleanup runs only on the next render, which is after this
+		// push when close and navigate share one callback — leaving the
+		// marker as a dead history entry every Back gesture then eats
+		// with no visible effect (field bug).
+		if (onMarker) {
+			markerStack.pop();
+			onMarker = false;
+			history.replaceState({ i: cur }, "", href(getPath()));
+		}
 		if (opts.replace) history.replaceState({ i: cur }, "", href(to));
 		else history.pushState({ i: ++seq }, "", href(to));
 		cur = typeof history.state?.i === "number" ? history.state.i : cur;
@@ -147,6 +157,13 @@ window.addEventListener("popstate", (e) => {
 		return;
 	}
 	if (e.state?.sheet !== undefined) {
+		// Landed on a marker nobody owns: its sheet navigated away and
+		// the entry survived only as history residue. Keep going back
+		// instead of spending a gesture on it.
+		if (sheetClosers.size === 0) {
+			history.back();
+			return;
+		}
 		onMarker = true;
 		return;
 	}

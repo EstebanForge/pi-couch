@@ -13,7 +13,9 @@ const base: DriverState = { ...emptyDriver };
 describe("pending bubbles", () => {
 	it("adds, marks and removes by id", () => {
 		let s = addPending(base, 1, "hello agent", false);
-		expect(s.pending).toEqual([{ id: 1, seed: "hello agent", state: "sending" }]);
+		expect(s.pending).toEqual([
+			{ id: 1, seed: "hello agent", text: "hello agent", state: "sending" },
+		]);
 		s = markPending(s, 1, "sent");
 		expect(s.pending[0].state).toBe("sent");
 		s = removePending(s, 1);

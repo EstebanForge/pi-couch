@@ -54,13 +54,16 @@ describe("splitDriven", () => {
 });
 
 describe("session merge helpers", () => {
-	it("merges upserts, replacing by key and sorting mtime desc", () => {
+	it("merges upserts in place and prepends only new keys", () => {
 		const list = [meta("a", "2026-10-17T10:00:00Z"), meta("b", "2026-10-17T09:00:00Z")];
 		const out = mergeUpserts(list, [
+			meta("d", "2026-10-17T08:00:00Z"),
 			meta("c", "2026-10-17T12:00:00Z"),
-			meta("a", "2026-10-17T13:00:00Z"),
+			meta("b", "2026-10-17T13:00:00Z"),
 		]);
-		expect(out.map((s) => s.key)).toEqual(["a", "c", "b"]);
+		// b stays in its slot despite the newer mtime; new keys prepend, newest first
+		expect(out.map((s) => s.key)).toEqual(["c", "d", "a", "b"]);
+		expect(out[3].mtime).toBe("2026-10-17T13:00:00Z");
 	});
 
 	it("drops removed keys and keeps the rest", () => {

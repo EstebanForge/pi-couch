@@ -14,6 +14,7 @@ import type {
 export type PendingMsg = {
 	id: number;
 	seed: string; // first 60 normalized chars, matched against arriving user items
+	text: string; // full text, so the bubble renders the same box as the real row
 	state: "sending" | "sent" | "queued" | "unconfirmed";
 };
 
@@ -61,6 +62,7 @@ export function addPending(s: DriverState, id: number, text: string, queued: boo
 	const msg: PendingMsg = {
 		id,
 		seed: normalizeSeed(text),
+		text,
 		state: queued ? "queued" : "sending",
 	};
 	return { ...s, pending: [...s.pending, msg] };
@@ -107,6 +109,17 @@ export function reduceReset(_s: DriverState, p: TranscriptReset): DriverState {
 }
 
 export function reduceAppend(s: DriverState, p: TranscriptAppend): DriverState {
+	if (p.items.length === 0) return s;
+	// Appends are new tail entries in practice; only a raced page fetch
+	// or a reset gap ever needs the dedupe+sort fallback.
+	const last = s.items.length > 0 ? s.items[s.items.length - 1].seq : -1;
+	let ascending = p.items[0].seq > last;
+	for (let i = 1; ascending && i < p.items.length; i++) {
+		if (p.items[i].seq <= p.items[i - 1].seq) ascending = false;
+	}
+	if (ascending) {
+		return reconcile({ ...s, items: s.items.concat(p.items) });
+	}
 	const fresh = p.items.filter((it) => !s.items.some((cur) => cur.seq === it.seq));
 	if (fresh.length === 0) return s;
 	return reconcile({ ...s, items: [...s.items, ...fresh].sort((a, b) => a.seq - b.seq) });
@@ -146,8 +159,18 @@ export type WorkBlock =
 	| { type: "item"; item: StreamItem }
 	| { type: "block"; items: StreamItem[] }
 	// The Working/blocked marker rides the list as a pseudo-block so
-	// follow output scrolls it into view like any other row.
-	| { type: "status" };
+	// follow output scrolls it into view like any other row. Fields
+	// inline so rows memoize without a DriverState prop.
+	| {
+			type: "status";
+			dialog: DriverState["dialog"];
+			awaiting: boolean;
+			status: string;
+	  }
+	// Same for the pending sent bubble: as a sibling div it resizes
+	// the scroller twice per send (insert, then reconcile removal),
+	// which read as a clunky jump on every message.
+	| { type: "pending"; msg: PendingMsg };
 
 const FOLDABLE = new Set(["thinking", "tool_call", "tool_result", "bash", "custom"]);
 

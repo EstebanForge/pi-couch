@@ -317,7 +317,16 @@ class MainActivity : Activity() {
                 err: WebResourceError,
             ) {
                 if (req.isForMainFrame) {
-                    view.loadData(loadErrorHtml(req.url.toString()), "text/html", "utf-8")
+                    // loadDataWithBaseURL, not loadData: loadData parses its
+                    // payload as a URL, so the hex colors' '#' read as URL
+                    // fragments and the card rendered as an empty document.
+                    view.loadDataWithBaseURL(
+                        null,
+                        loadErrorHtml(req.url.toString()),
+                        "text/html",
+                        "utf-8",
+                        null,
+                    )
                 }
             }
         }

@@ -249,3 +249,20 @@
 	border-color: var(--color-muted);
 	margin: 0.6em 0;
 }
+
+@keyframes bubble-in {
+	from {
+		opacity: 0;
+		transform: translateY(6px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+.bubble-in {
+	animation: bubble-in 160ms ease-out both;
+}
+.bubble-in {
+	will-change: transform, opacity;
+}

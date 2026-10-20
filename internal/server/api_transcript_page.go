@@ -5,9 +5,12 @@ import (
 	"strconv"
 )
 
-// defaultPageLimit matches the reverse-pagination page the web client
-// asks for when it reaches the top of the transcript.
-const defaultPageLimit = 20
+// defaultPageLimit is the conversation target per history page: the
+// endpoint extends the page past tool plumbing until it holds this
+// many user/assistant text items (bounded server-side by pi's
+// transcriptPageCap), so one scroll-to-top always surfaces real
+// messages.
+const defaultPageLimit = 5
 
 // apiTranscriptPage serves one page of transcript items strictly older
 // than before (the newest page-1 items ascending), for the client's
@@ -22,7 +25,7 @@ func (a *app) apiTranscriptPage(w http.ResponseWriter, r *http.Request) {
 	limit := defaultPageLimit
 	if v := r.URL.Query().Get("limit"); v != "" {
 		n, err := strconv.Atoi(v)
-		if err != nil || n <= 0 || n > 100 {
+		if err != nil || n <= 0 || n > 50 {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "badrequest"})
 			return
 		}

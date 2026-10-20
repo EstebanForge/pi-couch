@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { FaCaretDown, FaCaretRight, FaCheck, FaCopy } from "./fa";
@@ -190,7 +190,10 @@ const COMPONENTS = {
 	code: InlineCode,
 };
 
-export function Markdown({ text }: { text: string }) {
+// Memoized: the session screen re-renders on every stream tick, and
+// re-parsing the markdown AST for each visible assistant row is the
+// single biggest per-tick cost on a phone.
+export const Markdown = memo(function Markdown({ text }: { text: string }) {
 	return (
 		<div className="md px-3 py-1 text-[15px] text-base-content">
 			<ReactMarkdown remarkPlugins={[remarkGfm]} components={COMPONENTS}>
@@ -198,4 +201,4 @@ export function Markdown({ text }: { text: string }) {
 			</ReactMarkdown>
 		</div>
 	);
-}
+});

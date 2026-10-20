@@ -11,8 +11,8 @@ android {
         applicationId = "com.estebanforge.couchpi"
         minSdk = 32
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.1.0+beta44"
+        versionCode = 4
+        versionName = "0.1.0+beta80"
     }
 
     buildTypes {

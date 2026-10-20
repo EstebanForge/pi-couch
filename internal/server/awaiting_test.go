@@ -17,12 +17,20 @@ import (
 //	Enter to select · Ctrl+S to set as default · Escape/Ctrl+C to cancel
 func TestDialogOpenSignatures(t *testing.T) {
 	modelPicker := "\x1b[2m  Enter to select · Ctrl+S to set as default · Escape/Ctrl+C to cancel\x1b[0m"
+	followUpPanel := "┌ follow-ups (2) · after this run ─────────────\n" +
+		"│ ○ Do Desktop e2e flow coverage.\n│\n" +
+		"│ ○ Then remove the blocked if the new flow solves it.\n" +
+		"│ alt+enter add follow-up · enter send next · alt+shift+up follow-up edit\n│\n" +
+		"└────────────────────────────\n" +
+		"── ⚙ Working ────────────────────\n"
 	cases := []struct {
 		name string
 		text string
 		want bool
 	}{
 		{"model picker hint bar", modelPicker, true},
+		{"follow-up queue panel while working", followUpPanel, false},
+		{"hint bar quoted mid-transcript", "earlier reply text\nenter to select · ctrl+s default · escape to cancel\n" + strings.Repeat("more transcript below\n", 6) + "~/Dev/x (main)\n↑55k ↓15 $0.008 (zai) glm-5.3-flash · high\n", false},
 		{"extension editor external hint", "some draft\n  ctrl+g external editor\n", true},
 		{"select counter", "  (3/25)", true},
 		{"pi select menu hint", "\x1b[2m↑↓ navigate  enter select  escape/ctrl+c cancel\x1b[0m", true},

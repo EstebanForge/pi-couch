@@ -1,5 +1,5 @@
 import { Fab } from "konsta/react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createQuickAgent, type SessionMeta, type SessionsPatch } from "../api";
 import { FaBell, FaBellSlash, FaGear, FaMagnifyingGlass, FaPlus, FaXmark } from "../components/fa";
 import { NewAgentSheet } from "../components/NewAgentSheet";
@@ -36,16 +36,31 @@ export default function HomeList() {
 	// only holds what was asked for). The spinner must paint first and
 	// the step lands after a deliberate 500ms beat, so the load is
 	// visible instead of a blur.
+	// The recents ul: after a browse-mode Load more, the first newly
+	// loaded card is scrolled into view — new rows insert above the
+	// button, and scroll anchoring otherwise makes the load invisible.
+	const recentsUl = useRef<HTMLUListElement>(null);
+
+	// Plain setTimeout only: chaining the beat inside
+	// requestAnimationFrame wedges the whole flow when the WebView stops
+	// producing frames (doze/background) — loadingMore then stays true
+	// and every later tap early-returns with no fetch (field bug).
 	const loadMore = () => {
 		if (loadingMore) return;
 		setLoadingMore(true);
+		const prev = limit;
 		const next = limit + WINDOW_STEP;
-		requestAnimationFrame(() => {
-			setTimeout(() => {
-				setLimit(next);
-				void load({ limit: next, q: needle || undefined }).finally(() => setLoadingMore(false));
-			}, 500);
-		});
+		setTimeout(() => {
+			setLimit(next);
+			void load({ limit: next, q: needle || undefined })
+				.then(() => {
+					if (needle) return;
+					requestAnimationFrame(() => {
+						recentsUl.current?.children[prev]?.scrollIntoView({ block: "start" });
+					});
+				})
+				.finally(() => setLoadingMore(false));
+		}, 500);
 	};
 	const [push, setPush] = useState<PushState>("off");
 
@@ -262,7 +277,10 @@ export default function HomeList() {
 						</div>
 					</section>
 				)}
-				<ul className={showPriority ? "flex flex-col gap-2" : "mt-2 flex flex-col gap-2"}>
+				<ul
+					ref={recentsUl}
+					className={showPriority ? "flex flex-col gap-2" : "mt-2 flex flex-col gap-2"}
+				>
 					{(needle ? searchList : visible).map((s) => (
 						<li key={s.key}>{card(s)}</li>
 					))}

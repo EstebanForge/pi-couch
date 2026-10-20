@@ -4,7 +4,7 @@
 // window, and an unknown outcome never restores or retries.
 
 import { Sheet, Toast } from "konsta/react";
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
 	getModels,
 	type ModelRow,
@@ -37,7 +37,7 @@ const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "ma
 
 type Attachment = { id: number; name: string; path?: string; error?: string };
 
-export function Composer(props: {
+export const Composer = memo(function Composer(props: {
 	sessionKey: string;
 	status: string;
 	model: string;
@@ -78,10 +78,16 @@ export function Composer(props: {
 	}, [draftStoreKey, text]);
 
 	// Autosize: grow with content, cap at half the visual viewport.
+	// Clearing (send) skips the read entirely: height auto followed by
+	// a scrollHeight read forces synchronous layout mid-send.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the effect must re-run on every text change even though text is not read
 	useEffect(() => {
 		const el = ta.current;
 		if (!el) return;
+		if (!text) {
+			el.style.height = "";
+			return;
+		}
 		el.style.height = "auto";
 		const cap = Math.floor((window.visualViewport?.height ?? window.innerHeight) / 2);
 		el.style.height = `${Math.min(el.scrollHeight, cap)}px`;
@@ -321,10 +327,17 @@ export function Composer(props: {
 				? `${Math.round(ctxWindow / 1_000)}K`
 				: "";
 
+	// localStorage reads are main-thread IPC on Android WebView; read
+	// once per mount. Quick-key settings changes land on next visit.
+	const quickKeys = useMemo(
+		() => ({ enabled: quickKeysEnabled(), keys: orderKeys(quickKeyOrder()) }),
+		[],
+	);
+
 	return (
 		<>
 			{/* quick keys strip */}
-			{quickKeysEnabled() && (
+			{quickKeys.enabled && (
 				<div className="relative">
 					<div
 						className="flex gap-2 overflow-x-auto px-2 pt-2 pb-1"
@@ -335,7 +348,7 @@ export function Composer(props: {
 							transform: "translateZ(0)",
 						}}
 					>
-						{orderKeys(quickKeyOrder()).map((k) => {
+						{quickKeys.keys.map((k) => {
 							const enabled =
 								k.action.kind === "queue"
 									? runQueueEnabled(status, hasText)
@@ -536,6 +549,18 @@ export function Composer(props: {
 							? `${files.length} attachment${files.length === 1 ? "" : "s"}`
 							: "No attachments"}
 					</div>
+					{/* Add lives as a list row, not a bottom button: the
+					    primary-right slot is where every panel closes, and a
+					    picker button there read as the confirm (field report). */}
+					<button
+						type="button"
+						className="mb-1 flex w-full items-center gap-2 rounded-xl border border-dashed border-muted/40 px-3 py-2.5 text-[14px] text-muted active:bg-base-200 disabled:opacity-50"
+						disabled={files.length >= MAX_FILES}
+						onClick={() => fileInput.current?.click()}
+					>
+						<FaPaperclip size={13} />
+						Add attachment
+					</button>
 					{files.map((f) => (
 						<div
 							key={f.id}
@@ -579,12 +604,10 @@ export function Composer(props: {
 						</button>
 						<button
 							type="button"
-							className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-primary px-3 py-2.5 text-[14px] text-base-100 active:scale-95 disabled:opacity-50"
-							disabled={files.length >= MAX_FILES}
-							onClick={() => fileInput.current?.click()}
+							className="flex flex-1 items-center justify-center rounded-xl bg-primary px-3 py-2.5 text-[14px] text-base-100 active:scale-95"
+							onClick={() => setSheet("none")}
 						>
-							<FaPaperclip size={13} />
-							Add attachment
+							Done
 						</button>
 					</div>
 				</div>
@@ -664,7 +687,7 @@ export function Composer(props: {
 			<Toast opened={toast !== ""}>{toast}</Toast>
 		</>
 	);
-}
+});
 
 function runQueueEnabled(status: string, hasText: boolean): boolean {
 	return status === "working" && hasText;

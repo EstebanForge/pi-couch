@@ -1,5 +1,5 @@
 import { Dialog, DialogButton } from "konsta/react";
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import {
 	agentSession,
@@ -36,6 +36,7 @@ import {
 	groupWorkBlocks,
 	markPending,
 	mergeOlder,
+	type PendingMsg,
 	reduceAppend,
 	reduceReset,
 	reduceStatus,
@@ -46,7 +47,10 @@ import { isWaiting, STATUS_DOT } from "../status";
 import { connectStream, type StreamStatus } from "../stream";
 
 const LIMIT = 2000; // client-side tail cap; the server re-resets past it
-const PAGE = 20; // reverse-pagination page: what one scroll-to-top loads
+// History page: conversation items per scroll-to-top — the server
+// widens the raw fetch past tool rows until this many real messages
+// ride along, so one load always shows the conversation advancing.
+const PAGE = 5;
 // Virtuoso's firstItemIndex headroom: pages decrement it as items
 // prepend above, so the index never reaches 0 for a human-scale thread.
 const INDEX_BASE = 1_000_000;
@@ -84,6 +88,7 @@ function driver(s: DriverState, a: Action): DriverState {
 
 function itemKey(b: WorkBlock): string {
 	if (b.type === "status") return "b-status";
+	if (b.type === "pending") return `b-pending-${b.msg.id}`;
 	return b.type === "item" ? `s${b.item.seq}` : `b${b.items[0].seq}`;
 }
 
@@ -93,7 +98,11 @@ function FullText({ k, it }: { k: string; it: StreamItem }) {
 	const [full, setFull] = useState<string | null>(null);
 	const [failed, setFailed] = useState(false);
 	if (full !== null) {
-		return <div className="max-h-72 overflow-y-auto whitespace-pre-wrap break-words text-muted">{full}</div>;
+		return (
+			<div className="max-h-72 overflow-y-auto whitespace-pre-wrap break-words text-muted">
+				{full}
+			</div>
+		);
 	}
 	return (
 		<>
@@ -202,28 +211,47 @@ function itemRow(it: StreamItem, expanded: boolean, sessionKey: string) {
 	}
 }
 
-function Block({
-	block,
-	sessionKey,
-	st,
-}: {
-	block: WorkBlock;
-	sessionKey: string;
-	st: DriverState;
-}) {
+const Block = memo(function Block({ block, sessionKey }: { block: WorkBlock; sessionKey: string }) {
 	const [override, setOverride] = useState<boolean | null>(null);
+	if (block.type === "pending") {
+		const p = block.msg;
+		return (
+			// Same box as the real user row: when the append frame swaps
+			// this for the item the height must not change, or Virtuoso
+			// re-measures and the view twitches.
+			<div className="flex justify-end px-3 py-1">
+				<div
+					className={`bubble-in max-w-[85%] rounded-2xl bg-primary/20 px-3 py-2 text-[15px] whitespace-pre-wrap [overflow-wrap:anywhere] ${
+						p.state === "unconfirmed" ? "bg-warning/30" : ""
+					} ${p.state === "sending" ? "opacity-70" : ""}`}
+				>
+					{p.state === "sending" && <Spinner size={14} className="mr-1 text-primary" />}
+					{p.state === "queued" && <span className="mr-1">⏳</span>}
+					{p.text}
+					{p.state === "queued" && (
+						<div className="text-[10px] text-muted">queued for the end of the turn</div>
+					)}
+					{p.state === "unconfirmed" && (
+						<div className="text-[10px] text-warning">
+							Not confirmed. Check the transcript before sending again.
+						</div>
+					)}
+				</div>
+			</div>
+		);
+	}
 	if (block.type === "status") {
-		return st.dialog || st.awaiting ? (
+		return block.dialog || block.awaiting ? (
 			<div className="flex items-center gap-2 px-3 py-2 text-[13px] text-accent">
 				<Spinner size={14} />
-				{st.dialog
-					? `pi asks: ${st.dialog.title || st.dialog.kind} — open Terminal`
+				{block.dialog
+					? `pi asks: ${block.dialog.title || block.dialog.kind} — open Terminal`
 					: "Waiting for input — open Terminal"}
 			</div>
 		) : (
 			<div className="flex items-center gap-2 px-3 py-2 text-[13px] text-muted">
-				<Spinner size={14} className={st.status === "blocked" ? "text-error" : "text-primary"} />
-				{st.status === "blocked" ? "Waiting for you" : "Working"}
+				<Spinner size={14} className={block.status === "blocked" ? "text-error" : "text-primary"} />
+				{block.status === "blocked" ? "Waiting for you" : "Working"}
 			</div>
 		);
 	}
@@ -256,7 +284,7 @@ function Block({
 			)}
 		</div>
 	);
-}
+});
 
 export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 	// A leading "~" marks a promptless agent chat: no session file
@@ -323,10 +351,17 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 			items.length > LIMIT
 				? groupWorkBlocks(items.slice(items.length - LIMIT))
 				: groupWorkBlocks(items);
-		return state.dialog || state.awaiting || isWaiting(state.status)
-			? [...base, { type: "status" as const }]
-			: base;
-	}, [state.items, state.dialog, state.awaiting, state.status, query]);
+		const out: WorkBlock[] = [...base];
+		for (const msg of state.pending) out.push({ type: "pending", msg });
+		if (state.dialog || state.awaiting || isWaiting(state.status))
+			out.push({
+				type: "status",
+				dialog: state.dialog,
+				awaiting: state.awaiting,
+				status: state.status,
+			});
+		return out;
+	}, [state.items, state.pending, state.dialog, state.awaiting, state.status, query]);
 
 	// One history page per top touch. Skipped mid-search: the filtered
 	// block list would desync firstItemIndex bookkeeping.
@@ -368,16 +403,57 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 	}, [hadItems]);
 
 	const meta = useSessions((s) => s.sessions.find((x) => x.key === sessionKey));
-	const firstUser = state.items.find((it) => it.kind === "user")?.text.slice(0, 60);
 	const title =
 		pendingAgent ||
 		state.header?.name ||
 		state.header?.first_user ||
 		meta?.name ||
 		meta?.first_user ||
-		firstUser ||
+		state.items.find((it) => it.kind === "user")?.text.slice(0, 60) ||
 		"Session";
 	const dot = STATUS_DOT[state.status] ?? "bg-muted";
+	const hasItems = state.items.length > 0;
+	// Stable identities: fresh closures per tick would re-render every
+	// mounted row (and re-parse its markdown) on each stream frame.
+	// Fixed-height header region: the loading spinner and the
+	// exhaustion note swap inside a constant 36px box, so history loads
+	// never shift the list (the old appear/disappear header jumped the
+	// content twice per load — the scroll-back clunk).
+	const listHeader = useMemo(
+		() => ({
+			Header: () =>
+				!hasItems ? null : (
+					<div className="flex h-9 items-center justify-center gap-2 text-[12px] text-muted">
+						{loadingOlder ? (
+							<>
+								<Spinner size={14} />
+								Loading older messages…
+							</>
+						) : !moreHistory ? (
+							<span className="text-[11px] text-muted/60">Start of the thread</span>
+						) : null}
+					</div>
+				),
+		}),
+		[loadingOlder, moreHistory, hasItems],
+	);
+	const renderItem = useCallback(
+		(_: number, b: WorkBlock) => <Block block={b} sessionKey={sessionKey} />,
+		[sessionKey],
+	);
+	const addPendingCb = useCallback((text: string, queued: boolean) => {
+		const id = nextPendingId();
+		dispatch({ t: "add-pending", id, text, queued });
+		pinned.current = true;
+		virtuoso.current?.autoscrollToBottom();
+		return id;
+	}, []);
+	const markPendingCb = useCallback(
+		(id: number, mark: Exclude<PendingMsg["state"], "sending">) =>
+			dispatch({ t: "mark-pending", id, state: mark }),
+		[],
+	);
+	const removePendingCb = useCallback((id: number) => dispatch({ t: "remove-pending", id }), []);
 	// The sheet opens only when the dialog carries real content. The
 	// bridge frame can land before the pane parse (up to a detector
 	// tick); an empty panel sliding up reads as broken, and the
@@ -557,20 +633,8 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 					}}
 					initialTopMostItemIndex={Math.max(0, blocks.length - 1)}
 					className="h-full"
-					itemContent={(_, b) => <Block block={b} sessionKey={sessionKey} st={state} />}
-					components={{
-						Header: () =>
-							loadingOlder ? (
-								<div className="flex items-center justify-center gap-2 py-2 text-[12px] text-muted">
-									<Spinner size={14} />
-									Loading older messages…
-								</div>
-							) : !moreHistory && state.items.length > 0 ? (
-								<div className="py-2 text-center text-[11px] text-muted/60">
-									Start of the thread
-								</div>
-							) : null,
-					}}
+					itemContent={renderItem}
+					components={listHeader}
 				/>
 				{blocks.length === 0 && !pendingAgent && (
 					<div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 text-[13px] text-muted">
@@ -578,34 +642,6 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 					</div>
 				)}
 			</div>
-
-			{/* pending bubbles: reconcile with the stream; the composer
-			    marks or removes them from the fetch outcome */}
-			{state.pending.length > 0 && (
-				<div className="space-y-1 px-3 pb-1">
-					{state.pending.map((p) => (
-						<div key={p.id} className="flex justify-end">
-							<div
-								className={`max-w-[85%] rounded-2xl px-3 py-2 text-[13px] opacity-70 ${
-									p.state === "unconfirmed" ? "bg-warning/30" : "bg-primary/20"
-								}`}
-							>
-								{p.state === "sending" && <Spinner size={14} className="mr-1 text-primary" />}
-								{p.state === "queued" && <span className="mr-1">⏳</span>}
-								{p.seed}
-								{p.state === "queued" && (
-									<div className="text-[10px] text-muted">queued for the end of the turn</div>
-								)}
-								{p.state === "unconfirmed" && (
-									<div className="text-[10px] text-warning">
-										Not confirmed. Check the transcript before sending again.
-									</div>
-								)}
-							</div>
-						</div>
-					))}
-				</div>
-			)}
 
 			<Composer
 				sessionKey={sessionKey}
@@ -627,15 +663,9 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 								)
 						: undefined
 				}
-				addPending={(text, queued) => {
-					const id = nextPendingId();
-					dispatch({ t: "add-pending", id, text, queued });
-					pinned.current = true;
-					virtuoso.current?.autoscrollToBottom();
-					return id;
-				}}
-				markPending={(id, mark) => dispatch({ t: "mark-pending", id, state: mark })}
-				removePending={(id) => dispatch({ t: "remove-pending", id })}
+				addPending={addPendingCb}
+				markPending={markPendingCb}
+				removePending={removePendingCb}
 			/>
 
 			{/* The answering sheet: slides over the composer bottom-to-top

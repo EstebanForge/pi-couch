@@ -374,11 +374,19 @@ func (ix *Index) Transcript(key string, limit int) (SessionMeta, []ViewItem, err
 	return meta, items, nil
 }
 
+// transcriptPageCap bounds one history page: the walk extends past
+// tool plumbing until it holds enough conversation items, and this
+// stops a conversation-starved stretch from producing an unbounded
+// page.
+const transcriptPageCap = 120
+
 // TranscriptBefore pages backwards through the active branch: the
-// last limit items strictly older than before, ascending, with more
-// reporting whether older items remain. Same render truncation as
-// Transcript so pages match the stream's shapes.
-func (ix *Index) TranscriptBefore(key string, before int, limit int) ([]ViewItem, bool, error) {
+// newest page ending at the limit-th conversation item (user or
+// assistant text) strictly older than before, ascending. Tool calls,
+// results and thinking ride along inside the page so each fetch
+// surfaces real messages, with transcriptPageCap bounding the stretch.
+// more reports whether older items remain.
+func (ix *Index) TranscriptBefore(key string, before int, convLimit int) ([]ViewItem, bool, error) {
 	items, err := ix.branchItems(key, renderLimit)
 	if err != nil {
 		return nil, false, err
@@ -388,12 +396,30 @@ func (ix *Index) TranscriptBefore(key string, before int, limit int) ([]ViewItem
 		cut++
 	}
 	older := items[:cut]
+	taken := len(older)
+	if convLimit > 0 {
+		taken = 0
+		conv := 0
+		for i := len(older) - 1; i >= 0; i-- {
+			taken = len(older) - i
+			if k := older[i].Kind; k == "user" || k == "text" {
+				conv++
+				if conv >= convLimit {
+					break
+				}
+			}
+			if taken >= transcriptPageCap {
+				break
+			}
+		}
+	}
+	page := older
 	more := false
-	if limit > 0 && len(older) > limit {
-		older = older[len(older)-limit:]
+	if taken < len(older) {
+		page = older[len(older)-taken:]
 		more = true
 	}
-	return older, more, nil
+	return page, more, nil
 }
 
 // ItemImage returns the decoded bytes of the item's first image block

@@ -245,7 +245,9 @@ export async function getItemText(key: string, seq: number): Promise<string> {
 export async function getTranscriptPage(
 	key: string,
 	before: number,
-	limit = 20,
+	// Conversation target, not raw items: the server widens the page
+	// past tool rows until it holds this many user/assistant texts.
+	limit = 5,
 ): Promise<{ items: StreamItem[]; more: boolean }> {
 	const res = await fetch(
 		`/api/sessions/${encodeURIComponent(key)}/transcript?before=${before}&limit=${limit}`,

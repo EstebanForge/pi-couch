@@ -178,3 +178,80 @@ func TestTranscriptBefore(t *testing.T) {
 		t.Fatal("unknown key must error")
 	}
 }
+
+// asstToolLine chains an assistant message carrying one tool call.
+func asstToolLine(id, parent string) string {
+	p := "null"
+	if parent != "" {
+		p = `"` + parent + `"`
+	}
+	return `{"type":"message","id":"` + id + `","parentId":` + p + `,"timestamp":"2026-10-10T12:00:03.000Z","message":{"role":"assistant","content":[{"type":"toolCall","id":"call_` + id + `","name":"read","arguments":{"path":"/tmp/x"}}],"timestamp":1760000003000}}`
+}
+
+// A history page counts conversation, not raw items: the page must
+// span the tool plumbing between its user/assistant text items.
+func TestTranscriptBeforeWeightsConversation(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "sess")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(sub, "s1.jsonl")
+	writeSession(t, path, headerLine,
+		msgLine("u1", "", "one"),
+		asstToolLine("t1", "u1"),
+		toolResultLine("r1", "t1", 10),
+		asstToolLine("t2", "r1"),
+		toolResultLine("r2", "t2", 10),
+		msgLine("u2", "r2", "two"),
+	)
+	ix := NewIndex(dir)
+	_, items, err := ix.Transcript("s1", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 6 {
+		t.Fatalf("fixture items=%d", len(items))
+	}
+
+	page, _, err := ix.TranscriptBefore("s1", 1<<30, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page) != 6 {
+		t.Fatalf("page len=%d, want the full sandwich of 6", len(page))
+	}
+	if page[0].Kind != "user" || page[len(page)-1].Kind != "user" {
+		t.Fatalf("page ends: %s … %s", page[0].Kind, page[len(page)-1].Kind)
+	}
+}
+
+// A conversation-starved stretch cannot satisfy the target, so the
+// item cap bounds the page and more stays true.
+func TestTranscriptBeforeCapsItemStarvedPages(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "sess")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(sub, "s1.jsonl")
+	blocks := ""
+	for range transcriptPageCap + 20 {
+		blocks += `{"type":"thinking","thinking":"ponder"},`
+	}
+	blocks = strings.TrimSuffix(blocks, ",")
+	writeSession(t, path, headerLine, msgLine("u0", "", "start"),
+		`{"type":"message","id":"a1","parentId":"u0","timestamp":"2026-10-10T12:00:04.000Z","message":{"role":"assistant","content":[`+blocks+`],"timestamp":1760000004000}}`)
+
+	ix := NewIndex(dir)
+	page, more, err := ix.TranscriptBefore("s1", 1<<30, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page) != transcriptPageCap {
+		t.Fatalf("page len=%d, want the cap %d", len(page), transcriptPageCap)
+	}
+	if !more {
+		t.Fatal("want more=true: the oldest items are still above")
+	}
+}

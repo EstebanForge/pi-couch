@@ -31,6 +31,11 @@ var (
 	// or bullet: "Enter to select · Ctrl+S to set as default ·
 	// Escape/Ctrl+C to cancel".
 	hintBarRe = regexp.MustCompile(`(?i)(enter|esc(ape)?|ctrl\+[a-z])[^.·•\n]{0,40}[·•][^.·\n]{0,60}(enter|esc(ape)?|ctrl\+[a-z])`)
+	// pi's follow-up queue panel carries its own hint bar ("alt+enter
+	// add follow-up · enter send next …") while pi keeps working - it
+	// is a queue, not a parked dialog, so it must never read as
+	// waiting.
+	followUpPanelRe = regexp.MustCompile(`(?i)add follow-up|follow-ups \(\d+\)`)
 	// pi's own dialog hints are space-separated, with no middle dot, so
 	// hintBarRe never matches them (measured on pi 1.2, same strings
 	// herdr-web-ui pins in prompt.ts). The select/confirm menu reads
@@ -86,7 +91,23 @@ func dialogOpen(text string) bool {
 		return false
 	}
 	plain := ansiRe.ReplaceAllString(text, "")
-	return hintBarRe.MatchString(plain) ||
+	if followUpPanelRe.MatchString(plain) {
+		return false
+	}
+	// A hint bar is pane furniture: pi always paints it at the bottom,
+	// just above the status footer. Matching it anywhere would flag
+	// transcript text that merely quotes one.
+	var tail []string
+	for _, l := range strings.Split(plain, "\n") {
+		if strings.TrimSpace(l) == "" {
+			continue
+		}
+		tail = append(tail, l)
+		if len(tail) > 4 {
+			tail = tail[1:]
+		}
+	}
+	return hintBarRe.MatchString(strings.Join(tail, "\n")) ||
 		piHintAtEnd(plain) ||
 		externalEditorRe.MatchString(plain) ||
 		selectCounterRe.MatchString(plain)

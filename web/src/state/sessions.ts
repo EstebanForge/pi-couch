@@ -20,10 +20,21 @@ export function splitDriven(
 
 // Stream upsert frames carry unordered new-or-changed metas; the store
 // list stays mtime-desc with one entry per key.
+// Upserts must not re-sort loaded rows: the home window slices a live
+// list, and mtime re-sorting shifts rows across the window boundary on
+// every working-agent tick, making Load-more growth look random.
+// Existing rows update in place; genuinely new sessions prepend.
 export function mergeUpserts(list: SessionMeta[], upserts: SessionMeta[]): SessionMeta[] {
-	const byKey = new Map(list.map((s) => [s.key, s]));
-	for (const u of upserts) byKey.set(u.key, u);
-	return [...byKey.values()].sort((a, b) => Date.parse(b.mtime) - Date.parse(a.mtime));
+	const index = new Map(list.map((s, i) => [s.key, i]));
+	const merged = list.slice();
+	const added: SessionMeta[] = [];
+	for (const u of upserts) {
+		const i = index.get(u.key);
+		if (i === undefined) added.push(u);
+		else merged[i] = u;
+	}
+	added.sort((a, b) => Date.parse(b.mtime) - Date.parse(a.mtime));
+	return [...added, ...merged];
 }
 
 export function dropSessions(list: SessionMeta[], keys: string[]): SessionMeta[] {

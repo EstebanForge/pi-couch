@@ -128,4 +128,7 @@ func TestTranscriptPageBadBefore(t *testing.T) {
 	if code, _ := getPage(t, a, key, "?before=999999&limit=x"); code != http.StatusBadRequest {
 		t.Fatalf("bad limit: %d", code)
 	}
+	if code, _ := getPage(t, a, key, "?before=999999&limit=51"); code != http.StatusBadRequest {
+		t.Fatalf("over-cap limit: %d", code)
+	}
 }
