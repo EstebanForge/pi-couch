@@ -35,6 +35,12 @@ export function getPath(): string {
 	return stripBase(window.location.pathname);
 }
 
+// The chat view is the exact single-segment session path. The tool-strip
+// screens (/sessions/<key>/changes…) are separate routes and excluded.
+function isChatPath(p: string): boolean {
+	return /^\/sessions\/[^/]+$/.test(p);
+}
+
 export function usePath(): string {
 	return useSyncExternalStore(subscribe, getPath);
 }
@@ -78,14 +84,21 @@ let seq = 0;
 if (history.state === null) {
 	const deep = window.location.pathname + window.location.search + window.location.hash;
 	if (deep !== BASE && deep !== BASE.replace(/\/$/, "")) {
-		history.replaceState({ i: 1 }, "", deep);
-		history.pushState({ i: 0 }, "", BASE);
+		// [home, chat]: the old [chat, home, chat] seed parked a chat at
+		// the stack bottom, where a Back chain could only no-op on it.
+		history.replaceState({ i: 0 }, "", BASE);
 		history.pushState({ i: 1 }, "", deep);
 		cur = 1;
 		seq = 1;
 	} else {
 		history.replaceState({ i: 0 }, "");
 	}
+} else if (typeof history.state?.i === "number") {
+	// A reload keeps the stack but would reset our index to 0, making
+	// every older entry read as forward — backs then replay old pages
+	// instead of chaining. Adopt the index the stack already carries.
+	cur = history.state.i;
+	seq = cur;
 }
 
 export function navigate(to: string, opts: { replace?: boolean; dir?: Dir } = {}): void {
@@ -101,6 +114,7 @@ export function navigate(to: string, opts: { replace?: boolean; dir?: Dir } = {}
 			history.replaceState({ i: cur }, "", href(getPath()));
 		}
 		if (opts.replace) history.replaceState({ i: cur }, "", href(to));
+		else if (getPath() === to) history.replaceState({ i: cur }, "", href(to));
 		else history.pushState({ i: ++seq }, "", href(to));
 		cur = typeof history.state?.i === "number" ? history.state.i : cur;
 		onMarker = false;
@@ -168,6 +182,15 @@ window.addEventListener("popstate", (e) => {
 		return;
 	}
 	const next = typeof e.state?.i === "number" ? e.state.i : cur;
+	// A Back that lands on a chat view replays an old visit — after a
+	// long session history the gesture then walks the same chats over
+	// and over (field report). The phone gesture must LEAVE the chat,
+	// so skip every chat entry in a row and surface the hub beneath.
+	// At the stack bottom history.back() no-ops harmlessly.
+	if (next < cur && isChatPath(getPath())) {
+		history.back();
+		return;
+	}
 	const dir: Dir = next < cur ? "back" : "fwd";
 	cur = next;
 	transition(dir, notify);

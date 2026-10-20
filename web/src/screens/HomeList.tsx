@@ -5,7 +5,7 @@ import { FaBell, FaBellSlash, FaGear, FaMagnifyingGlass, FaPlus, FaXmark } from 
 import { NewAgentSheet } from "../components/NewAgentSheet";
 import { NewSessionSheet } from "../components/NewSessionSheet";
 import { Spinner } from "../components/Spinner";
-import { short, tildify } from "../fmt";
+import { short, thousand, tildify } from "../fmt";
 import { navigate, useSheetBack } from "../nav";
 import { quickPath } from "../prefs";
 import { type PushState, pushState, togglePush } from "../push";
@@ -295,7 +295,7 @@ export default function HomeList() {
 							className="mx-auto mt-3 flex items-center gap-2 rounded-xl bg-base-200 px-5 py-3 text-sm text-muted active:scale-[0.99]"
 						>
 							{loadingMore && <Spinner size={14} />}
-							Load more{needle ? ` (${total - limit} earlier)` : ""}
+							Load more{needle ? ` (${thousand(total - limit)} earlier)` : ""}
 						</button>
 					)}
 			</main>

@@ -16,6 +16,7 @@ import {
 } from "../api";
 import { dispositionFor } from "../chat/disposition";
 import { ESC_SETTLE_MS, orderKeys, type QuickKey } from "../chat/quick-keys";
+import { money } from "../fmt";
 import { useSheetBack } from "../nav";
 import { effectiveEnterSends, quickKeyOrder, quickKeysEnabled } from "../prefs";
 import {
@@ -505,7 +506,7 @@ export const Composer = memo(function Composer(props: {
 								{ctxPct}%{ctxWin && `/${ctxWin}`}
 							</span>
 						)}
-						{props.cost > 0 && <span>${props.cost.toFixed(2)}</span>}
+						{props.cost > 0 && <span>${money(props.cost)}</span>}
 						{props.memory && (
 							<span aria-label={"memory " + props.memory}>
 								<FaBrain size={13} />

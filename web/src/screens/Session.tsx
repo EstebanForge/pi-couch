@@ -671,8 +671,15 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 			{/* The answering sheet: slides over the composer bottom-to-top
 			    while pi waits. It stays down until the pane parse has the
 			    actual content, so it appears once, complete, instead of an
-			    empty panel that fills in later. No scrim - the transcript
-			    stays readable; the composer is the thing being covered. */}
+			    empty panel that fills in later. The scrim matches every
+			    other panel: the screen dims to say this needs action. It
+			    blocks tap-through — answering (or Cancel) is the way out. */}
+			<div
+				aria-hidden={!sheetReady}
+				className={`fixed inset-0 z-40 bg-black/50 transition-opacity duration-200 ease-in ${
+					sheetReady ? "opacity-100" : "pointer-events-none opacity-0"
+				}`}
+			/>
 			<div
 				aria-hidden={!sheetReady}
 				className={`fixed inset-x-0 bottom-0 z-50 transition-transform duration-200 ease-in ${
