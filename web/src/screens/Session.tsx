@@ -67,7 +67,7 @@ type Action =
 	| { t: "append"; p: TranscriptAppend }
 	| { t: "status"; p: TranscriptStatus }
 	| { t: "older"; p: StreamItem[] }
-	| { t: "add-pending"; id: number; text: string; queued: boolean }
+	| { t: "add-pending"; id: number; text: string; queued: boolean; at?: number }
 	| { t: "mark-pending"; id: number; state: "sent" | "queued" | "unconfirmed" }
 	| { t: "remove-pending"; id: number };
 
@@ -82,7 +82,7 @@ function driver(s: DriverState, a: Action): DriverState {
 		case "older":
 			return { ...s, items: mergeOlder(s.items, a.p) };
 		case "add-pending":
-			return addPending(s, a.id, a.text, a.queued);
+			return addPending(s, a.id, a.text, a.queued, a.at);
 		case "mark-pending":
 			return markPending(s, a.id, a.state);
 		case "remove-pending":
@@ -553,7 +553,13 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 			const msgs = JSON.parse(raw) as PendingMsg[];
 			for (const m of msgs) {
 				if (typeof m.text !== "string" || m.text === "") continue;
-				dispatch({ t: "add-pending", id: nextPendingId(), text: m.text, queued: true });
+				dispatch({
+					t: "add-pending",
+					id: nextPendingId(),
+					text: m.text,
+					queued: true,
+					at: typeof m.at === "number" ? m.at : 0,
+				});
 			}
 		} catch {
 			// junk in storage: drop it

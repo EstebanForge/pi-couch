@@ -16,7 +16,13 @@ export type PendingMsg = {
 	seed: string; // first 60 normalized chars, matched against arriving user items
 	text: string; // full text, so the bubble renders the same box as the real row
 	state: "sending" | "sent" | "queued" | "unconfirmed";
+	at: number; // creation epoch ms; 0 marks legacy entries, which expire
 };
+
+// A queue drains within a turn or two; reconcile only sees the in-memory
+// tail (40 items on connect), so a delivery missed while dozed can never
+// match its item and the bubble would stick forever. Age retires it.
+export const PENDING_TTL_MS = 30 * 60 * 1000;
 
 export type DriverState = {
 	items: StreamItem[]; // ordered by seq, tail of the active branch
@@ -58,12 +64,19 @@ function normalizeSeed(text: string): string {
 	return text.replace(/\s+/g, " ").trim().slice(0, 60);
 }
 
-export function addPending(s: DriverState, id: number, text: string, queued: boolean): DriverState {
+export function addPending(
+	s: DriverState,
+	id: number,
+	text: string,
+	queued: boolean,
+	at = Date.now(),
+): DriverState {
 	const msg: PendingMsg = {
 		id,
 		seed: normalizeSeed(text),
 		text,
 		state: queued ? "queued" : "sending",
+		at,
 	};
 	return { ...s, pending: [...s.pending, msg] };
 }
@@ -85,8 +98,9 @@ function reconcile(s: DriverState): DriverState {
 	if (s.pending.length === 0) return s;
 	const keep = s.pending.filter(
 		(p) =>
+			Date.now() - p.at < PENDING_TTL_MS &&
 			!s.items.some(
-				(it) => it.kind === "user" && normalizeSeed(it.text).startsWith(p.seed) && p.seed !== "",
+				(it) => it.kind === "user" && p.seed !== "" && normalizeSeed(it.text).startsWith(p.seed),
 			),
 	);
 	return keep.length === s.pending.length ? s : { ...s, pending: keep };

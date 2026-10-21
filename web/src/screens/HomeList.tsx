@@ -186,7 +186,7 @@ export default function HomeList() {
 						<path d="M165.29,282.65H282.65V400H400V517.36H282.65V634.72H165.29Z" fill="#4D9ABF" />
 						<path d="M517.36,400H634.72V634.72H517.36Z" fill="#F1BE58" />
 					</svg>
-					<h1 className="text-lg font-semibold">Pi Couch</h1>
+					<h1 className="text-lg font-semibold">Couch</h1>
 					<button
 						type="button"
 						aria-label="Settings"

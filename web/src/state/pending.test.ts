@@ -5,6 +5,7 @@ import {
 	emptyDriver,
 	markPending,
 	reduceAppend,
+	reduceReset,
 	removePending,
 } from "./transcript";
 
@@ -14,7 +15,7 @@ describe("pending bubbles", () => {
 	it("adds, marks and removes by id", () => {
 		let s = addPending(base, 1, "hello agent", false);
 		expect(s.pending).toEqual([
-			{ id: 1, seed: "hello agent", text: "hello agent", state: "sending" },
+			{ id: 1, seed: "hello agent", text: "hello agent", state: "sending", at: expect.any(Number) },
 		]);
 		s = markPending(s, 1, "sent");
 		expect(s.pending[0].state).toBe("sent");
@@ -51,5 +52,27 @@ describe("pending bubbles", () => {
 		let s = addPending(base, 1, "   ", false);
 		s = reduceAppend(s, { items: [{ kind: "user", text: "anything", seq: 12 }] });
 		expect(s.pending).toHaveLength(1);
+	});
+
+	// The reconcile world is the in-memory tail (40 items on connect), so
+	// a delivery that lands while the phone is dozed falls outside it and
+	// the bubble would stick forever. Age expires it instead.
+	it("expires stale bubbles on any reduce", () => {
+		const s = addPending(base, 1, "slow queue", true, Date.now() - 31 * 60 * 1000);
+		const next = reduceAppend(s, { items: [{ kind: "text", text: "reply", seq: 13 }] });
+		expect(next.pending).toEqual([]);
+	});
+
+	it("keeps fresh bubbles through reduces", () => {
+		const s = addPending(base, 1, "slow queue", true, Date.now() - 60 * 1000);
+		const next = reduceAppend(s, { items: [{ kind: "text", text: "reply", seq: 13 }] });
+		expect(next.pending).toHaveLength(1);
+	});
+
+	it("expires restored bubbles that carry no timestamp", () => {
+		// pre-fix storage entries: no at field means ancient, drop them
+		const s = addPending(base, 1, "stuck since yesterday", true, 0);
+		const next = reduceReset(s, { items: [], status: "", model: "", thinking: "" });
+		expect(next.pending).toEqual([]);
 	});
 });
