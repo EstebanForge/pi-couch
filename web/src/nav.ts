@@ -101,6 +101,10 @@ if (history.state === null) {
 	seq = cur;
 }
 
+// The path we last rendered. Backs that land on it are dead residue —
+// see the popstate chain below.
+let lastPath = getPath();
+
 export function navigate(to: string, opts: { replace?: boolean; dir?: Dir } = {}): void {
 	transition(opts.dir ?? "fwd", () => {
 		// A sheet marker still on top must be stripped HERE: the sheet's
@@ -118,6 +122,7 @@ export function navigate(to: string, opts: { replace?: boolean; dir?: Dir } = {}
 		else history.pushState({ i: ++seq }, "", href(to));
 		cur = typeof history.state?.i === "number" ? history.state.i : cur;
 		onMarker = false;
+		lastPath = getPath();
 		notify();
 	});
 }
@@ -182,16 +187,20 @@ window.addEventListener("popstate", (e) => {
 		return;
 	}
 	const next = typeof e.state?.i === "number" ? e.state.i : cur;
-	// A Back that lands on a chat view replays an old visit — after a
-	// long session history the gesture then walks the same chats over
-	// and over (field report). The phone gesture must LEAVE the chat,
-	// so skip every chat entry in a row and surface the hub beneath.
-	// At the stack bottom history.back() no-ops harmlessly.
-	if (next < cur && isChatPath(getPath())) {
+	// A Back that lands on a copy of the path we already show is dead
+	// residue: programmatic sheet closes and marker strips relabel the
+	// marker entry in place (same path, same i) instead of removing it,
+	// and each copy used to eat one gesture. A Back landing on any chat
+	// entry replays an old visit. Both keep going back — the phone
+	// gesture must leave the chat in one motion. At the stack bottom
+	// history.back() no-ops harmlessly.
+	const here = getPath();
+	if (next <= cur && (here === lastPath || (next < cur && isChatPath(here)))) {
 		history.back();
 		return;
 	}
-	const dir: Dir = next < cur ? "back" : "fwd";
+	const dir: Dir = next <= cur ? "back" : "fwd";
 	cur = next;
+	lastPath = here;
 	transition(dir, notify);
 });

@@ -692,27 +692,55 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 				</div>
 			</div>
 
-			<Dialog
-				opened={overflow}
-				onBackdropClick={() => setOverflow(false)}
-				buttons={<DialogButton onClick={() => setOverflow(false)}>Cancel</DialogButton>}
+			{/* The ⋯ command panel: drops top-to-bottom under the safe area
+			    and lists every tool on the bar — the strip items and the
+			    overflow actions alike — so the whole bar is reachable from
+			    one tap. Same scrim grammar as every panel: dim, no
+			    tap-through; the scrim tap closes. */}
+			<div
+				aria-hidden={!overflow}
+				className={`fixed inset-0 z-40 bg-black/50 transition-opacity duration-200 ease-in ${
+					overflow ? "opacity-100" : "pointer-events-none opacity-0"
+				}`}
+				onClick={() => setOverflow(false)}
+			/>
+			<div
+				aria-hidden={!overflow}
+				className={`fixed inset-x-0 top-0 z-50 transition-transform duration-200 ease-in ${
+					overflow ? "translate-y-0" : "pointer-events-none -translate-y-full"
+				}`}
 			>
-				{TOOLS.filter((t) => t.placement === "overflow").map((t) => (
-					<DialogButton
-						key={t.id}
-						disabled={!toolEnabled(t, state.status)}
-						onClick={() => {
-							if (t.id === "stop") void runStop();
-							else if (t.id === "close") {
+				{/* The inset pads inside the box so the closed -100% slide
+				    clears the screen edge; offsetting the wrapper by the
+				    inset would leave that much panel visible under the
+				    status bar. */}
+				<div
+					className="rounded-b-2xl border-b border-base-300 bg-base-200 shadow-2xl"
+					style={{ paddingTop: "var(--safe-top, 0px)" }}
+				>
+					{TOOLS.map((t) => (
+						<button
+							key={t.id}
+							type="button"
+							disabled={!toolEnabled(t, state.status)}
+							className={`flex min-h-[44px] w-full items-center px-5 text-[15px] active:bg-base-300 disabled:text-muted/40 ${
+								t.id === "search" && query !== null ? "text-accent" : ""
+							}`}
+							onClick={() => {
 								setOverflow(false);
-								setConfirmClose(true);
-							}
-						}}
-					>
-						{t.label}
-					</DialogButton>
-				))}
-			</Dialog>
+								if (t.id === "search") setQuery(query === null ? "" : null);
+								else if (t.id === "stop") void runStop();
+								else if (t.id === "close") setConfirmClose(true);
+								else if (t.href) navigate(t.href(sessionKey), { replace: true, dir: "side" });
+							}}
+						>
+							{t.label}
+						</button>
+					))}
+					<div className="mx-auto mb-2 h-1 w-10 rounded-full bg-base-content/20" />
+				</div>
+			</div>
+
 			<Dialog
 				opened={confirmClose}
 				onBackdropClick={() => setConfirmClose(false)}

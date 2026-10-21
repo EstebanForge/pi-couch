@@ -40,6 +40,8 @@ type fakeHerdrOpts struct {
 	paneSeq        []string    // per-send states: after send n, serve paneSeq[min(n-1, len-1)]
 	lastText       *string     // last send_input text param
 	keysLog        *[][]string // every non-empty send_input keys call
+	paneCloses     *int32      // pane.close count
+	wsCloses       *int32      // workspace.close count
 }
 
 func herdrFake(t *testing.T, o fakeHerdrOpts) string {
@@ -83,6 +85,16 @@ func herdrFake(t *testing.T, o fakeHerdrOpts) string {
 					resp = `{"id":"x","result":{"agents":[{"name":"pi","agent":"pi","agent_status":"` + agentStatus + `","pane_id":"p1","workspace_id":"w1","terminal_title_stripped":"pi - s1:running...","agent_session":{"kind":"path","value":` + string(b) + `}}]}}`
 				case "pane.split":
 					resp = `{"id":"x","result":{"type":"pane_info","pane":{"pane_id":"p1","workspace_id":"w1"}}}`
+				case "pane.close":
+					if o.paneCloses != nil {
+						atomic.AddInt32(o.paneCloses, 1)
+					}
+					resp = `{"id":"x","result":{"type":"ok"}}`
+				case "workspace.close":
+					if o.wsCloses != nil {
+						atomic.AddInt32(o.wsCloses, 1)
+					}
+					resp = `{"id":"x","result":{"type":"ok"}}`
 				case "workspace.list":
 					resp = `{"id":"x","result":{"type":"workspace_list","workspaces":[{"workspace_id":"w1","label":"Forge","number":1}]}}`
 				case "agent.start":

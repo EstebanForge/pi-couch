@@ -464,14 +464,27 @@ func (a *app) closeWorkspace(key string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	ws, err := a.herdr.WorkspaceForPath(ctx, meta.Path)
+	paneID, err := a.herdr.TargetForPath(ctx, meta.Path)
 	if err != nil {
 		return herdr.ErrNotDriven
 	}
-	if err := a.herdr.WorkspaceClose(ctx, ws); err != nil {
-		a.logger.Error("close", "err", err)
+	// Graceful pane-level close: ctrl+d exits pi, and once the shell
+	// is back a second ctrl+d ends it — the pane dies with its shell,
+	// so sibling agents in the same workspace survive (workspace.close
+	// would tear them all down).
+	if err := a.herdr.PaneSendInput(ctx, paneID, "", []string{"ctrl+d"}); err != nil {
 		return errCloseFail
 	}
+	select {
+	case <-time.After(time.Second):
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	if err := a.herdr.PaneSendInput(ctx, paneID, "", []string{"ctrl+d"}); err != nil {
+		return errCloseFail
+	}
+	// Best effort: remove the pane if herdr kept it after the shell died.
+	_ = a.herdr.PaneClose(ctx, paneID)
 	return nil
 }
 
