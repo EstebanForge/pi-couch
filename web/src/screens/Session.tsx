@@ -158,12 +158,51 @@ function toolVerb(name: string): string {
 	if (n.startsWith("todo")) return "Planned";
 	if (n.startsWith("memory")) return "Remembered";
 	if (n === "git_commit" || n === "commit") return "Committed";
-	return n;
+	return name;
 }
 
-function ToolStep({ pair, sessionKey }: { pair: ToolPair; sessionKey: string }) {
+// mm:ss under an hour, h:mm:ss beyond; the running-row clock.
+function fmtElapsed(ms: number): string {
+	const s = Math.max(0, Math.floor(ms / 1000));
+	const h = Math.floor(s / 3600);
+	const m = Math.floor((s % 3600) / 60);
+	const sec = s % 60;
+	const two = (n: number) => String(n).padStart(2, "0");
+	return h > 0 ? `${h}:${two(m)}:${two(sec)}` : `${m}:${two(sec)}`;
+}
+
+// Completed-tool duration: "41s", "4m 12s", "1h 03m".
+function fmtDur(ms: number): string {
+	const s = Math.round(ms / 1000);
+	if (s < 60) return `${s}s`;
+	const m = Math.floor(s / 60);
+	if (m < 60) return `${m}m ${String(s % 60).padStart(2, "0")}s`;
+	const h = Math.floor(m / 60);
+	return `${h}h ${String(m % 60).padStart(2, "0")}m`;
+}
+
+// Ticks once a second; mounted only on the live tool row.
+function Elapsed({ from }: { from: number }) {
+	const [, setTick] = useState(0);
+	useEffect(() => {
+		const id = setInterval(() => setTick((t) => t + 1), 1000);
+		return () => clearInterval(id);
+	}, []);
+	return <>{fmtElapsed(Date.now() - from)}</>;
+}
+
+function ToolStep({
+	pair,
+	sessionKey,
+	live = false,
+}: {
+	pair: ToolPair;
+	sessionKey: string;
+	live?: boolean;
+}) {
 	const [open, setOpen] = useState(false);
 	const first = pair.outs[0];
+	const last = pair.outs[pair.outs.length - 1];
 	const summary = pair.call ? pair.call.text : (first?.text.split("\n")[0] ?? "");
 	return (
 		<div className="py-0.5">
@@ -179,9 +218,25 @@ function ToolStep({ pair, sessionKey }: { pair: ToolPair; sessionKey: string }) 
 					<span className="shrink-0 text-base-content">{toolVerb(pair.call.tool_name || "")}</span>
 				)}
 				<span className="truncate font-mono text-[11px] text-muted">{summary}</span>
+				{live && pair.call?.time ? (
+					<span className="ml-auto shrink-0 font-mono text-[11px] text-accent">
+						<Elapsed from={pair.call.time} />
+					</span>
+				) : last?.duration_ms ? (
+					<span className="ml-auto shrink-0 font-mono text-[11px] text-muted">
+						{fmtDur(last.duration_ms)}
+					</span>
+				) : null}
 			</button>
 			{open && (
 				<div className="ml-3 border-l border-base-300 pl-2">
+					{live && pair.call && pair.outs.length === 0 && (
+						// The ask tools write only the call while they run; the
+						// prompt head is what the terminal shows too.
+						<div className="py-0.5 text-[12px]">
+							<FullText k={sessionKey} it={pair.call} />
+						</div>
+					)}
 					{pair.outs.map((o) => (
 						<div key={o.seq} className="py-0.5 text-[12px]">
 							{o.truncated ? <FullText k={sessionKey} it={o} /> : <DiffText text={o.text} />}
@@ -341,7 +396,13 @@ const Block = memo(function Block({ block, sessionKey }: { block: WorkBlock; ses
 	// already carries the Working marker, so auto-expansion is noise.
 	// Expanded, each tool is one titled row (verb + target) with its
 	// output nested underneath — the code-client look.
-	const open = override ?? false;
+	const pairs = pairTools(block.items);
+	const trailing = pairs[pairs.length - 1];
+	const live = !!trailing?.call && trailing.outs.length === 0;
+	// Steps stay collapsed unless the reader opens them - except a
+	// running tool, which stays visible with its live clock until the
+	// result lands, then the group folds back.
+	const open = override ?? live;
 	const names = [...new Set(block.items.map((i) => i.tool_name || i.kind))].slice(0, 3).join(", ");
 	return (
 		<div className="px-3 py-0.5">
@@ -358,11 +419,12 @@ const Block = memo(function Block({ block, sessionKey }: { block: WorkBlock; ses
 			</button>
 			{open && (
 				<div className="mt-0.5">
-					{pairTools(block.items).map((p) => (
+					{pairs.map((p) => (
 						<ToolStep
 							key={p.call?.seq ?? p.outs[0]?.seq ?? "pair"}
 							pair={p}
 							sessionKey={sessionKey}
+							live={live && p === trailing}
 						/>
 					))}
 				</div>

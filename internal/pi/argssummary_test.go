@@ -32,3 +32,12 @@ func TestArgsSummaryPicksMeaningfulValue(t *testing.T) {
 		}
 	}
 }
+
+// The peer-delegation tools carry their task in prompt; the chat row
+// should read the task head, not "model: x, prompt: y".
+func TestArgsSummaryPrefersPrompt(t *testing.T) {
+	got := argsSummary([]byte(`{"model":"gemini","thinking":"high","prompt":"READ-AND-REPORT ONLY"}`))
+	if got != "READ-AND-REPORT ONLY" {
+		t.Fatalf("got %q", got)
+	}
+}

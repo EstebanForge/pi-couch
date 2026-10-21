@@ -55,6 +55,9 @@ export type StreamItem = {
 	/** The render path shortened this item's text; fetch the whole thing
 	 * via getItemText. */
 	truncated?: boolean;
+	/** Entry timestamp in epoch ms; the chat ticks live elapsed time for
+	 * running tools from the call's time. */
+	time?: number;
 	seq: number;
 };
 

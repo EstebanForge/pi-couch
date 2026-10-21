@@ -356,6 +356,9 @@ type ViewItem struct {
 	// Seq is the item's position on the active branch, stable across
 	// tail cuts and cache rereads, so stream clients can key rows by it.
 	Seq int `json:"seq"`
+	// Time is the entry's timestamp in epoch ms; the chat ticks live
+	// elapsed time for running tools from the call's time.
+	Time int64 `json:"time,omitempty"`
 }
 
 // Transcript renders the tail of a session's active branch.
@@ -715,6 +718,10 @@ func (ix *Index) tailEntries(key, path string, st os.FileInfo) ([]Entry, error) 
 func messageItems(e Entry, textLimit int) []ViewItem {
 	m := e.Message
 	var out []ViewItem
+	var at int64
+	if t, err := time.Parse(time.RFC3339Nano, e.Timestamp); err == nil {
+		at = t.UnixMilli()
+	}
 	limit := func(s string) (string, bool) {
 		if textLimit <= 0 {
 			return s, false
@@ -735,6 +742,7 @@ func messageItems(e Entry, textLimit int) []ViewItem {
 			}
 		}
 		if it.Text != "" || it.Images > 0 {
+			it.Time = at
 			out = append(out, it)
 		}
 	case "assistant":
@@ -742,20 +750,20 @@ func messageItems(e Entry, textLimit int) []ViewItem {
 			switch b.Type {
 			case "thinking":
 				if b.Redacted {
-					out = append(out, ViewItem{Kind: "thinking", Redacted: true})
+					out = append(out, ViewItem{Kind: "thinking", Redacted: true, Time: at})
 					continue
 				}
-				out = append(out, ViewItem{Kind: "thinking", Text: b.Thinking})
+				out = append(out, ViewItem{Kind: "thinking", Text: b.Thinking, Time: at})
 			case "text":
 				if b.Text != "" {
-					out = append(out, ViewItem{Kind: "text", Text: b.Text})
+					out = append(out, ViewItem{Kind: "text", Text: b.Text, Time: at})
 				}
 			case "toolCall":
-				out = append(out, ViewItem{Kind: "tool_call", ToolName: b.Name, Text: argsSummary(b.Arguments)})
+				out = append(out, ViewItem{Kind: "tool_call", ToolName: b.Name, Text: argsSummary(b.Arguments), Time: at})
 			}
 		}
 	case "toolResult":
-		it := ViewItem{Kind: "tool_result", ToolName: m.ToolName, IsError: m.IsError, DurationMs: m.DurationMs}
+		it := ViewItem{Kind: "tool_result", ToolName: m.ToolName, IsError: m.IsError, DurationMs: m.DurationMs, Time: at}
 		for _, b := range m.Blocks() {
 			if b.Type == "text" && it.Text == "" {
 				it.Text, it.Truncated = limit(b.Text)
@@ -776,6 +784,11 @@ func messageItems(e Entry, textLimit int) []ViewItem {
 		it.Text, it.Truncated = limit(firstText(m))
 		out = append(out, it)
 	}
+	for i := range out {
+		if out[i].Time == 0 {
+			out[i].Time = at
+		}
+	}
 	return out
 }
 
@@ -794,7 +807,7 @@ func firstText(m *Message) string {
 // fixed priority list before falling back to sorted key: value pairs.
 var argPriority = []string{
 	"path", "file_path", "filepath", "file", "cwd", "command", "cmd",
-	"url", "query", "pattern", "topic", "name", "subject",
+	"url", "query", "pattern", "topic", "name", "subject", "prompt",
 }
 
 func argsSummary(raw json.RawMessage) string {
@@ -807,7 +820,9 @@ func argsSummary(raw json.RawMessage) string {
 	}
 	for _, k := range argPriority {
 		if v, ok := m[k].(string); ok && v != "" {
-			return truncate(v, 80)
+			// 400, not the 80-row head: the chat row truncates in CSS,
+			// and the expanded running row reads the prompt via FullItem.
+			return truncate(v, 400)
 		}
 	}
 	keys := make([]string, 0, len(m))
