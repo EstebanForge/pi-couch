@@ -8,6 +8,7 @@ import {
 	setQuickKeyOrder,
 	setQuickKeysEnabled,
 } from "./prefs";
+import { activeScheme } from "./theme";
 
 let backing: Map<string, string>;
 beforeEach(() => {
@@ -37,14 +38,13 @@ describe("prefs", () => {
 		backing.set("couch-pi.enterSends", "bogus");
 		expect(enterSendsPref()).toBe("auto");
 	});
-
 	it("stores quick keys off as the 0 marker and clears on re-enable", () => {
 		setQuickKeysEnabled(false);
 		expect(quickKeysEnabled()).toBe(false);
-		expect(backing.get("couch-pi.quickKeys")).toBe("0");
+		expect(backing.get("pi-couch.quickKeys")).toBe("0");
 		setQuickKeysEnabled(true);
 		expect(quickKeysEnabled()).toBe(true);
-		expect(backing.has("couch-pi.quickKeys")).toBe(false);
+		expect(backing.has("pi-couch.quickKeys")).toBe(false);
 	});
 
 	it("effectiveEnterSends follows explicit prefs over the pointer heuristic", () => {
@@ -61,9 +61,49 @@ describe("prefs", () => {
 		expect(quickKeyOrder()).toBeNull();
 		setQuickKeyOrder(["down", "esc"]);
 		expect(quickKeyOrder()).toEqual(["down", "esc"]);
-		backing.set("couch-pi.keyOrder.v2", "{broken");
+		backing.set("pi-couch.keyOrder.v2", "{broken");
 		expect(quickKeyOrder()).toBeNull();
-		backing.set("couch-pi.keyOrder.v2", JSON.stringify(["esc", 42, "up"]));
+		backing.set("pi-couch.keyOrder.v2", JSON.stringify(["esc", 42, "up"]));
 		expect(quickKeyOrder()).toEqual(["esc", "up"]);
+	});
+
+	// The 2026-10-21 rename moved the storage prefix to pi-couch.*; prefs
+	// written before it must survive the update.
+	it("migrates legacy couch-pi keys on read", () => {
+		backing.set("couch-pi.enterSends", "send");
+		backing.set("couch-pi.quickKeys", "0");
+		backing.set("couch-pi.keyOrder.v2", JSON.stringify(["esc", "up"]));
+		backing.set("couch-pi.theme", "dracula");
+		expect(enterSendsPref()).toBe("send");
+		expect(quickKeysEnabled()).toBe(false);
+		expect(quickKeyOrder()).toEqual(["esc", "up"]);
+		expect(activeScheme().id).toBe("dracula");
+		expect(backing.get("pi-couch.enterSends")).toBe("send");
+		expect(backing.get("pi-couch.theme")).toBe("dracula");
+		expect(backing.has("couch-pi.enterSends")).toBe(false);
+		expect(backing.has("couch-pi.theme")).toBe(false);
+	});
+
+	it("lets a pi-couch value win over a leftover legacy value", () => {
+		backing.set("pi-couch.enterSends", "newline");
+		backing.set("couch-pi.enterSends", "send");
+		expect(enterSendsPref()).toBe("newline");
+		expect(backing.has("couch-pi.enterSends")).toBe(true);
+	});
+
+	it("still writes under the pi-couch prefix", () => {
+		setEnterSendsPref("send");
+		expect(backing.get("pi-couch.enterSends")).toBe("send");
+		expect(backing.has("couch-pi.enterSends")).toBe(false);
+	});
+
+	it("never resurrects a cleared pref from its legacy key", () => {
+		// a clear without a prior read must still retire the legacy value
+		backing.set("couch-pi.enterSends", "send");
+		setEnterSendsPref("auto");
+		expect(backing.has("couch-pi.enterSends")).toBe(false);
+		expect(enterSendsPref()).toBe("auto");
+		setEnterSendsPref("send");
+		expect(backing.has("couch-pi.enterSends")).toBe(false);
 	});
 });

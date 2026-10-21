@@ -8,7 +8,7 @@ import { useEffect, useState } from "react";
 import { getVersion } from "../api";
 import { orderKeys, QUICK_KEYS } from "../chat/quick-keys";
 import { DirBrowser } from "../components/DirBrowser";
-import { FaArrowDown, FaArrowUp } from "../components/fa";
+import { FaArrowDown, FaArrowUp, FaCheck } from "../components/fa";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { useSheetBack } from "../nav";
 import {
@@ -23,6 +23,7 @@ import {
 	setQuickKeysEnabled,
 	setQuickPath,
 } from "../prefs";
+import { activeScheme, SCHEMES, setScheme } from "../theme";
 
 const ENTER_CHOICES: { value: EnterSendsPref; label: string; hint: string }[] = [
 	{ value: "auto", label: "Auto", hint: "send on a keyboard, newline on touch" },
@@ -31,6 +32,7 @@ const ENTER_CHOICES: { value: EnterSendsPref; label: string; hint: string }[] = 
 ];
 
 export default function SettingsScreen() {
+	const [schemeId, setSchemeId] = useState(activeScheme().id);
 	const [enter, setEnter] = useState<EnterSendsPref>(enterSendsPref);
 	const [keys, setKeys] = useState(quickKeysEnabled);
 	const [order, setOrder] = useState(() => orderKeys(quickKeyOrder()).map((k) => k.id));
@@ -65,6 +67,43 @@ export default function SettingsScreen() {
 				className="mx-auto flex min-h-dvh max-w-3xl flex-col gap-6 px-3 pt-[80px]"
 				style={{ paddingBottom: "var(--safe-bottom, 0px)" }}
 			>
+				<section>
+					<h2 className="px-1 pb-2 text-xs uppercase tracking-widest text-muted">Color scheme</h2>
+					<div className="overflow-hidden rounded-xl border border-muted/40">
+						{SCHEMES.map((s, i) => (
+							<button
+								key={s.id}
+								type="button"
+								onClick={() => {
+									setScheme(s.id);
+									setSchemeId(s.id);
+								}}
+								className={`flex w-full items-center gap-3 px-3 py-3 text-left active:bg-base-200 ${i > 0 ? "border-t border-muted/20" : ""}`}
+							>
+								<span className="flex shrink-0 gap-1">
+									{[
+										s.vars["--color-base-100"],
+										s.vars["--color-primary"],
+										s.vars["--color-accent"],
+										s.vars["--color-warning"],
+									].map((c) => (
+										<span
+											key={c}
+											className="h-4 w-4 rounded-full border border-white/10"
+											style={{ background: c }}
+										/>
+									))}
+								</span>
+								<span className="flex-1 text-[15px]">{s.label}</span>
+								{schemeId === s.id && <FaCheck size={14} className="text-primary" />}
+							</button>
+						))}
+					</div>
+					<p className="px-1 pt-2 text-xs text-muted">
+						Applies everywhere at once, including the terminal grid.
+					</p>
+				</section>
+
 				<section>
 					<h2 className="px-1 pb-2 text-xs uppercase tracking-widest text-muted">Enter key</h2>
 					<Segmented
@@ -167,7 +206,7 @@ export default function SettingsScreen() {
 					</p>
 				</section>
 
-				<p className="pt-2 text-center text-xs text-muted">Couch Pi {version ?? "…"}</p>
+				<p className="pt-2 text-center text-xs text-muted">Pi Couch {version ?? "…"}</p>
 			</div>
 
 			<Sheet

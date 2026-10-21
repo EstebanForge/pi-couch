@@ -1,4 +1,4 @@
-# Couch Pi plan, v0.2
+# Pi Couch plan, v0.2
 
 Rewritten after the grilling session. Decisions are in `docs/adr/`, terms in `CONTEXT.md`. Sources: my requirements, the seven reference screenshots, pi's local docs, and herdr's live API on this machine.
 
@@ -9,9 +9,9 @@ One Android-first client that shows every pi session on this server, drives them
 ## Decisions locked
 
 - Plain pi sessions only. No pi-durable, no RPC children. Sessions resume anywhere pi runs (ADR-0001).
-- herdr is the only driver. Everything Couch Pi submits goes through herdr's socket API.
+- herdr is the only driver. Everything Pi Couch submits goes through herdr's socket API.
 - Steer any session, hers or mine. Hard requirement, met by herdr tracking every live agent.
-- pi sessions only. No guests. Working name Couch Pi.
+- pi sessions only. No guests. Working name Pi Couch.
 - Changes are repo-level git diffs; repos found by a pruned full scan of the session workdir.
 - Android-first PWA. Web push on status transitions. iOS gaps accepted.
 
@@ -61,7 +61,7 @@ One Android-first client that shows every pi session on this server, drives them
 
 - T1. Terminal tab: read-only peek at the session's herdr pane by default, interactive on explicit tap. The server polls `pane.read` in `ansi` format on a 1 s tick and sends keystrokes via `pane.send_input`. There is no PTY bridge and no cgo: the herdr socket has no attach method (m0-findings, ADR-0001).
 - T2. Mobile key row: esc, ctrl, tab, arrows, modifier latch.
-- T3. One attach client per pane at a time is herdr's rule, and only the desk CLI attach is exclusive. When the desk holds attach, Couch Pi shows a coexistence banner and stays on read-only peek. No takeover flag exists on the socket.
+- T3. One attach client per pane at a time is herdr's rule, and only the desk CLI attach is exclusive. When the desk holds attach, Pi Couch shows a coexistence banner and stays on read-only peek. No takeover flag exists on the socket.
 - T4. Read-only peek mode before attach, one tap to take the wheel.
 
 ### Platform
@@ -102,7 +102,7 @@ Shipped through M4 as of 2026-10-12; nothing on the milestone list is open.
 - M4 polish (1-2d). V10 in-transcript search, D7 close, P2-P4, plus D2 and D6. Shipped 2026-10-12 (D2 rides pi's /model and /thinking editor commands through herdr prompts; D6 rides image paths in the prompt text). P3 dark default shipped as the dracula theme.
 - M5 push (1-2d). P5, webpush-go. Shipped 2026-10-11 with a deviation: transitions come from per-agent `agent.wait` watchers, not socket subscription events, which herdr 0.9.3 does not stream (ADR-0005). Server-side chain E2E-verified; delivery on the phone rides the WebView service worker until FCM is demanded.
 
-About three weeks end to end. Dogfood rule: from M0 on, Couch Pi is built with pi sessions driven through Couch Pi where possible.
+About three weeks end to end. Dogfood rule: from M0 on, Pi Couch is built with pi sessions driven through Pi Couch where possible.
 
 ## Risks and open questions
 

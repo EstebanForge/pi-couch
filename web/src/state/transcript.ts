@@ -139,6 +139,22 @@ export function mergeOlder(items: StreamItem[], older: StreamItem[]): StreamItem
 	return [...known.values()].sort((a, b) => a.seq - b.seq);
 }
 
+export type ToolPair = { call: StreamItem | null; outs: StreamItem[] };
+
+// pairTools joins each tool_call with the result items that follow it,
+// so the transcript renders one titled row per tool with its output
+// nested underneath. Results before any call — a group-edge leftover
+// from loadOlder windows — ride a call-less pair instead of vanishing.
+export function pairTools(items: StreamItem[]): ToolPair[] {
+	const pairs: ToolPair[] = [];
+	for (const it of items) {
+		if (it.kind === "tool_call") pairs.push({ call: it, outs: [] });
+		else if (pairs.length === 0) pairs.push({ call: null, outs: [it] });
+		else pairs[pairs.length - 1].outs.push(it);
+	}
+	return pairs;
+}
+
 export function reduceStatus(s: DriverState, p: TranscriptStatus): DriverState {
 	// Dialog is three-way on the wire: undefined keeps, null clears
 	// (pi's end event), an object sets.

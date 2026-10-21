@@ -11,11 +11,26 @@ import { connectStream } from "../stream";
 
 // Same key and shape the templ island used: drafts written there are
 // still here after the rewrite.
-const trayKey = (key: string): string => `couch-pi-cmts:${key}`;
+// Legacy couch-pi-cmts fallback: the 2026-10-21 rename moved the
+// prefix; comment drafts written before it must survive.
+const trayKey = (key: string): string => `pi-couch-cmts:${key}`;
+const trayRead = (key: string): string | null => {
+	try {
+		const v = localStorage.getItem(trayKey(key));
+		if (v !== null) return v;
+		const legacy = localStorage.getItem(`couch-pi-cmts:${key}`);
+		if (legacy === null) return null;
+		localStorage.setItem(trayKey(key), legacy);
+		localStorage.removeItem(`couch-pi-cmts:${key}`);
+		return legacy;
+	} catch {
+		return null;
+	}
+};
 
 function loadTray(key: string): PendingComment[] {
 	try {
-		const raw = localStorage.getItem(trayKey(key));
+		const raw = trayRead(key);
 		return raw ? (JSON.parse(raw) as PendingComment[]) : [];
 	} catch {
 		return [];
@@ -23,7 +38,11 @@ function loadTray(key: string): PendingComment[] {
 }
 
 function saveTray(key: string, cs: PendingComment[]): void {
-	localStorage.setItem(trayKey(key), JSON.stringify(cs));
+	try {
+		localStorage.setItem(trayKey(key), JSON.stringify(cs));
+	} catch {
+		// storage blocked: drafts stay in memory for this view
+	}
 }
 
 type DiffRow = { kind: "meta" | "hunk" | "add" | "del" | "ctx"; text: string; line?: number };

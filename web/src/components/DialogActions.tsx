@@ -117,15 +117,19 @@ export function DialogActions({ k, dialog }: { k: string; dialog: BridgeDialog }
 							className={
 								"flex min-h-[48px] items-center gap-2 rounded-xl px-3.5 py-2 text-left active:scale-[0.99] disabled:opacity-50 " +
 								(i === dialog.cursor
-									? "bg-primary font-medium text-primary-content"
+									? // Subtle tint, not solid primary: rows carry long
+										// descriptions and a solid fill reads as a slab.
+										"bg-primary/20 font-medium text-base-content"
 									: "bg-base-300")
 							}
 						>
 							{active === o.label && <Spinner size={14} />}
-							<span>
+							<span className="min-w-0 flex-1">
 								<span className="block text-[14px]">{o.label}</span>
 								{o.description && (
-									<span className="mt-0.5 block text-[12px] opacity-80">{o.description}</span>
+									<span className="mt-0.5 block text-[12px] opacity-80 [overflow-wrap:anywhere]">
+										{o.description}
+									</span>
 								)}
 							</span>
 						</button>

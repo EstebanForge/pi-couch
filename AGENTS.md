@@ -1,10 +1,10 @@
 # AGENTS.md
 
-Operating guide for coding agents working on Couch Pi.
+Operating guide for coding agents working on Pi Couch.
 
 ## Project overview
 
-Couch Pi: phone-first web client for the pi coding agents on this server. Shows every pi session on the machine, drives them through herdr, reviews git changes per repo, collects line comments, pushes on status changes. It is a client, not a runtime: it never forks its own agent runtime. Status: all milestones shipped; the React client rewrite cut over 2026-10-13 — the SPA is the whole site, the templ pages and Datastar are deleted. Plan and decisions live in docs/.
+Pi Couch: phone-first web client for the pi coding agents on this server. Shows every pi session on the machine, drives them through herdr, reviews git changes per repo, collects line comments, pushes on status changes. It is a client, not a runtime: it never forks its own agent runtime. Status: all milestones shipped; the React client rewrite cut over 2026-10-13 — the SPA is the whole site, the templ pages and Datastar are deleted. Plan and decisions live in docs/.
 
 ## Read first (sources of truth)
 
@@ -54,7 +54,7 @@ Pins: fsnotify v1.10.1, webpush-go v1.4.0; the web stack pins live in web/packag
 
 Boundaries:
 
-- Session files are read-only to Couch Pi. Never write into jsonl.
+- Session files are read-only to Pi Couch. Never write into jsonl.
 - herdr's own words (workspace, tab, pane, agent) stay at the integration boundary. They never enter the glossary or the UI copy.
 
 ## Conventions and gotchas

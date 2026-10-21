@@ -14,30 +14,9 @@ import { ESC_SETTLE_MS } from "../chat/quick-keys";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { connectStream, type Stream } from "../stream";
 
-// Dracula palette for the grid; same values as index.css tokens.
-const TERM_THEME = {
-	background: "#282a36",
-	foreground: "#f8f8f2",
-	cursor: "#f8f8f2",
-	cursorAccent: "#282a36",
-	selectionBackground: "#44475a",
-	black: "#21222c",
-	red: "#ff5555",
-	green: "#50fa7b",
-	yellow: "#f1fa8c",
-	blue: "#bd93f9",
-	magenta: "#ff79c6",
-	cyan: "#8be9fd",
-	white: "#f8f8f2",
-	brightBlack: "#6272a4",
-	brightRed: "#ff6e6e",
-	brightGreen: "#69ff94",
-	brightYellow: "#ffffa5",
-	brightBlue: "#d6acff",
-	brightMagenta: "#ff92df",
-	brightCyan: "#a4ffff",
-	brightWhite: "#ffffff",
-};
+// The terminal palette rides the active color scheme (theme.ts); the
+// grid re-themes live when the picker switches schemes.
+import { activeScheme, onSchemeChange } from "../theme";
 
 // The terminal's own key row: the chat strip minus Alt+Enter and Ctrl+D
 // (they belong to the composer and the close dialog). Ctrl+C is the
@@ -119,7 +98,7 @@ export default function TerminalScreen({ sessionKey }: { sessionKey: string }) {
 			fontSize: 12,
 			fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
 			scrollback: 0,
-			theme: TERM_THEME,
+			theme: activeScheme().term,
 		});
 		const fit = new FitAddon();
 		term.loadAddon(fit);
@@ -135,7 +114,11 @@ export default function TerminalScreen({ sessionKey }: { sessionKey: string }) {
 			}
 		});
 		ro.observe(host);
+		const offScheme = onSchemeChange(() => {
+			term.options.theme = activeScheme().term;
+		});
 		return () => {
+			offScheme();
 			ro.disconnect();
 			term.dispose();
 			termRef.current = null;

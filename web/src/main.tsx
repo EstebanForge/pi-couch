@@ -2,6 +2,11 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
+import { activeScheme, applyScheme } from "./theme";
+
+// Paint the stored scheme before the first render so a non-default
+// pick never flashes the default.
+applyScheme(activeScheme());
 
 const el = document.getElementById("root");
 if (!el) throw new Error("missing #root");

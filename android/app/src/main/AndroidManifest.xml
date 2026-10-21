@@ -13,7 +13,7 @@
     </queries>
 
     <application
-        android:label="Couch Pi"
+        android:label="Pi Couch"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:theme="@style/Theme.CouchPi"

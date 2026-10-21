@@ -23,10 +23,12 @@ import {
 	FaChevronLeft,
 	FaCircle,
 	FaEllipsis,
+	FaHourglassHalf,
 } from "../components/fa";
 import { Markdown } from "../components/Markdown";
 import { Spinner } from "../components/Spinner";
 import { navigate, useSheetBack } from "../nav";
+import { prefKey, readPref, writePref } from "../prefs";
 import { TOOLS, toolEnabled } from "../session-tools";
 import { useSessions } from "../state/sessions";
 import {
@@ -37,10 +39,12 @@ import {
 	markPending,
 	mergeOlder,
 	type PendingMsg,
+	pairTools,
 	reduceAppend,
 	reduceReset,
 	reduceStatus,
 	removePending,
+	type ToolPair,
 	type WorkBlock,
 } from "../state/transcript";
 import { isWaiting, STATUS_DOT } from "../status";
@@ -93,16 +97,33 @@ function itemKey(b: WorkBlock): string {
 }
 
 /** Truncated tool output and bash text expand in place: the fetch
- * returns the whole thing once and it stays for the component's life. */
+ * returns the whole thing once and it stays for the component's life.
+ * Content renders diff-colored, since most tool output worth reading
+ * is a patch or a log with +/- lines. */
+function diffLineClass(ln: string): string {
+	if (ln.startsWith("+")) return "text-success";
+	if (ln.startsWith("-")) return "text-error";
+	if (ln.startsWith("@@")) return "text-accent";
+	return "text-muted";
+}
+
+function DiffText({ text }: { text: string }) {
+	return (
+		<div className="whitespace-pre-wrap break-words font-mono text-[11.5px]">
+			{text.split("\n").map((ln, i) => (
+				<div key={i} className={diffLineClass(ln)}>
+					{ln || "\u00a0"}
+				</div>
+			))}
+		</div>
+	);
+}
+
 function FullText({ k, it }: { k: string; it: StreamItem }) {
 	const [full, setFull] = useState<string | null>(null);
 	const [failed, setFailed] = useState(false);
 	if (full !== null) {
-		return (
-			<div className="max-h-72 overflow-y-auto whitespace-pre-wrap break-words text-muted">
-				{full}
-			</div>
-		);
+		return <DiffText text={full} />;
 	}
 	return (
 		<>
@@ -119,6 +140,64 @@ function FullText({ k, it }: { k: string; it: StreamItem }) {
 				{failed ? "could not load" : "show all"}
 			</button>
 		</>
+	);
+}
+
+// Tool rows read like code clients: "Edited src/a.tsx", "Ran npm test".
+// The server's tool summary already carries the path or command; this
+// maps the tool name to the past-tense verb in front of it.
+function toolVerb(name: string): string {
+	const n = name.toLowerCase();
+	if (n === "edit") return "Edited";
+	if (n === "write") return "Wrote";
+	if (n === "read") return "Read";
+	if (n === "bash") return "Ran";
+	if (n === "grep" || n === "find") return "Searched";
+	if (n.startsWith("codegraph")) return "Looked up";
+	if (n.startsWith("browser")) return "Browsed";
+	if (n.startsWith("todo")) return "Planned";
+	if (n.startsWith("memory")) return "Remembered";
+	if (n === "git_commit" || n === "commit") return "Committed";
+	return n;
+}
+
+function ToolStep({ pair, sessionKey }: { pair: ToolPair; sessionKey: string }) {
+	const [open, setOpen] = useState(false);
+	const first = pair.outs[0];
+	const summary = pair.call ? pair.call.text : (first?.text.split("\n")[0] ?? "");
+	return (
+		<div className="py-0.5">
+			<button
+				type="button"
+				className="flex min-h-9 w-full items-center gap-2 rounded-lg px-1 py-1 text-left text-[12px]"
+				onClick={() => setOpen(!open)}
+			>
+				<span className="shrink-0 text-muted">
+					{open ? <FaCaretDown size={12} /> : <FaCaretRight size={12} />}
+				</span>
+				{pair.call && (
+					<span className="shrink-0 text-base-content">{toolVerb(pair.call.tool_name || "")}</span>
+				)}
+				<span className="truncate font-mono text-[11px] text-muted">{summary}</span>
+			</button>
+			{open && (
+				<div className="ml-3 border-l border-base-300 pl-2">
+					{pair.outs.map((o) => (
+						<div key={o.seq} className="py-0.5 text-[12px]">
+							{o.truncated ? <FullText k={sessionKey} it={o} /> : <DiffText text={o.text} />}
+							{!!o.images && (
+								<img
+									src={`/api/sessions/${encodeURIComponent(sessionKey)}/items/${o.seq}/image`}
+									alt="tool attachment"
+									loading="lazy"
+									className="mt-1 max-h-64 rounded-xl border border-base-300"
+								/>
+							)}
+						</div>
+					))}
+				</div>
+			)}
+		</div>
 	);
 }
 
@@ -226,7 +305,7 @@ const Block = memo(function Block({ block, sessionKey }: { block: WorkBlock; ses
 					} ${p.state === "sending" ? "opacity-70" : ""}`}
 				>
 					{p.state === "sending" && <Spinner size={14} className="mr-1 text-primary" />}
-					{p.state === "queued" && <span className="mr-1">⏳</span>}
+					{p.state === "queued" && <FaHourglassHalf size={13} className="mr-1 inline-block" />}
 					{p.text}
 					{p.state === "queued" && (
 						<div className="text-[10px] text-muted">queued for the end of the turn</div>
@@ -260,6 +339,8 @@ const Block = memo(function Block({ block, sessionKey }: { block: WorkBlock; ses
 	}
 	// Steps stay collapsed unless the reader opens them; the live stream
 	// already carries the Working marker, so auto-expansion is noise.
+	// Expanded, each tool is one titled row (verb + target) with its
+	// output nested underneath — the code-client look.
 	const open = override ?? false;
 	const names = [...new Set(block.items.map((i) => i.tool_name || i.kind))].slice(0, 3).join(", ");
 	return (
@@ -276,9 +357,13 @@ const Block = memo(function Block({ block, sessionKey }: { block: WorkBlock; ses
 				</span>
 			</button>
 			{open && (
-				<div className="mt-0.5 border-l border-base-300 pl-1">
-					{block.items.map((it) => (
-						<div key={it.seq}>{itemRow(it, true, sessionKey)}</div>
+				<div className="mt-0.5">
+					{pairTools(block.items).map((p) => (
+						<ToolStep
+							key={p.call?.seq ?? p.outs[0]?.seq ?? "pair"}
+							pair={p}
+							sessionKey={sessionKey}
+						/>
 					))}
 				</div>
 			)}
@@ -461,13 +546,8 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 	// reset's reconcile drops any bubble whose item landed meanwhile.
 	useEffect(() => {
 		if (pendingAgent) return;
-		const storageKey = `couch-pi.pending.${sessionKey}`;
-		let raw: string | null = null;
-		try {
-			raw = localStorage.getItem(storageKey);
-		} catch {
-			raw = null;
-		}
+		const storageKey = prefKey(`pending.${sessionKey}`);
+		const raw = readPref(storageKey);
 		if (!raw) return;
 		try {
 			const msgs = JSON.parse(raw) as PendingMsg[];
@@ -481,13 +561,8 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 	}, [sessionKey, pendingAgent]);
 	useEffect(() => {
 		if (pendingAgent) return;
-		const storageKey = `couch-pi.pending.${sessionKey}`;
-		try {
-			if (state.pending.length === 0) localStorage.removeItem(storageKey);
-			else localStorage.setItem(storageKey, JSON.stringify(state.pending));
-		} catch {
-			// storage full or blocked: the bubble still shows this session
-		}
+		const storageKey = prefKey(`pending.${sessionKey}`);
+		writePref(storageKey, state.pending.length === 0 ? null : JSON.stringify(state.pending));
 	}, [state.pending, sessionKey, pendingAgent]);
 	// The sheet opens only when the dialog carries real content. The
 	// bridge frame can land before the pane parse (up to a detector

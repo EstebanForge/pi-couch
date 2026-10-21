@@ -1,4 +1,4 @@
-# Couch Pi
+# Pi Couch
 
 A phone-first web client for the pi coding agents on this server. This glossary fixes the words the plan, code, and UI use.
 
@@ -50,8 +50,8 @@ _Avoid_: remove, delete
 
 ## Scope statements
 
-pi sessions only. Android first. No guests. Couch Pi is the working name.
+pi sessions only. Android first. No guests. Pi Couch is the working name.
 
 ## External terms (read-only, at the integration boundary)
 
-herdr's own words (its workspace, tab, pane, agent) mean what herdr means; they appear only where Couch Pi calls herdr's API and never enter this glossary.
+herdr's own words (its workspace, tab, pane, agent) mean what herdr means; they appear only where Pi Couch calls herdr's API and never enter this glossary.

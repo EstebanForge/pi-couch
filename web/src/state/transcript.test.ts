@@ -6,6 +6,7 @@ import {
 	emptyDriver,
 	groupWorkBlocks,
 	mergeOlder,
+	pairTools,
 	reduceAppend,
 	reduceReset,
 	reduceStatus,
@@ -80,6 +81,29 @@ describe("pending survives resets", () => {
 			thinking: "",
 		});
 		expect(after.pending).toEqual([]);
+	});
+});
+
+describe("pairTools", () => {
+	it("joins a call with its following results", () => {
+		const pairs = pairTools([
+			item(1, "tool_call", "src/a.tsx"),
+			item(2, "tool_result", "ok"),
+			item(3, "tool_call", "src/b.tsx"),
+			item(4, "bash", "ran"),
+		]);
+		expect(pairs).toHaveLength(2);
+		expect(pairs[0].call?.text).toBe("src/a.tsx");
+		expect(pairs[0].outs.map((o) => o.seq)).toEqual([2]);
+		expect(pairs[1].call?.text).toBe("src/b.tsx");
+		expect(pairs[1].outs.map((o) => o.seq)).toEqual([4]);
+	});
+
+	it("keeps group-edge results as call-less pairs", () => {
+		const pairs = pairTools([item(1, "tool_result", "leftover"), item(2, "bash", "ran")]);
+		expect(pairs).toHaveLength(1);
+		expect(pairs[0].call).toBeNull();
+		expect(pairs[0].outs.map((o) => o.seq)).toEqual([1, 2]);
 	});
 });
 

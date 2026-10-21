@@ -1,6 +1,6 @@
 {
-	"name": "Couch Pi",
-	"short_name": "Couch Pi",
+	"name": "Pi Couch",
+	"short_name": "Pi Couch",
 	"description": "Phone-first client for the pi coding agents on your server.",
 	"start_url": "/",
 	"scope": "/",

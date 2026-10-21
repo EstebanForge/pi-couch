@@ -1,4 +1,4 @@
-// Couch Pi push service worker (root scope). Shows transition notifications
+// Pi Couch push service worker (root scope). Shows transition notifications
 // and deep-links taps back into the session chat. No offline shell, no
 // caching: the APK owns the install surface, this file only receives pushes.
 self.addEventListener("push", (event) => {
@@ -6,9 +6,9 @@ self.addEventListener("push", (event) => {
 	try {
 		data = event.data ? event.data.json() : {};
 	} catch {
-		data = { title: "Couch Pi", body: event.data ? event.data.text() : "" };
+		data = { title: "Pi Couch", body: event.data ? event.data.text() : "" };
 	}
-	const title = data.title || "Couch Pi";
+	const title = data.title || "Pi Couch";
 	const url = data.url || "/";
 	event.waitUntil(
 		self.registration.showNotification(title, {

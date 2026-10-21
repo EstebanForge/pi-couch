@@ -18,7 +18,14 @@ import { dispositionFor } from "../chat/disposition";
 import { ESC_SETTLE_MS, orderKeys, type QuickKey } from "../chat/quick-keys";
 import { money } from "../fmt";
 import { useSheetBack } from "../nav";
-import { effectiveEnterSends, quickKeyOrder, quickKeysEnabled } from "../prefs";
+import {
+	effectiveEnterSends,
+	prefKey,
+	quickKeyOrder,
+	quickKeysEnabled,
+	readPref,
+	writePref,
+} from "../prefs";
 import {
 	FaBrain,
 	FaCheck,
@@ -52,8 +59,8 @@ export const Composer = memo(function Composer(props: {
 	sendAgent?: (body: string, queued: boolean) => Promise<{ ok: boolean; error?: string }>;
 }) {
 	const { sessionKey, status } = props;
-	const draftStoreKey = `couch-pi.draft.${sessionKey}`;
-	const [text, setText] = useState(() => localStorage.getItem(draftStoreKey) ?? "");
+	const draftStoreKey = prefKey(`draft.${sessionKey}`);
+	const [text, setText] = useState(() => readPref(draftStoreKey) ?? "");
 	const [files, setFiles] = useState<Attachment[]>([]);
 	const [notice, setNotice] = useState("");
 	const [toast, setToast] = useState("");
@@ -75,7 +82,7 @@ export const Composer = memo(function Composer(props: {
 	const sending = useRef(false);
 
 	useEffect(() => {
-		localStorage.setItem(draftStoreKey, text);
+		writePref(draftStoreKey, text === "" ? null : text);
 	}, [draftStoreKey, text]);
 
 	// Autosize: grow with content, cap at half the visual viewport.

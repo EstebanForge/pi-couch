@@ -788,20 +788,50 @@ func firstText(m *Message) string {
 	return ""
 }
 
+// argsSummary surfaces the one argument that names what the tool did
+// (a path, a command), so the chat can title tool rows the way code
+// clients do. JSON key order is not stable, so the pick runs over a
+// fixed priority list before falling back to sorted key: value pairs.
+var argPriority = []string{
+	"path", "file_path", "filepath", "file", "cwd", "command", "cmd",
+	"url", "query", "pattern", "topic", "name", "subject",
+}
+
 func argsSummary(raw json.RawMessage) string {
 	if len(raw) == 0 {
 		return ""
 	}
 	var m map[string]any
-	if err := json.Unmarshal(raw, &m); err == nil {
-		keys := make([]string, 0, len(m))
-		for k := range m {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		return strings.Join(keys, ", ")
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return truncate(string(raw), 80)
 	}
-	return truncate(string(raw), 80)
+	for _, k := range argPriority {
+		if v, ok := m[k].(string); ok && v != "" {
+			return truncate(v, 80)
+		}
+	}
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		switch v := m[k].(type) {
+		case string:
+			if v != "" {
+				parts = append(parts, k+": "+v)
+			}
+		case float64:
+			parts = append(parts, fmt.Sprintf("%s: %v", k, v))
+		case bool:
+			parts = append(parts, fmt.Sprintf("%s: %v", k, v))
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return truncate(strings.Join(parts, ", "), 120)
 }
 
 // truncate keeps n runes, so multibyte text never splits mid-rune.

@@ -107,7 +107,7 @@ func notifyFunc(logger *slog.Logger, idx *pi.Index, st *store.Store, pusher *pus
 			return
 		}
 		dead, err := pusher.Send(ctx, subs, push.Message{
-			Title: "Couch Pi: " + name,
+			Title: "Pi Couch: " + name,
 			Body:  body,
 			URL:   link,
 		})

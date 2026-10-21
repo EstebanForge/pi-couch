@@ -48,20 +48,23 @@
    app root), not the OS media query, so sheets and dialogs stay dark. */
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* Dracula palette as Tailwind 4 theme tokens; utilities read these directly. */
+/* Cobalt Next Dark as the Tailwind 4 theme tokens; utilities read these
+   directly. This pins the default scheme for first paint; the scheme
+   picker (web/src/theme.ts) overrides the same custom properties on the
+   document element when another scheme is stored. */
 @theme {
-	--color-base-100: #282a36;
-	--color-base-200: #21222c;
-	--color-base-300: #191a21;
-	--color-base-content: #f8f8f2;
-	--color-muted: #6272a4;
-	--color-primary: #bd93f9;
-	--color-primary-content: #191a21;
-	--color-secondary: #ff79c6;
-	--color-accent: #8be9fd;
-	--color-success: #50fa7b;
-	--color-warning: #f1fa8c;
-	--color-error: #ff5555;
+	--color-base-100: #0b1c24;
+	--color-base-200: #11242e;
+	--color-base-300: #071219;
+	--color-base-content: #d7deea;
+	--color-muted: #62747f;
+	--color-primary: #409dd4;
+	--color-primary-content: #071219;
+	--color-secondary: #cba3c7;
+	--color-accent: #37b5b4;
+	--color-success: #8cc98f;
+	--color-warning: #ffc64c;
+	--color-error: #f94967;
 }
 
 @layer base {
@@ -157,7 +160,7 @@
 }
 
 /* Assistant markdown (components/Markdown.tsx). Compact phone rhythm;
-   dracula tokens; code and tables scroll rather than overflow. */
+   theme tokens; code and tables scroll rather than overflow. */
 .md > :first-child {
 	margin-top: 0;
 }

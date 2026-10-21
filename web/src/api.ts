@@ -1,4 +1,4 @@
-// api.ts — typed REST + JSON SSE client for Couch Pi.
+// api.ts — typed REST + JSON SSE client for Pi Couch.
 
 export type SessionMeta = {
 	key: string;

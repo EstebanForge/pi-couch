@@ -336,7 +336,7 @@ class MainActivity : Activity() {
         val body = "<html><body style='background:#0f1115;color:#e5e7eb;" +
             "font-family:sans-serif;display:flex;align-items:center;" +
             "justify-content:center;height:100%;margin:0'>" +
-            "<div style='text-align:center'><p>Couch Pi is unreachable.</p>" +
+            "<div style='text-align:center'><p>Pi Couch is unreachable.</p>" +
             "<p style='opacity:0.6;font-size:0.9em'>Check the tailnet, then reload.</p>" +
             "<p><button onclick=\"location.href='$failedUrl'\" " +
             "style='margin-top:16px;padding:10px 24px;border-radius:8px;border:0;" +

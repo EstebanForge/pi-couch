@@ -1,4 +1,4 @@
-# Couch Pi
+# Pi Couch
 
 A phone-first web client for the pi coding agents running on my server.
 
