@@ -132,7 +132,7 @@ function itemRow(it: StreamItem, expanded: boolean, sessionKey: string) {
 						{!!it.images && (
 							<img
 								src={`/api/sessions/${encodeURIComponent(sessionKey)}/items/${it.seq}/image`}
-								alt="attached image"
+								alt="attachment"
 								loading="lazy"
 								className="mt-1 max-h-64 rounded-xl"
 							/>
@@ -193,7 +193,7 @@ function itemRow(it: StreamItem, expanded: boolean, sessionKey: string) {
 					{!!it.images && (
 						<img
 							src={`/api/sessions/${encodeURIComponent(sessionKey)}/items/${it.seq}/image`}
-							alt="tool result image"
+							alt="tool attachment"
 							loading="lazy"
 							className="mt-1 max-h-64 rounded-xl border border-base-300"
 						/>
@@ -454,6 +454,41 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 		[],
 	);
 	const removePendingCb = useCallback((id: number) => dispatch({ t: "remove-pending", id }), []);
+	// Queued bubbles live only in this reducer, and a queued message is
+	// not in the transcript yet — leaving the thread or reloading would
+	// otherwise hide it while pi still holds it in its steering queue.
+	// Mirror the list to localStorage and restore it on mount; the
+	// reset's reconcile drops any bubble whose item landed meanwhile.
+	useEffect(() => {
+		if (pendingAgent) return;
+		const storageKey = `couch-pi.pending.${sessionKey}`;
+		let raw: string | null = null;
+		try {
+			raw = localStorage.getItem(storageKey);
+		} catch {
+			raw = null;
+		}
+		if (!raw) return;
+		try {
+			const msgs = JSON.parse(raw) as PendingMsg[];
+			for (const m of msgs) {
+				if (typeof m.text !== "string" || m.text === "") continue;
+				dispatch({ t: "add-pending", id: nextPendingId(), text: m.text, queued: true });
+			}
+		} catch {
+			// junk in storage: drop it
+		}
+	}, [sessionKey, pendingAgent]);
+	useEffect(() => {
+		if (pendingAgent) return;
+		const storageKey = `couch-pi.pending.${sessionKey}`;
+		try {
+			if (state.pending.length === 0) localStorage.removeItem(storageKey);
+			else localStorage.setItem(storageKey, JSON.stringify(state.pending));
+		} catch {
+			// storage full or blocked: the bubble still shows this session
+		}
+	}, [state.pending, sessionKey, pendingAgent]);
 	// The sheet opens only when the dialog carries real content. The
 	// bridge frame can land before the pane parse (up to a detector
 	// tick); an empty panel sliding up reads as broken, and the

@@ -93,7 +93,11 @@ function reconcile(s: DriverState): DriverState {
 }
 
 export function reduceReset(_s: DriverState, p: TranscriptReset): DriverState {
-	return {
+	// A queued message is not in the transcript yet, and resets arrive on
+	// every reconnect and chat reopen — wiping pending here made queued
+	// messages vanish from the view while pi still held them (field
+	// bug). Reconcile instead: landed bubbles drop, queued ones survive.
+	return reconcile({
 		items: p.items.slice().sort((a, b) => a.seq - b.seq),
 		status: p.status,
 		model: p.model,
@@ -104,8 +108,8 @@ export function reduceReset(_s: DriverState, p: TranscriptReset): DriverState {
 		ctx: p.meta?.ctx_tokens ?? 0,
 		memory: p.memory ?? null,
 		header: p.meta ?? null,
-		pending: [],
-	};
+		pending: _s.pending,
+	});
 }
 
 export function reduceAppend(s: DriverState, p: TranscriptAppend): DriverState {

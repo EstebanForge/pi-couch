@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BridgeDialog, StreamItem } from "../api";
 import {
+	addPending,
 	type DriverState,
 	emptyDriver,
 	groupWorkBlocks,
@@ -43,6 +44,42 @@ describe("reduceReset", () => {
 		expect(s.status).toBe("working");
 		expect(s.model).toBe("p/m");
 		expect(s.thinking).toBe("high");
+	});
+});
+
+describe("pending survives resets", () => {
+	it("keeps a queued bubble whose message pi still holds", () => {
+		let s = reduceReset(emptyDriver, {
+			items: [item(0, "user", "earlier"), item(1, "text", "answer")],
+			status: "working",
+			model: "",
+			thinking: "",
+		});
+		s = addPending(s, 1, "queued while busy", true);
+		const after = reduceReset(s, {
+			items: [item(0, "user", "earlier"), item(1, "text", "answer")],
+			status: "working",
+			model: "",
+			thinking: "",
+		});
+		expect(after.pending.map((p) => p.id)).toEqual([1]);
+	});
+
+	it("drops a bubble whose user item arrived", () => {
+		let s = reduceReset(emptyDriver, {
+			items: [item(0, "user", "earlier")],
+			status: "working",
+			model: "",
+			thinking: "",
+		});
+		s = addPending(s, 1, "queued while busy", true);
+		const after = reduceReset(s, {
+			items: [item(0, "user", "earlier"), item(1, "user", "queued while busy")],
+			status: "working",
+			model: "",
+			thinking: "",
+		});
+		expect(after.pending).toEqual([]);
 	});
 });
 
