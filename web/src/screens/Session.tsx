@@ -24,6 +24,7 @@ import {
 	FaCircle,
 	FaEllipsis,
 	FaHourglassHalf,
+	FaXmark,
 } from "../components/fa";
 import { Markdown } from "../components/Markdown";
 import { Spinner } from "../components/Spinner";
@@ -196,10 +197,12 @@ function ToolStep({
 	pair,
 	sessionKey,
 	live = false,
+	zoom,
 }: {
 	pair: ToolPair;
 	sessionKey: string;
 	live?: boolean;
+	zoom: (src: string) => void;
 }) {
 	const [open, setOpen] = useState(false);
 	const first = pair.outs[0];
@@ -242,10 +245,10 @@ function ToolStep({
 						<div key={o.seq} className="py-0.5 text-[12px]">
 							{o.truncated ? <FullText k={sessionKey} it={o} /> : <DiffText text={o.text} />}
 							{!!o.images && (
-								<img
+								<ChatImage
 									src={`/api/sessions/${encodeURIComponent(sessionKey)}/items/${o.seq}/image`}
+									zoom={zoom}
 									alt="tool attachment"
-									loading="lazy"
 									className="mt-1 max-h-64 rounded-xl border border-base-300"
 								/>
 							)}
@@ -257,7 +260,12 @@ function ToolStep({
 	);
 }
 
-function itemRow(it: StreamItem, expanded: boolean, sessionKey: string) {
+function itemRow(
+	it: StreamItem,
+	expanded: boolean,
+	sessionKey: string,
+	zoom: (src: string) => void,
+) {
 	switch (it.kind) {
 		case "user":
 			return (
@@ -265,10 +273,10 @@ function itemRow(it: StreamItem, expanded: boolean, sessionKey: string) {
 					<div className="max-w-[85%] rounded-2xl bg-primary/20 px-3 py-2 text-[15px] whitespace-pre-wrap [overflow-wrap:anywhere]">
 						{it.text}
 						{!!it.images && (
-							<img
+							<ChatImage
 								src={`/api/sessions/${encodeURIComponent(sessionKey)}/items/${it.seq}/image`}
+								zoom={zoom}
 								alt="attachment"
-								loading="lazy"
 								className="mt-1 max-h-64 rounded-xl"
 							/>
 						)}
@@ -320,10 +328,10 @@ function itemRow(it: StreamItem, expanded: boolean, sessionKey: string) {
 						<span className="line-clamp-1 text-muted">{it.text}</span>
 					)}
 					{!!it.images && (
-						<img
+						<ChatImage
 							src={`/api/sessions/${encodeURIComponent(sessionKey)}/items/${it.seq}/image`}
+							zoom={zoom}
 							alt="tool attachment"
-							loading="lazy"
 							className="mt-1 max-h-64 rounded-xl border border-base-300"
 						/>
 					)}
@@ -338,6 +346,144 @@ function itemRow(it: StreamItem, expanded: boolean, sessionKey: string) {
 				<div className="px-3 py-0.5 text-[12px] text-muted">{it.text}</div>
 			);
 	}
+}
+
+// Tappable chat image: opens the fullscreen viewer. Konsta ships no
+// photo viewer and Popup is a bare container, so the lightbox is a
+// fixed overlay like the app's other full-screen layers.
+function ChatImage({
+	src,
+	zoom,
+	alt,
+	className,
+}: {
+	src: string;
+	zoom: (src: string) => void;
+	alt: string;
+	className: string;
+}) {
+	return (
+		<button type="button" className="block cursor-zoom-in" onClick={() => zoom(src)}>
+			<img src={src} alt={alt} loading="lazy" draggable={false} className={className} />
+		</button>
+	);
+}
+
+const ZOOM_MAX = 8;
+
+// Fullscreen image viewer: pinch or wheel to zoom, double-tap toggles
+// 2.5x at the tapped point, drag pans, tap the dark area or X closes.
+function Lightbox({ src, onClose }: { src: string; onClose: () => void }) {
+	const [t, setT] = useState({ s: 1, x: 0, y: 0 });
+	const ptrs = useRef(new Map<number, { x: number; y: number }>());
+	const pinch = useRef<{
+		d0: number;
+		s0: number;
+		m0x: number;
+		m0y: number;
+		x: number;
+		y: number;
+	} | null>(null);
+	const drag = useRef<{ px: number; py: number; x: number; y: number } | null>(null);
+	const moved = useRef(false);
+	const box = useRef<HTMLDivElement | null>(null);
+
+	const clamp = (v: number) => Math.min(ZOOM_MAX, Math.max(1, v));
+	const apply = (s: number, x: number, y: number) =>
+		setT(s <= 1 ? { s: 1, x: 0, y: 0 } : { s, x, y });
+
+	const onDown = (e: React.PointerEvent) => {
+		(e.target as Element).setPointerCapture?.(e.pointerId);
+		ptrs.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+		moved.current = false;
+		if (ptrs.current.size === 2) {
+			const [a, b] = [...ptrs.current.values()];
+			pinch.current = {
+				d0: Math.hypot(a.x - b.x, a.y - b.y),
+				s0: t.s,
+				m0x: (a.x + b.x) / 2,
+				m0y: (a.y + b.y) / 2,
+				x: t.x,
+				y: t.y,
+			};
+			drag.current = null;
+		} else {
+			drag.current = { px: e.clientX, py: e.clientY, x: t.x, y: t.y };
+		}
+	};
+	const onMove = (e: React.PointerEvent) => {
+		if (!ptrs.current.has(e.pointerId)) return;
+		ptrs.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+		moved.current = true;
+		if (pinch.current && ptrs.current.size >= 2) {
+			const [a, b] = [...ptrs.current.values()];
+			const d = Math.hypot(a.x - b.x, a.y - b.y);
+			const mx = (a.x + b.x) / 2;
+			const my = (a.y + b.y) / 2;
+			const p = pinch.current;
+			apply(clamp(p.s0 * (d / p.d0)), p.x + (mx - p.m0x), p.y + (my - p.m0y));
+		} else if (drag.current && t.s > 1) {
+			const dg = drag.current;
+			apply(t.s, dg.x + (e.clientX - dg.px), dg.y + (e.clientY - dg.py));
+		}
+	};
+	const onUp = (e: React.PointerEvent) => {
+		ptrs.current.delete(e.pointerId);
+		if (ptrs.current.size < 2) pinch.current = null;
+		if (ptrs.current.size === 0) drag.current = null;
+		if (t.s <= 1) apply(1, 0, 0);
+	};
+	const onDouble = (e: React.MouseEvent) => {
+		const r = box.current?.getBoundingClientRect();
+		if (!r) return;
+		if (t.s > 1) {
+			apply(1, 0, 0);
+			return;
+		}
+		// Keep the tapped point fixed under the new scale.
+		const S = 2.5;
+		const cx = e.clientX - r.left - r.width / 2;
+		const cy = e.clientY - r.top - r.height / 2;
+		apply(S, cx * (t.s - S), cy * (t.s - S));
+	};
+
+	return (
+		<div
+			ref={box}
+			className="fixed inset-0 z-[60] flex touch-none items-center justify-center bg-black/95"
+			role="dialog"
+			aria-label="Image viewer"
+			onPointerDown={onDown}
+			onPointerMove={onMove}
+			onPointerUp={onUp}
+			onPointerCancel={onUp}
+			onDoubleClick={onDouble}
+			onWheel={(e) => apply(clamp(t.s * (e.deltaY < 0 ? 1.15 : 0.87)), t.x, t.y)}
+			onClick={() => {
+				if (t.s <= 1 && !moved.current) onClose();
+			}}
+		>
+			<img
+				src={src}
+				alt="attachment enlarged"
+				draggable={false}
+				className="max-h-full max-w-full select-none object-contain"
+				style={{ transform: `translate(${t.x}px, ${t.y}px) scale(${t.s})` }}
+			/>
+			<button
+				type="button"
+				aria-label="Close image"
+				className="absolute right-3 top-3 grid h-11 w-11 place-items-center rounded-full bg-white/10 text-base-content"
+				onPointerDown={(e) => e.stopPropagation()}
+				onClick={(e) => {
+					e.stopPropagation();
+					onClose();
+				}}
+			>
+				<FaXmark size={18} />
+			</button>
+		</div>
+	);
 }
 
 const ThinkingGroup = memo(function ThinkingGroup({ items }: { items: StreamItem[] }) {
@@ -369,7 +515,15 @@ const ThinkingGroup = memo(function ThinkingGroup({ items }: { items: StreamItem
 	);
 });
 
-const Block = memo(function Block({ block, sessionKey }: { block: WorkBlock; sessionKey: string }) {
+const Block = memo(function Block({
+	block,
+	sessionKey,
+	zoom,
+}: {
+	block: WorkBlock;
+	sessionKey: string;
+	zoom: (src: string) => void;
+}) {
 	const [override, setOverride] = useState<boolean | null>(null);
 	if (block.type === "pending") {
 		const p = block.msg;
@@ -417,7 +571,7 @@ const Block = memo(function Block({ block, sessionKey }: { block: WorkBlock; ses
 		return <ThinkingGroup items={block.items} />;
 	}
 	if (block.type === "item") {
-		return itemRow(block.item, true, sessionKey);
+		return itemRow(block.item, true, sessionKey, zoom);
 	}
 	// Steps stay collapsed unless the reader opens them; the live stream
 	// already carries the Working marker, so auto-expansion is noise.
@@ -452,6 +606,7 @@ const Block = memo(function Block({ block, sessionKey }: { block: WorkBlock; ses
 							pair={p}
 							sessionKey={sessionKey}
 							live={live && p === trailing}
+							zoom={zoom}
 						/>
 					))}
 				</div>
@@ -479,6 +634,8 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 	const paging = useRef(false);
 	useSheetBack(overflow, () => setOverflow(false));
 	useSheetBack(confirmClose, () => setConfirmClose(false));
+	const [lightbox, setLightbox] = useState<string | null>(null);
+	useSheetBack(!!lightbox, () => setLightbox(null));
 	const [notice, setNotice] = useState("");
 	const pinned = useRef(true);
 	const virtuoso = useRef<VirtuosoHandle | null>(null);
@@ -612,7 +769,7 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 		[loadingOlder, moreHistory, hasItems],
 	);
 	const renderItem = useCallback(
-		(_: number, b: WorkBlock) => <Block block={b} sessionKey={sessionKey} />,
+		(_: number, b: WorkBlock) => <Block block={b} sessionKey={sessionKey} zoom={setLightbox} />,
 		[sessionKey],
 	);
 	const addPendingCb = useCallback((text: string, queued: boolean) => {
@@ -896,6 +1053,7 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 					{cardDialog && <DialogActions key={cardDialog.id} k={sessionKey} dialog={cardDialog} />}
 				</div>
 			</div>
+			{lightbox && <Lightbox src={lightbox} onClose={() => setLightbox(null)} />}
 
 			{/* The ⋯ command panel: drops top-to-bottom under the safe area
 			    and lists every tool on the bar — the strip items and the
