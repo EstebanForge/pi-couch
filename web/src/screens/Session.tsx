@@ -113,6 +113,7 @@ function DiffText({ text }: { text: string }) {
 	return (
 		<div className="whitespace-pre-wrap break-words font-mono text-[11.5px]">
 			{text.split("\n").map((ln, i) => (
+				// biome-ignore lint/suspicious/noArrayIndexKey: diff rows are positional; the line itself is the identity
 				<div key={i} className={diffLineClass(ln)}>
 					{ln || "\u00a0"}
 				</div>
@@ -291,6 +292,17 @@ function itemRow(
 					{it.text}
 				</div>
 			);
+		case "error":
+			return (
+				<div className="mx-3 my-1 rounded-lg border border-error/30 bg-error/10 px-3 py-2">
+					<div className="text-[10px] font-medium uppercase tracking-wider text-error/80">
+						api error
+					</div>
+					<div className="mt-0.5 break-words font-mono text-[12px] text-error [overflow-wrap:anywhere]">
+						{it.text}
+					</div>
+				</div>
+			);
 		case "tool_call":
 			return (
 				<div className="flex gap-2 px-3 py-0.5 text-[13px]">
@@ -448,6 +460,7 @@ function Lightbox({ src, onClose }: { src: string; onClose: () => void }) {
 	};
 
 	return (
+		// biome-ignore lint/a11y/useKeyWithClickEvents: backdrop tap-close is a pointer affordance; keyboard users close via the labeled Close button
 		<div
 			ref={box}
 			className="fixed inset-0 z-[60] flex touch-none items-center justify-center bg-black/95"

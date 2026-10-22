@@ -762,6 +762,12 @@ func messageItems(e Entry, textLimit int) []ViewItem {
 				out = append(out, ViewItem{Kind: "tool_call", ToolName: b.Name, Text: argsSummary(b.Arguments), Time: at})
 			}
 		}
+		// A failed turn records no usable blocks - the failure text lives
+		// only in errorMessage, which the terminal paints as "Error: ...".
+		if m.StopReason == "error" && m.ErrorMessage != "" {
+			text, trunc := limit(m.ErrorMessage)
+			out = append(out, ViewItem{Kind: "error", Text: text, Truncated: trunc, Time: at})
+		}
 	case "toolResult":
 		it := ViewItem{Kind: "tool_result", ToolName: m.ToolName, IsError: m.IsError, DurationMs: m.DurationMs, Time: at}
 		for _, b := range m.Blocks() {

@@ -45,7 +45,16 @@ export type SessionsPatch = {
 };
 
 export type StreamItem = {
-	kind: "user" | "text" | "thinking" | "tool_call" | "tool_result" | "marker" | "bash" | "custom";
+	kind:
+		| "user"
+		| "text"
+		| "thinking"
+		| "tool_call"
+		| "tool_result"
+		| "marker"
+		| "bash"
+		| "custom"
+		| "error";
 	text: string;
 	tool_name?: string;
 	is_error?: boolean;

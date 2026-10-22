@@ -56,7 +56,10 @@ type Message struct {
 	ToolName   string          `json:"toolName,omitempty"`
 	IsError    bool            `json:"isError,omitempty"`
 	DurationMs int64           `json:"durationMs,omitempty"`
-	Timestamp  int64           `json:"timestamp,omitempty"`
+	// Carried only by assistant messages with stopReason "error"; the
+	// raw provider failure text pi paints in the terminal.
+	ErrorMessage string `json:"errorMessage,omitempty"`
+	Timestamp    int64  `json:"timestamp,omitempty"`
 }
 
 // Usage is the token/cost record on assistant messages and usage entries.
