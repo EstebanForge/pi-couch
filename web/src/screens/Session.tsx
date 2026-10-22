@@ -93,6 +93,7 @@ function driver(s: DriverState, a: Action): DriverState {
 function itemKey(b: WorkBlock): string {
 	if (b.type === "status") return "b-status";
 	if (b.type === "pending") return `b-pending-${b.msg.id}`;
+	if (b.type === "thinking") return `th${b.items[0].seq}`;
 	return b.type === "item" ? `s${b.item.seq}` : `b${b.items[0].seq}`;
 }
 
@@ -282,12 +283,6 @@ function itemRow(it: StreamItem, expanded: boolean, sessionKey: string) {
 					{it.text}
 				</div>
 			);
-		case "thinking":
-			return (
-				<div className="px-3 py-0.5 text-[13px] text-muted italic whitespace-pre-wrap break-words">
-					{it.text}
-				</div>
-			);
 		case "tool_call":
 			return (
 				<div className="flex gap-2 px-3 py-0.5 text-[13px]">
@@ -345,6 +340,35 @@ function itemRow(it: StreamItem, expanded: boolean, sessionKey: string) {
 	}
 }
 
+const ThinkingGroup = memo(function ThinkingGroup({ items }: { items: StreamItem[] }) {
+	const [open, setOpen] = useState(false);
+	return (
+		<div className="px-3 py-0.5">
+			<button
+				type="button"
+				className="flex min-h-9 w-full items-center gap-2 rounded-lg border border-secondary/30 bg-secondary/10 px-2 py-2 text-left text-[12px] text-secondary"
+				onClick={() => setOpen(!open)}
+			>
+				<span>{open ? <FaCaretDown size={12} /> : <FaCaretRight size={12} />}</span>
+				<span className="shrink-0 italic">Thinking</span>
+				<span className="text-[11px] opacity-60">{items.length}</span>
+			</button>
+			{open && (
+				<div className="mt-0.5 space-y-2 px-1">
+					{items.map((it) => (
+						<div
+							key={it.seq}
+							className="text-[13px] whitespace-pre-wrap break-words text-muted italic"
+						>
+							{it.text}
+						</div>
+					))}
+				</div>
+			)}
+		</div>
+	);
+});
+
 const Block = memo(function Block({ block, sessionKey }: { block: WorkBlock; sessionKey: string }) {
 	const [override, setOverride] = useState<boolean | null>(null);
 	if (block.type === "pending") {
@@ -388,6 +412,9 @@ const Block = memo(function Block({ block, sessionKey }: { block: WorkBlock; ses
 				{block.status === "blocked" ? "Waiting for you" : "Working"}
 			</div>
 		);
+	}
+	if (block.type === "thinking") {
+		return <ThinkingGroup items={block.items} />;
 	}
 	if (block.type === "item") {
 		return itemRow(block.item, true, sessionKey);

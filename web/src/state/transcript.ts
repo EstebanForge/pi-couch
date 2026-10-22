@@ -185,13 +185,18 @@ export function reduceStatus(s: DriverState, p: TranscriptStatus): DriverState {
 	};
 }
 
-// Work blocks fold consecutive non-speech items (thinking, tool calls and
-// results, bash, custom) into one collapsible row: the biggest scroll
-// length win on a 360px phone. Speech (user/text) and markers stay solo.
-// Blocks render collapsed; the reader opens them on demand.
+// Work blocks fold consecutive non-speech items (tool calls and results,
+// bash, custom) into one collapsible row: the biggest scroll length win
+// on a 360px phone. Thinking stays solo — each chunk is its own collapsed
+// card so the reader can open exactly the reasoning they want. Speech
+// (user/text) and markers stay solo. Blocks render collapsed; the reader
+// opens them on demand.
 export type WorkBlock =
 	| { type: "item"; item: StreamItem }
 	| { type: "block"; items: StreamItem[] }
+	// Consecutive thinking chunks fold into one toggleable group, kept
+	// apart from the tool runs so each collapses independently.
+	| { type: "thinking"; items: StreamItem[] }
 	// The Working/blocked marker rides the list as a pseudo-block so
 	// follow output scrolls it into view like any other row. Fields
 	// inline so rows memoize without a DriverState prop.
@@ -206,23 +211,30 @@ export type WorkBlock =
 	// which read as a clunky jump on every message.
 	| { type: "pending"; msg: PendingMsg };
 
-const FOLDABLE = new Set(["thinking", "tool_call", "tool_result", "bash", "custom"]);
+const FOLDABLE = new Set(["tool_call", "tool_result", "bash", "custom"]);
 
 export function groupWorkBlocks(items: StreamItem[]): WorkBlock[] {
 	const out: WorkBlock[] = [];
 	let run: StreamItem[] = [];
+	let kind: "tool" | "thinking" | null = null;
 	const flush = () => {
 		if (run.length > 0) {
-			out.push({ type: "block", items: run });
+			out.push(
+				kind === "thinking" ? { type: "thinking", items: run } : { type: "block", items: run },
+			);
 			run = [];
 		}
 	};
 	for (const it of items) {
-		if (FOLDABLE.has(it.kind)) {
-			run.push(it);
-		} else {
+		const k = FOLDABLE.has(it.kind) ? "tool" : it.kind === "thinking" ? "thinking" : null;
+		if (k === null) {
 			flush();
+			kind = null;
 			out.push({ type: "item", item: it });
+		} else {
+			if (kind !== null && k !== kind) flush();
+			kind = k;
+			run.push(it);
 		}
 	}
 	flush();

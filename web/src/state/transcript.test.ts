@@ -202,22 +202,27 @@ describe("reduceStatus", () => {
 });
 
 describe("groupWorkBlocks", () => {
-	it("folds consecutive foldables and keeps speech solo", () => {
+	it("groups consecutive thinking into one collapsed block", () => {
 		const items = [
 			item(0, "user", "q"),
-			item(1, "thinking", "h"),
-			item(2, "tool_call", "run"),
-			item(3, "tool_result", "out"),
-			item(4, "text", "answer"),
+			item(1, "thinking", "h1"),
+			item(2, "thinking", "h2"),
+			item(3, "tool_call", "run"),
+			item(4, "tool_result", "out"),
+			item(5, "text", "answer"),
 		];
 		const blocks = groupWorkBlocks(items);
-		expect(blocks).toHaveLength(3);
+		expect(blocks).toHaveLength(4);
 		expect(blocks[0]).toEqual({ type: "item", item: items[0] });
-		expect(blocks[1]).toMatchObject({ type: "block" });
-		if (blocks[1].type === "block") {
-			expect(blocks[1].items.map((i) => i.seq)).toEqual([1, 2, 3]);
+		expect(blocks[1]).toMatchObject({ type: "thinking" });
+		if (blocks[1].type === "thinking") {
+			expect(blocks[1].items.map((i) => i.seq)).toEqual([1, 2]);
 		}
-		expect(blocks[2]).toEqual({ type: "item", item: items[4] });
+		expect(blocks[2]).toMatchObject({ type: "block" });
+		if (blocks[2].type === "block") {
+			expect(blocks[2].items.map((i) => i.seq)).toEqual([3, 4]);
+		}
+		expect(blocks[3]).toEqual({ type: "item", item: items[5] });
 	});
 
 	it("never folds markers between runs", () => {
@@ -228,5 +233,7 @@ describe("groupWorkBlocks", () => {
 		];
 		const blocks = groupWorkBlocks(items);
 		expect(blocks).toHaveLength(3);
+		expect(blocks[0]).toMatchObject({ type: "thinking" });
+		expect(blocks[1]).toEqual({ type: "item", item: items[1] });
 	});
 });
