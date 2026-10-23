@@ -23,58 +23,39 @@ import (
 
 const agentCreateTimeout = 20 * time.Second
 
-// agentNameRe bounds the pending-chat path params to the shape
-// agentName() produces, so a weird name can never reach herdr.
-var agentNameRe = regexp.MustCompile(`^[a-z][a-z0-9-_]{0,31}$`)
-
-// apiAgentPrompt submits a prompt to a herdr agent by name — the
-// pending chat's first message, before pi has a session file to
-// target by path.
-func (a *app) apiAgentPrompt(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	if !agentNameRe.MatchString(name) {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad agent name"})
-		return
-	}
-	var req struct {
-		Text string `json:"text"`
-	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil ||
-		strings.TrimSpace(req.Text) == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
-		return
-	}
-	if err := a.herdr.Prompt(r.Context(), name, req.Text); err != nil {
-		a.logger.Error("agent prompt failed", slog.String("error", err.Error()))
-		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "prompt failed"})
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"ok": "true"})
-}
-
-// apiAgentSession reports the session key herdr carries for an agent,
-// empty until pi writes the session file at turn start.
-func (a *app) apiAgentSession(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	if !agentNameRe.MatchString(name) {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad agent name"})
-		return
-	}
-	agents, err := a.herdr.Agents(r.Context())
-	if err != nil {
-		a.logger.Error("agent list failed", slog.String("error", err.Error()))
-		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "herdr unreachable"})
-		return
-	}
-	key := ""
-	for _, ag := range agents {
-		if ag.Name == name && ag.Session != nil {
-			key = strings.TrimSuffix(filepath.Base(ag.Session.Value), ".jsonl")
-			break
+// herdrRetry rides out herdr's transient socket stalls: under load
+// the unix socket intermittently answers dial timeouts while the
+// process is fine moments later, and one timeout must not abort a
+// create. Only wire-safe for calls that are reads or whose failure
+// means herdr never received the request.
+func herdrRetry[T any](f func() (T, error)) (T, error) {
+	var zero T
+	var err error
+	for i := 0; i < 8; i++ {
+		var v T
+		start := time.Now()
+		v, err = f()
+		if err == nil || !strings.Contains(err.Error(), "herdr: dial:") {
+			return v, err
 		}
+		slog.Warn("herdr dial stalled", slog.Int("attempt", i+1), slog.Float64("elapsed_s", time.Since(start).Seconds()), slog.String("error", err.Error()))
+		time.Sleep(1200 * time.Millisecond)
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"key": key})
+	return zero, err
 }
+
+// herdrRetryErr is herdrRetry for error-only calls.
+func herdrRetryErr(f func() error) error {
+	_, err := herdrRetry(func() (struct{}, error) { return struct{}{}, f() })
+	return err
+}
+
+// paneReadyWait bounds the wait for pi's TUI to start reading input.
+var paneReadyWait = 20 * time.Second
+
+// piReadyRe matches the context%/window stats footer pi paints once
+// its TUI reads input (e.g. "0.0%/1.0M").
+var piReadyRe = regexp.MustCompile(`%/\d`)
 
 // agentName folds a folder basename into herdr's agent-name rule:
 // start with a lowercase letter, only [a-z0-9-_], 1-32 chars. Real
@@ -127,26 +108,37 @@ func waitAgentActive(ctx context.Context, hc *herdr.Client, paneID string) error
 	}
 }
 
-// apiAgents creates a pi agent and, when a prompt is supplied,
-// submits it, answering {key} once pi has a session file (it only
-// appears after the first prompt, so a promptless agent is invisible
-// to the home list until its first turn and the key comes back
-// empty). Three selectors, exactly one required: cwd (fresh workspace
-// at that folder), workspace_id (split a pane in an existing
-// workspace), label (reuse the labeled workspace or create it at cwd
-// — the Quick flow).
+// apiAgents creates a pi agent and submits the first prompt,
+// answering {key} once pi has a session file (it only appears after
+// the first prompt). Three selectors, exactly one required: cwd
+// (fresh workspace at that folder), workspace_id (split a pane in an
+// existing workspace), label (reuse the labeled workspace or create
+// it at cwd — the Quick flow).
 func (a *app) apiAgents(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Cwd         string `json:"cwd"`
 		WorkspaceID string `json:"workspace_id"`
 		Label       string `json:"label"`
 		Prompt      string `json:"prompt"`
+		Model       string `json:"model"`
+		Thinking    string `json:"thinking"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
 		return
 	}
 	req.Prompt = strings.TrimSpace(req.Prompt)
+	if req.Prompt == "" {
+		// pi writes the session file only at turn start, so a
+		// promptless agent would never surface on the home list.
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "prompt is required"})
+		return
+	}
+	piArgs, err := a.startArgs(req.Model, req.Thinking)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
 	// Exactly one selector: cwd alone (fresh workspace), workspace_id
 	// alone (split), or label with its create-if-missing cwd (Quick).
 	mode := ""
@@ -164,24 +156,23 @@ func (a *app) apiAgents(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), agentCreateTimeout)
 	defer cancel()
 	var key, name string
-	var err error
 	homeErr := false
 	switch mode {
 	case "workspace":
-		key, name, err = a.createInWorkspace(ctx, req.WorkspaceID, req.Prompt)
+		key, name, err = a.createInWorkspace(ctx, req.WorkspaceID, req.Prompt, piArgs)
 	case "label":
 		var cwd string
 		cwd, err = a.homeDir(req.Cwd)
 		homeErr = err != nil
 		if err == nil {
-			key, name, err = a.createInLabeledWorkspace(ctx, req.Label, cwd, req.Prompt)
+			key, name, err = a.createInLabeledWorkspace(ctx, req.Label, cwd, req.Prompt, piArgs)
 		}
 	default:
 		var cwd string
 		cwd, err = a.homeDir(req.Cwd)
 		homeErr = err != nil
 		if err == nil {
-			key, name, err = a.createAgentSession(ctx, filepath.Base(cwd), cwd, req.Prompt)
+			key, name, err = a.createAgentSession(ctx, filepath.Base(cwd), cwd, req.Prompt, piArgs)
 		}
 	}
 	if err != nil {
@@ -194,6 +185,45 @@ func (a *app) apiAgents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"key": key, "agent": name})
+}
+
+// startArgs turns the create panel's model/thinking picks into pi
+// command-line flags. A bad pi flag exits pi at launch and the create
+// would time out waiting for an agent that never binds, so both are
+// refused here: the model must exist in the catalog and the thinking
+// level must be one pi knows. Thinking rides the --model value
+// (pi's "id:level" suffix), so it needs a model.
+func (a *app) startArgs(model, thinking string) ([]string, error) {
+	if model == "" && thinking == "" {
+		return nil, nil
+	}
+	if model == "" {
+		return nil, errors.New("thinking requires a model")
+	}
+	switch thinking {
+	case "", "off", "minimal", "low", "medium", "high", "xhigh", "max":
+	default:
+		return nil, errors.New("bad thinking level")
+	}
+	rows, err := a.models.load(context.Background())
+	if err == nil {
+		found := false
+		for _, row := range rows {
+			if row.ID == model {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, errors.New("unknown model")
+		}
+	}
+	// A catalog failure passes through: pi reports the bad model and
+	// the create fails loudly instead of silently dropping the pick.
+	if thinking != "" {
+		return []string{"--model", model + ":" + thinking}, nil
+	}
+	return []string{"--model", model}, nil
 }
 
 // homeDir jails a client-supplied cwd under the user's home (the same
@@ -233,7 +263,7 @@ func (a *app) apiWorkspaces(w http.ResponseWriter, r *http.Request) {
 // workspace.create -> agent.start -> prompt, then waits for pi to
 // report its session file. A label conflict (the basename already
 // used) retries once with a suffix.
-func (a *app) createAgentSession(ctx context.Context, label, cwd, prompt string) (string, string, error) {
+func (a *app) createAgentSession(ctx context.Context, label, cwd, prompt string, piArgs []string) (string, string, error) {
 	name := agentName(label)
 	workspaceID, paneID, err := a.herdr.WorkspaceCreate(ctx, label, cwd)
 	if err != nil {
@@ -244,11 +274,8 @@ func (a *app) createAgentSession(ctx context.Context, label, cwd, prompt string)
 		}
 	}
 	undo := func() { _ = a.herdr.WorkspaceClose(context.Background(), workspaceID) }
-	if err := a.runAgent(ctx, paneID, name, prompt, undo); err != nil {
+	if err := a.runAgent(ctx, paneID, name, prompt, piArgs, undo); err != nil {
 		return "", "", err
-	}
-	if prompt == "" {
-		return "", name, nil
 	}
 	key, err := a.sessionKeyForPane(ctx, paneID, undo)
 	return key, name, err
@@ -257,22 +284,22 @@ func (a *app) createAgentSession(ctx context.Context, label, cwd, prompt string)
 // createInLabeledWorkspace is the Quick flow: reuse the labeled
 // workspace (split a new pane for each agent) or create it at cwd on
 // first use.
-func (a *app) createInLabeledWorkspace(ctx context.Context, label, cwd, prompt string) (string, string, error) {
+func (a *app) createInLabeledWorkspace(ctx context.Context, label, cwd, prompt string, piArgs []string) (string, string, error) {
 	ws, err := a.herdr.Workspaces(ctx)
 	if err != nil {
 		return "", "", fmt.Errorf("workspace list: %w", err)
 	}
 	for _, w := range ws {
 		if w.Label == label {
-			return a.createInWorkspace(ctx, w.WorkspaceID, prompt)
+			return a.createInWorkspace(ctx, w.WorkspaceID, prompt, piArgs)
 		}
 	}
-	return a.createAgentSession(ctx, label, cwd, prompt)
+	return a.createAgentSession(ctx, label, cwd, prompt, piArgs)
 }
 
 // createInWorkspace splits a pane in an existing workspace and starts
 // the agent there; the workspace cwd applies.
-func (a *app) createInWorkspace(ctx context.Context, workspaceID, prompt string) (string, string, error) {
+func (a *app) createInWorkspace(ctx context.Context, workspaceID, prompt string, piArgs []string) (string, string, error) {
 	label := "agent"
 	if ws, err := a.herdr.Workspaces(ctx); err == nil {
 		for _, w := range ws {
@@ -282,7 +309,7 @@ func (a *app) createInWorkspace(ctx context.Context, workspaceID, prompt string)
 			}
 		}
 	}
-	paneID, err := a.herdr.SplitPane(ctx, workspaceID, "down")
+	paneID, err := herdrRetry(func() (string, error) { return a.herdr.SplitPane(ctx, workspaceID, "down") })
 	if err != nil {
 		return "", "", fmt.Errorf("pane split: %w", err)
 	}
@@ -291,11 +318,8 @@ func (a *app) createInWorkspace(ctx context.Context, workspaceID, prompt string)
 	// by-name target unambiguous.
 	name := agentName(label + fmt.Sprintf("-%04x", time.Now().UnixNano()&0xffff))
 	undo := func() { _ = a.herdr.PaneClose(context.Background(), paneID) }
-	if err := a.runAgent(ctx, paneID, name, prompt, undo); err != nil {
+	if err := a.runAgent(ctx, paneID, name, prompt, piArgs, undo); err != nil {
 		return "", "", err
-	}
-	if prompt == "" {
-		return "", name, nil
 	}
 	key, err := a.sessionKeyForPane(ctx, paneID, undo)
 	return key, name, err
@@ -306,11 +330,13 @@ func (a *app) createInWorkspace(ctx context.Context, workspaceID, prompt string)
 // retries while herdr reports the pane shell not yet available — a
 // fresh workspace's root shell takes a moment to spawn, and the bind
 // is otherwise a race.
-func (a *app) runAgent(ctx context.Context, paneID, name, prompt string, undo func()) error {
+func (a *app) runAgent(ctx context.Context, paneID, name, prompt string, piArgs []string, undo func()) error {
 	var err error
 	for i := 0; i < 5; i++ {
-		if _, err = a.herdr.AgentStart(ctx, name, "pi", paneID); err == nil ||
-			!strings.Contains(err.Error(), "not an available shell") {
+		if _, err = herdrRetry(func() (herdr.Agent, error) {
+			return a.herdr.AgentStart(ctx, name, "pi", paneID, piArgs)
+		}); err == nil ||
+			!strings.Contains(err.Error(), "not an available shell") && !strings.Contains(err.Error(), "herdr: dial:") {
 			break
 		}
 		select {
@@ -328,14 +354,116 @@ func (a *app) runAgent(ctx context.Context, paneID, name, prompt string, undo fu
 		undo()
 		return err
 	}
-	if prompt == "" {
-		return nil
+	// pi's TUI needs seconds of node startup before it reads input;
+	// a prompt delivered earlier lands in the shell's stdin and is
+	// lost, and the create then never starts a turn. The ready footer
+	// (context%/window stats line) is the signal that the TUI listens.
+
+	start := time.Now()
+	if !a.waitPaneReady(ctx, paneID, paneReadyWait) {
+		a.logger.Warn("pane never ready", slog.Float64("waited_s", time.Since(start).Seconds()))
+		undo()
+		return errors.New("pi never became ready")
 	}
-	if err := a.herdr.Prompt(ctx, name, prompt); err != nil {
+	a.logger.Info("pane ready", slog.Float64("waited_s", time.Since(start).Seconds()))
+	if err := herdrRetryErr(func() error { return a.herdr.Prompt(ctx, name, prompt) }); err != nil {
 		undo()
 		return fmt.Errorf("prompt: %w", err)
 	}
+	// A prompt can fail soft: herdr accepts it while the agent is
+	// still settling and the keys go nowhere, and recovery can also
+	// outlive this request's 20s budget — the request ctx must not
+	// cut it. Verify briefly; on no turn, hand the recovery to a
+	// background goroutine (the request deadline must not apply) and
+	// let the create answer with the bind-time session key.
+	if !a.sessionAppeared(ctx, paneID, sessionVerifyWait) {
+		a.logger.Warn("prompt unverified, recovering in background", slog.String("agent", name))
+		go a.ensureTurnStarted(context.WithoutCancel(ctx), paneID, name, prompt)
+	}
 	return nil
+}
+
+// sessionVerifyWait bounds one check that pi's first turn produced a
+// session file.
+var sessionVerifyWait = 10 * time.Second
+
+// ensureTurnStarted runs off-request: it verifies pi began its first
+// turn and nudges a soft-failed prompt. herdr's queue always delivers
+// eventually (observed 30-90s under load), so re-prompting is
+// forbidden — a late first delivery plus a re-prompt duplicates the
+// turn. The only safe nudge is enter when the draft sits unanswered
+// in the editor; entering an empty TUI is a harmless no-op.
+func (a *app) ensureTurnStarted(ctx context.Context, paneID, name, prompt string) {
+	collapse := strings.Join(strings.Fields(prompt), " ")
+	frag := collapse
+	if r := []rune(frag); len(r) > 40 {
+		frag = string(r[:40])
+	}
+	for attempt := 0; attempt < 4; attempt++ {
+		if a.sessionAppeared(ctx, paneID, sessionVerifyWait) {
+			return
+		}
+		plain := ""
+		if read, err := a.herdr.PaneRead(ctx, paneID, "detection", 10); err == nil {
+			plain = strings.Join(strings.Fields(ansiRe.ReplaceAllString(read.Text, "")), " ")
+		}
+		if strings.Contains(plain, frag) {
+			// The text landed; only the submit-enter was lost.
+			if err := herdrRetryErr(func() error { return a.herdr.PaneSendInput(ctx, paneID, "", []string{"enter"}) }); err != nil {
+				a.logger.Warn("prompt submit failed", slog.String("error", err.Error()))
+				return
+			}
+		}
+	}
+	a.logger.Warn("agent never started its first turn", slog.String("agent", name))
+}
+
+// waitPaneReady polls the pane until pi's TUI paints its stats
+// footer — the moment it starts reading input.
+func (a *app) waitPaneReady(ctx context.Context, paneID string, d time.Duration) bool {
+	deadline := time.Now().Add(d)
+	for {
+		read, err := a.herdr.PaneRead(ctx, paneID, "detection", 8)
+		if err == nil && piReadyRe.MatchString(ansiRe.ReplaceAllString(read.Text, "")) {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(400 * time.Millisecond):
+		}
+	}
+}
+
+// sessionAppeared polls until the pane's agent carries a session path
+// AND the jsonl exists on disk — herdr reports the path at agent bind,
+// long before pi writes the file at turn start, so the path alone
+// verifies nothing.
+func (a *app) sessionAppeared(ctx context.Context, paneID string, d time.Duration) bool {
+	deadline := time.Now().Add(d)
+	for {
+		agents, err := a.herdr.Agents(ctx)
+		if err == nil {
+			for _, ag := range agents {
+				if ag.PaneID == paneID && ag.Session != nil && ag.Session.Value != "" {
+					if _, err := os.Stat(ag.Session.Value); err == nil {
+						return true
+					}
+				}
+			}
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(400 * time.Millisecond):
+		}
+	}
 }
 
 // sessionKeyForPane waits for pi to report its session file: pi writes

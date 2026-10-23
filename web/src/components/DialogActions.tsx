@@ -42,6 +42,7 @@ export function DialogActions({ k, dialog }: { k: string; dialog: BridgeDialog }
 		}
 		servedSig.current = sig;
 	}, [dialog.title, dialog.options]);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: dialog.id re-runs the resync when a new dialog replaces the old, even if the body text is identical.
 	useEffect(() => {
 		const next = dialog.scrolled ? "" : (dialog.body ?? "");
 		// A stream tick never touches text mid-typing: the box only

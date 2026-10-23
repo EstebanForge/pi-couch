@@ -1,9 +1,10 @@
 import { Fab } from "konsta/react";
 import { useEffect, useRef, useState } from "react";
-import { createQuickAgent, type SessionMeta, type SessionsPatch } from "../api";
+import { type SessionMeta, type SessionsPatch } from "../api";
 import { FaBell, FaBellSlash, FaGear, FaMagnifyingGlass, FaPlus, FaXmark } from "../components/fa";
 import { NewAgentSheet } from "../components/NewAgentSheet";
 import { NewSessionSheet } from "../components/NewSessionSheet";
+import { QuickSheet } from "../components/QuickSheet";
 import { Spinner } from "../components/Spinner";
 import { short, thousand, tildify } from "../fmt";
 import { navigate, useSheetBack } from "../nav";
@@ -30,8 +31,7 @@ export default function HomeList() {
 	const [fabOpen, setFabOpen] = useState(false);
 	useSheetBack(fabOpen, () => setFabOpen(false));
 	const [agentSheetOpen, setAgentSheetOpen] = useState(false);
-	const [quickBusy, setQuickBusy] = useState(false);
-	const [quickError, setQuickError] = useState("");
+	const [quickSheet, setQuickSheet] = useState(false);
 	// Load more refetches a bigger window from the server (the store
 	// only holds what was asked for). The spinner must paint first and
 	// the step lands after a deliberate 500ms beat, so the load is
@@ -110,30 +110,17 @@ export default function HomeList() {
 		void togglePush(push).then(setPush);
 	};
 
-	// Quick agent: zero questions — a new pane+agent in the fixed
-	// "Quick" workspace at the configured path; without a path the FAB
-	// sends you to Settings instead. Promptless: the chat screen talks
-	// to the agent by name until pi writes its session file.
+	// Quick agent: the create panel collects the first prompt,
+	// attachments and an optional model pin; without a configured path
+	// the pill sends you to Settings instead.
 	const runQuickAgent = () => {
-		const path = quickPath();
-		if (!path) {
+		if (!quickPath()) {
 			setFabOpen(false);
 			navigate("/settings");
 			return;
 		}
-		setQuickBusy(true);
-		setQuickError("");
-		createQuickAgent("Quick", path)
-			.then(({ key, agent }) => {
-				setFabOpen(false);
-				navigate(
-					key
-						? `/sessions/${encodeURIComponent(key)}`
-						: `/sessions/~${encodeURIComponent(agent ?? "")}`,
-				);
-			})
-			.catch((e: Error) => setQuickError(e.message))
-			.finally(() => setQuickBusy(false));
+		setFabOpen(false);
+		setQuickSheet(true);
 	};
 
 	const card = (s: SessionMeta) => {
@@ -305,6 +292,7 @@ export default function HomeList() {
 			    settings until stage 8. */}
 			<NewSessionSheet opened={createOpen} onClose={() => setCreateOpen(false)} />
 			<NewAgentSheet opened={agentSheetOpen} onClose={() => setAgentSheetOpen(false)} />
+			<QuickSheet opened={quickSheet} onClose={() => setQuickSheet(false)} />
 			{/* Speed dial: scrim + pill stack above the FAB, the Calendar
 			    pattern. Konsta ships a single Fab and a bottom-sheet
 			    Actions but no speed dial, so this is hand-built. */}
@@ -320,7 +308,11 @@ export default function HomeList() {
 			    carries its own safe-area offset via pb-safe-all. The pill
 			    stack anchors inside the same wrapper (bottom-full), so it
 			    sits just above the FAB at any inset and any FAB size. */}
-			<div className="pb-safe-all fixed right-4 bottom-4 z-50">
+			<div
+				className={`pb-safe-all fixed right-4 bottom-4 z-50 transition-opacity ${
+					createOpen || quickSheet ? "opacity-0 pointer-events-none" : "opacity-100"
+				}`}
+			>
 				<div
 					className="absolute bottom-full right-0 mb-2 flex w-max flex-col items-end gap-2 transition-all"
 					style={{
@@ -329,11 +321,6 @@ export default function HomeList() {
 						pointerEvents: fabOpen ? "auto" : "none",
 					}}
 				>
-					{quickError && (
-						<div className="max-w-64 rounded-lg bg-error-content/10 px-3 py-1.5 text-[12px] text-error">
-							{quickError}
-						</div>
-					)}
 					<FabAction
 						label="New workspace"
 						onClick={() => {
@@ -348,7 +335,7 @@ export default function HomeList() {
 							setAgentSheetOpen(true);
 						}}
 					/>
-					<FabAction label="Quick agent" busy={quickBusy} onClick={runQuickAgent} />
+					<FabAction label="Quick agent" onClick={runQuickAgent} />
 				</div>
 				<Fab
 					aria-label={fabOpen ? "Close menu" : "New agent"}

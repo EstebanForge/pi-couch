@@ -63,13 +63,17 @@ func TestAgentStartSendsNameKindPane(t *testing.T) {
 		if m.Params["name"] != "probe" || m.Params["kind"] != "pi" || m.Params["pane_id"] != "wZ:p1" {
 			t.Errorf("params %v", m.Params)
 		}
+		args, ok := m.Params["args"].([]any)
+		if !ok || len(args) != 2 || args[0] != "--model" || args[1] != "x/y:high" {
+			t.Errorf("args %v", m.Params["args"])
+		}
 		out, _ := json.Marshal(map[string]any{"id": "x", "result": map[string]any{
 			"agent": map[string]any{"agent": "pi", "agent_status": "idle", "pane_id": "wZ:p1"},
 		}})
 		return append(out, '\n')
 	})
 	c := &Client{path: path, timeout: 2 * time.Second}
-	a, err := c.AgentStart(t.Context(), "probe", "pi", "wZ:p1")
+	a, err := c.AgentStart(t.Context(), "probe", "pi", "wZ:p1", []string{"--model", "x/y:high"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -169,35 +169,22 @@ export async function createAgentInWorkspace(
 }
 
 // The Quick flow: reuse the labeled workspace or create it at cwd.
-// A promptless create answers {key:"", agent:<name>} — the chat
-// screen prompts the agent by name until pi writes its session file.
+// The first prompt is required, so the create answers {key} once pi
+// writes its session file at turn start. model/thinking ride
+// agent.start args as one pi --model flag.
 export async function createQuickAgent(
 	label: string,
 	cwd: string,
+	prompt: string,
+	model?: string,
+	thinking?: string,
+): Promise<{ key: string }> {
+	return postAgent({ label, cwd, prompt, model, thinking });
+}
+
+async function postAgent(
+	body: Record<string, string | undefined>,
 ): Promise<{ key: string; agent?: string }> {
-	return postAgent({ label, cwd });
-}
-
-export async function sendAgentPrompt(name: string, text: string): Promise<void> {
-	const res = await fetch(`/api/agents/${encodeURIComponent(name)}/prompt`, {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ text }),
-	});
-	if (!res.ok) {
-		const data = (await res.json().catch(() => ({}))) as { error?: string };
-		throw new Error(data.error ?? `prompt ${res.status}`);
-	}
-}
-
-export async function agentSession(name: string): Promise<string> {
-	const res = await fetch(`/api/agents/${encodeURIComponent(name)}/session`);
-	if (!res.ok) return "";
-	const data = (await res.json().catch(() => ({}))) as { key?: string };
-	return data.key ?? "";
-}
-
-async function postAgent(body: Record<string, string>): Promise<{ key: string; agent?: string }> {
 	const res = await fetch("/api/agents", {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },

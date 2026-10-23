@@ -206,10 +206,15 @@ func (c *Client) WorkspaceCreate(ctx context.Context, label, cwd string) (string
 }
 
 // AgentStart launches a pi (or other kind) agent in a pane. name, kind
-// and pane_id are required by the schema; timeout_ms is left out and
-// herdr's default applies.
-func (c *Client) AgentStart(ctx context.Context, name, kind, paneID string) (Agent, error) {
-	res, err := c.call(ctx, "agent.start", map[string]any{"name": name, "kind": kind, "pane_id": paneID})
+// and pane_id are required by the schema; args append to the agent
+// command line (probed live on 0.9.5: they reach pi verbatim), and
+// timeout_ms is left out so herdr's default applies.
+func (c *Client) AgentStart(ctx context.Context, name, kind, paneID string, args []string) (Agent, error) {
+	params := map[string]any{"name": name, "kind": kind, "pane_id": paneID}
+	if len(args) > 0 {
+		params["args"] = args
+	}
+	res, err := c.call(ctx, "agent.start", params)
 	if err != nil {
 		return Agent{}, err
 	}

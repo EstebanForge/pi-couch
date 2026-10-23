@@ -196,8 +196,6 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("GET /api/dirs", a.apiDirs)
 	mux.HandleFunc("GET /api/workspaces", a.apiWorkspaces)
 	mux.HandleFunc("POST /api/agents", a.apiAgents)
-	mux.HandleFunc("POST /api/agents/{name}/prompt", a.apiAgentPrompt)
-	mux.HandleFunc("GET /api/agents/{name}/session", a.apiAgentSession)
 	mux.HandleFunc("POST /api/sessions/{key}/terminal/input", a.terminalInput)
 	// The terminal mirror is a raw-byte SSE stream with custom event
 	// names (term/gone/ping), not one of the JSON /api/stream feeds.

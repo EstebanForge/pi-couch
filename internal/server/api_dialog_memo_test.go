@@ -34,6 +34,10 @@ type fakeHerdrOpts struct {
 	lastPrompt     *string // agent.prompt target name
 	failFirstSend  bool
 	failFirstStart bool
+	onEnter        func()      // fires on a pane.send_input whose keys contain "enter"
+	onPrompt       func()      // fires on every agent.prompt
+	paneReady      *string     // pre-prompt pane.read override: the screen before any agent.prompt
+	lastStartArgs  *[]string   // agent.start args (the pi flags)
 	status         *string     // agent_status in agent.list; blocked when nil
 	paneText       *string     // pane.read text; the menu fixture when nil
 	paneAfterSend  *string     // pane.read text once a send_input landed
@@ -98,6 +102,13 @@ func herdrFake(t *testing.T, o fakeHerdrOpts) string {
 				case "workspace.list":
 					resp = `{"id":"x","result":{"type":"workspace_list","workspaces":[{"workspace_id":"w1","label":"Forge","number":1}]}}`
 				case "agent.start":
+					var sp struct {
+						Args []string `json:"args"`
+					}
+					_ = json.Unmarshal(m.Params, &sp)
+					if o.lastStartArgs != nil {
+						*o.lastStartArgs = sp.Args
+					}
 					if o.failFirstStart && atomic.CompareAndSwapInt32(&startFails, 0, 1) {
 						resp = `{"id":"x","error":{"message":"agent target pane p1 is not an available shell"}}`
 					} else {
@@ -111,13 +122,20 @@ func herdrFake(t *testing.T, o fakeHerdrOpts) string {
 					if o.prompts != nil {
 						atomic.AddInt32(o.prompts, 1)
 					}
+					if o.onPrompt != nil {
+						o.onPrompt()
+					}
 					if o.lastPrompt != nil {
 						*o.lastPrompt = p.Target
 					}
 					resp = `{"id":"x","result":{"type":"ok"}}`
 				case "pane.read":
 					pane := menuScreen
-					if o.paneText != nil {
+					if o.paneReady != nil && (o.prompts == nil || int(atomic.LoadInt32(o.prompts)) == 0) {
+						// Pre-prompt reads serve the ready knob: create-flow
+						// tests shape pi's readiness window.
+						pane = *o.paneReady
+					} else if o.paneText != nil {
 						pane = *o.paneText
 					}
 					sent := int(atomic.LoadInt32(o.sends))
@@ -135,6 +153,18 @@ func herdrFake(t *testing.T, o fakeHerdrOpts) string {
 					paneJSON, _ := json.Marshal(pane)
 					resp = `{"id":"x","result":{"read":{"pane_id":"p1","source":"screen","format":"ansi","text":` + string(paneJSON) + `,"revision":1}}}`
 				case "pane.send_input":
+					var ep struct {
+						Keys []string `json:"keys"`
+					}
+					_ = json.Unmarshal(m.Params, &ep)
+					if o.onEnter != nil {
+						for _, k := range ep.Keys {
+							if k == "enter" {
+								o.onEnter()
+								break
+							}
+						}
+					}
 					if o.keysLog != nil {
 						var p struct {
 							Keys []string `json:"keys"`

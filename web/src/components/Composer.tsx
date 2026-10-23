@@ -56,7 +56,6 @@ export const Composer = memo(function Composer(props: {
 	addPending: (text: string, queued: boolean) => number;
 	markPending: (id: number, state: "sent" | "queued" | "unconfirmed") => void;
 	removePending: (id: number) => void;
-	sendAgent?: (body: string, queued: boolean) => Promise<{ ok: boolean; error?: string }>;
 }) {
 	const { sessionKey, status } = props;
 	const draftStoreKey = prefKey(`draft.${sessionKey}`);
@@ -114,9 +113,7 @@ export const Composer = memo(function Composer(props: {
 		const acked = draft ?? body;
 		let outcome: "ok" | "fail" | "unknown" = "unknown";
 		try {
-			const r = props.sendAgent
-				? await props.sendAgent(body, queued)
-				: await sendPrompt(sessionKey, body, queued ? "followUp" : undefined);
+			const r = await sendPrompt(sessionKey, body, queued ? "followUp" : undefined);
 			outcome = r.ok ? "ok" : "fail";
 			if (!r.ok)
 				setNotice(r.error === "notdriven" ? "No driver runs this session." : "Send failed.");
@@ -515,7 +512,7 @@ export const Composer = memo(function Composer(props: {
 						)}
 						{props.cost > 0 && <span>${money(props.cost)}</span>}
 						{props.memory && (
-							<span aria-label={"memory " + props.memory}>
+							<span role="img" aria-label={"memory " + props.memory}>
 								<FaBrain size={13} />
 							</span>
 						)}
