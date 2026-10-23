@@ -649,6 +649,8 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 	const dragStart = useRef<{ y: number } | null>(null);
 	const taBlur = useRef<HTMLTextAreaElement | null>(null);
 
+	const [streamRetry, setStreamRetry] = useState(0);
+	const retried = useRef(false);
 	useEffect(() => {
 		const stream = connectStream(`/api/stream/transcript/${encodeURIComponent(sessionKey)}`, {
 			onStatus: setConn,
@@ -666,7 +668,22 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 			},
 		});
 		return () => stream.close();
+	}, [sessionKey, streamRetry]);
+
+	// A radio blip during connect can leave the SSE silently dead — no
+	// error event, no frames, an eternal spinner. If nothing has ever
+	// carried a status, force one reconnect.
+	useEffect(() => {
+		retried.current = false;
 	}, [sessionKey]);
+	useEffect(() => {
+		if (state.status !== "" || retried.current) return;
+		const t = setTimeout(() => {
+			retried.current = true;
+			setStreamRetry((n) => n + 1);
+		}, 12000);
+		return () => clearTimeout(t);
+	}, [state.status, sessionKey]);
 
 	const blocks = useMemo(() => {
 		const q = query?.trim().toLowerCase();
