@@ -66,7 +66,7 @@ describe("dictation", () => {
 		expect(started).toBe(globalThis.navigator?.language ?? "en");
 		nativeCb().onFinal("hello from the phone");
 		expect(finals).toEqual(["hello from the phone"]);
-		d!.stop();
+		d?.stop();
 		expect(stopped).toBe(true);
 		// Stop uninstalls the callbacks: a late native event has nothing to
 		// call, so a dead session cannot be resurrected.

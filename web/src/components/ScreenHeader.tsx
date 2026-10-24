@@ -13,24 +13,28 @@ export function ScreenHeader(props: {
 }) {
 	return (
 		<header
-			className="fixed inset-x-0 top-0 z-30 bg-base-300/95 backdrop-blur"
+			className="header-glass fixed inset-x-0 top-0 z-30 border-b border-base-content/8 shadow-surface-sm"
 			style={{ paddingTop: "var(--safe-top, 0px)" }}
 		>
-			<div className="mx-auto flex max-w-3xl items-center gap-2 px-3 py-2">
+			<div className="mx-auto flex max-w-3xl items-center gap-2 px-3 py-2.5">
 				{props.onBack && (
 					<button
 						type="button"
 						aria-label="Back"
 						onClick={props.onBack}
-						className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-muted active:scale-95"
+						className="press-scale grid h-11 w-11 shrink-0 place-items-center rounded-xl text-muted active:text-base-content"
 					>
 						<FaChevronLeft size={20} />
 					</button>
 				)}
 				<div className="min-w-0 flex-1">
-					<p className="truncate text-[15px] font-medium leading-tight">{props.title}</p>
+					<p className="truncate text-[16px] font-semibold tracking-tight leading-tight text-base-content">
+						{props.title}
+					</p>
 					{props.subtitle && (
-						<p className="truncate text-[11px] leading-tight text-muted">{props.subtitle}</p>
+						<p className="mt-0.5 truncate text-[11.5px] leading-tight text-muted">
+							{props.subtitle}
+						</p>
 					)}
 				</div>
 				{props.right}

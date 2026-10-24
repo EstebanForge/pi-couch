@@ -17,6 +17,7 @@ import {
 import { dispositionFor } from "../chat/disposition";
 import { ESC_SETTLE_MS, orderKeys, type QuickKey } from "../chat/quick-keys";
 import { money } from "../fmt";
+import { hapticConfirm, hapticTick } from "../haptics";
 import { useSheetBack } from "../nav";
 import {
 	effectiveEnterSends,
@@ -107,10 +108,16 @@ export const Composer = memo(function Composer(props: {
 	const sendText = async (body: string, queued: boolean, draft?: string) => {
 		if (sending.current) return;
 		sending.current = true;
+		hapticConfirm();
 		const id = props.addPending(body, queued);
 		// With attachments the body carries upload paths the textarea
 		// never held; only the text part can leave the box.
 		const acked = draft ?? body;
+		// Optimistic clearing of sent text in the same frame
+		setText((cur) => (cur.startsWith(acked) ? cur.slice(acked.length) : cur));
+		if (ta.current) {
+			ta.current.style.height = "";
+		}
 		let outcome: "ok" | "fail" | "unknown" = "unknown";
 		try {
 			const r = await sendPrompt(sessionKey, body, queued ? "followUp" : undefined);
@@ -121,12 +128,11 @@ export const Composer = memo(function Composer(props: {
 			outcome = "unknown";
 		}
 		if (outcome === "ok") {
-			// The draft keeps text typed during the flight; only the
-			// acknowledged part leaves the box.
-			setText((cur) => (cur.startsWith(acked) ? cur.slice(acked.length) : cur));
 			props.markPending(id, queued ? "queued" : "sent");
 		} else if (outcome === "fail") {
 			props.removePending(id);
+			// Restore draft on failure if not replaced
+			setText((cur) => (cur ? `${acked}\n${cur}` : acked));
 		} else {
 			// Unknown: a duplicate prompt is worse than a lost one.
 			props.markPending(id, "unconfirmed");
@@ -192,6 +198,7 @@ export const Composer = memo(function Composer(props: {
 	};
 
 	const runKey = (k: QuickKey) => {
+		hapticTick();
 		if (k.action.kind === "queue") {
 			runQueue();
 			return;
@@ -366,10 +373,10 @@ export const Composer = memo(function Composer(props: {
 									onPointerDown={(e) => e.preventDefault()}
 									onMouseDown={(e) => e.preventDefault()}
 									onClick={() => (k.action.kind === "queue" ? runQueue() : runKey(k))}
-									className={`h-11 min-w-[44px] shrink-0 rounded-lg border px-2 font-mono text-[13px] active:scale-95 ${
+									className={`press-scale h-11 min-w-[44px] shrink-0 rounded-xl border px-2.5 font-mono text-[13px] font-medium shadow-surface-sm transition-all ${
 										k.id === "enter"
-											? "border-primary/70 border-b-2 border-b-primary/50 bg-base-200 text-primary"
-											: `border-base-300 border-b-2 border-b-base-300/70 bg-base-200 ${enabled ? "text-base-content" : "text-muted/40"}`
+											? "border-primary/50 border-b-2 bg-primary/10 text-primary active:bg-primary/20"
+											: `border-base-content/8 border-b-2 bg-base-200/90 ${enabled ? "text-base-content active:bg-base-300" : "text-muted/30 border-transparent shadow-none"}`
 									}`}
 								>
 									{k.id === "enter" ? (
@@ -401,7 +408,7 @@ export const Composer = memo(function Composer(props: {
 
 			{/* composer card */}
 			<div className="px-2 pt-1 pb-safe">
-				<div className="rounded-2xl border border-base-300 bg-base-200 p-1.5">
+				<div className="rounded-3xl border border-base-content/10 bg-base-200/90 p-2 shadow-top-surface backdrop-blur-md">
 					<textarea
 						ref={ta}
 						value={text}
@@ -423,7 +430,8 @@ export const Composer = memo(function Composer(props: {
 						autoCorrect="off"
 						autoCapitalize="off"
 						spellCheck={false}
-						className="max-h-[50vh] min-h-[40px] w-full resize-none bg-transparent px-2 py-2 text-[16px] outline-none"
+						enterKeyHint="send"
+						className="max-h-[50vh] min-h-[40px] w-full resize-none bg-transparent px-2.5 py-1.5 text-[16px] leading-relaxed outline-none"
 					/>
 					<input
 						ref={fileInput}
@@ -437,11 +445,11 @@ export const Composer = memo(function Composer(props: {
 							e.target.value = "";
 						}}
 					/>
-					<div className="flex items-center gap-0.5">
+					<div className="flex items-center gap-1">
 						<button
 							type="button"
 							aria-label="Commands"
-							className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-muted active:scale-95"
+							className="press-scale grid h-9 w-9 shrink-0 place-items-center rounded-full text-muted active:text-base-content"
 							onClick={() => setSheet("commands")}
 						>
 							<FaTableCellsLarge size={18} />
@@ -450,13 +458,13 @@ export const Composer = memo(function Composer(props: {
 							<button
 								type="button"
 								aria-label="Attach image"
-								className="grid h-9 w-9 place-items-center rounded-full text-muted active:scale-95"
+								className="press-scale grid h-9 w-9 place-items-center rounded-full text-muted active:text-base-content"
 								onClick={() => setSheet("attach")}
 							>
 								<FaPaperclip size={18} />
 							</button>
 							{files.length > 0 && (
-								<span className="absolute -top-0.5 -right-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-primary px-1 text-[10px] text-base-100">
+								<span className="absolute -top-0.5 -right-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-content shadow-sm">
 									{files.length}
 								</span>
 							)}
@@ -467,17 +475,17 @@ export const Composer = memo(function Composer(props: {
 								setModelQuery("");
 								setSheet("model");
 							}}
-							className="flex min-w-0 max-w-[46%] shrink items-center gap-1 rounded-full bg-base-300 px-3 py-1.5 text-[12px] text-base-content active:scale-95"
+							className="press-scale flex min-w-0 max-w-[46%] shrink items-center gap-1 rounded-full border border-base-content/8 bg-base-300/70 px-3 py-1.5 text-[12px] font-medium text-base-content shadow-surface-sm backdrop-blur-sm"
 						>
 							<FaSparkles size={13} className="shrink-0 text-primary" />
 							{modelMark && <Spinner size={12} className="shrink-0 text-primary" />}
 							<span className="truncate">{showModel || "model"}</span>
-							<FaChevronDown size={12} className="shrink-0 text-muted" />
+							<FaChevronDown size={11} className="shrink-0 text-muted" />
 						</button>
 						<button
 							type="button"
 							onClick={() => setSheet("thinking")}
-							className="shrink-0 rounded-full bg-base-300 px-3 py-1.5 text-[12px] text-base-content active:scale-95"
+							className="press-scale shrink-0 rounded-full border border-base-content/8 bg-base-300/70 px-3 py-1.5 text-[12px] font-medium text-base-content shadow-surface-sm backdrop-blur-sm"
 						>
 							{thinkingMark && <Spinner size={12} className="mr-1 text-primary" />}
 							{showThinking || "thinking"}
@@ -488,8 +496,10 @@ export const Composer = memo(function Composer(props: {
 							aria-label="Send"
 							onClick={() => onSubmit()}
 							disabled={!canSend}
-							className={`grid h-10 w-10 shrink-0 place-items-center rounded-full text-[16px] transition-colors active:scale-95 ${
-								canSend ? "bg-primary text-base-100 text-[17px]" : "bg-base-300 text-muted"
+							className={`press-scale grid h-10 w-10 shrink-0 place-items-center rounded-full text-[16px] transition-all ${
+								canSend
+									? "bg-primary text-primary-content shadow-[0_2px_10px_rgba(64,157,212,0.45)]"
+									: "bg-base-300/80 text-muted/60"
 							}`}
 						>
 							<FaPaperPlane size={17} />
@@ -497,22 +507,24 @@ export const Composer = memo(function Composer(props: {
 					</div>
 				</div>
 				{(ctxPct !== null || props.cost > 0 || props.memory) && (
-					<div className="flex items-center justify-center gap-3 px-3 py-1 text-[11px] text-muted">
+					<div className="flex items-center justify-center gap-3 px-3 py-1 font-mono text-[11px] text-muted tabular-nums">
 						{ctxPct !== null && (
-							<span className="flex items-center gap-1.5">
-								ctx
+							<span className="flex items-center gap-1.5 font-sans">
+								<span className="font-mono">ctx</span>
 								<span className="h-1 w-10 overflow-hidden rounded-full bg-base-300">
 									<span
 										className="block h-full rounded-full bg-primary/70"
 										style={{ width: `${ctxPct}%` }}
 									/>
 								</span>
-								{ctxPct}%{ctxWin && `/${ctxWin}`}
+								<span className="tabular-nums font-mono">
+									{ctxPct}%{ctxWin && `/${ctxWin}`}
+								</span>
 							</span>
 						)}
-						{props.cost > 0 && <span>${money(props.cost)}</span>}
+						{props.cost > 0 && <span className="tabular-nums font-mono">${money(props.cost)}</span>}
 						{props.memory && (
-							<span role="img" aria-label={"memory " + props.memory}>
+							<span role="img" aria-label={`memory ${props.memory}`}>
 								<FaBrain size={13} />
 							</span>
 						)}
@@ -520,96 +532,112 @@ export const Composer = memo(function Composer(props: {
 				)}
 			</div>
 
-			{/* commands sheet: placeholder panel, real commands land later */}
+			{/* commands sheet */}
 			<Sheet
-				className="pb-safe-all"
+				className="pb-safe-all rounded-t-3xl border-t border-base-content/10 bg-base-200/98 shadow-2xl backdrop-blur-xl"
 				opened={sheet === "commands"}
 				onBackdropClick={() => setSheet("none")}
 			>
-				<div className="p-3">
-					<div className="mb-2 px-3 text-[13px] text-muted">Commands</div>
-					{["Command one", "Command two", "Command three"].map((c) => (
-						<button
-							key={c}
-							type="button"
-							className="block w-full rounded-xl px-3 py-2.5 text-left text-[14px] active:bg-base-200"
-						>
-							{c}
-						</button>
-					))}
-					<div className="px-3 py-3 text-[12px] text-muted">More commands land here soon.</div>
+				<div className="flex flex-col gap-2 p-4">
+					<div className="mx-auto mb-1.5 h-1.5 w-12 rounded-full bg-base-content/25" />
+					<div className="px-1 text-[13px] font-semibold tracking-wider text-muted uppercase">
+						Quick commands
+					</div>
+					<div className="flex flex-col gap-1.5 pt-1">
+						{["Command one", "Command two", "Command three"].map((c) => (
+							<button
+								key={c}
+								type="button"
+								className="press-scale flex w-full items-center rounded-2xl border border-base-content/8 bg-base-300/60 px-4 py-3 text-left text-[14.5px] font-medium text-base-content shadow-surface-sm backdrop-blur-sm active:bg-base-300"
+							>
+								{c}
+							</button>
+						))}
+					</div>
+					<div className="px-1 py-2 text-[12px] text-muted">More commands land here soon.</div>
 				</div>
 			</Sheet>
 
-			{/* attach sheet: the paperclip badge carries the count; this
-				sheet is the management surface */}
+			{/* attach sheet */}
 			<Sheet
-				className="pb-safe-all"
+				className="pb-safe-all rounded-t-3xl border-t border-base-content/10 bg-base-200/98 shadow-2xl backdrop-blur-xl"
 				opened={sheet === "attach"}
 				onBackdropClick={() => setSheet("none")}
 			>
-				<div className="p-3">
-					<div className="mb-1 px-3 text-[13px] text-muted">
-						{files.length > 0
-							? `${files.length} attachment${files.length === 1 ? "" : "s"}`
-							: "No attachments"}
+				<div className="flex flex-col gap-3 p-4">
+					<div className="mx-auto mb-1.5 h-1.5 w-12 rounded-full bg-base-content/25" />
+					<div className="flex items-center justify-between px-1">
+						<span className="text-[13px] font-semibold tracking-wider text-muted uppercase">
+							Attachments
+						</span>
+						<span className="font-mono text-[11.5px] text-muted">
+							{files.length}/{MAX_FILES}
+						</span>
 					</div>
-					{/* Add lives as a list row, not a bottom button: the
-					    primary-right slot is where every panel closes, and a
-					    picker button there read as the confirm (field report). */}
+
 					<button
 						type="button"
-						className="mb-1 flex w-full items-center gap-2 rounded-xl border border-dashed border-muted/40 px-3 py-2.5 text-[14px] text-muted active:bg-base-200 disabled:opacity-50"
+						className="press-scale flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-base-content/20 bg-base-300/40 px-4 py-3 text-[14px] font-medium text-primary shadow-surface-sm backdrop-blur-sm active:bg-base-300 disabled:opacity-50"
 						disabled={files.length >= MAX_FILES}
 						onClick={() => fileInput.current?.click()}
 					>
-						<FaPaperclip size={13} />
-						Add attachment
+						<FaPaperclip size={14} />
+						<span>Add attachment</span>
 					</button>
-					{files.map((f) => (
-						<div
-							key={f.id}
-							className="flex items-center gap-2 rounded-xl px-3 py-2.5 active:bg-base-200"
-						>
-							<span className="shrink-0">
-								{f.path ? (
-									<FaCheck size={13} className="text-primary" />
-								) : f.error ? (
-									<FaXmark size={13} className="text-error" />
-								) : (
-									<Spinner size={13} className="text-muted" />
-								)}
-							</span>
-							<span className="min-w-0 flex-1 truncate text-[14px]">{f.name}</span>
-							{f.error && <span className="shrink-0 text-[11px] text-error">{f.error}</span>}
-							<button
-								type="button"
-								aria-label={`Remove ${f.name}`}
-								className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-muted active:scale-95"
-								onClick={() => setFiles((cur) => cur.filter((x) => x.id !== f.id))}
+
+					<div className="flex max-h-[35vh] flex-col gap-1.5 overflow-y-auto">
+						{files.map((f) => (
+							<div
+								key={f.id}
+								className="flex items-center gap-3 rounded-2xl border border-base-content/8 bg-base-300/60 px-3.5 py-2.5 shadow-surface-sm backdrop-blur-sm"
 							>
-								<FaXmark size={14} />
-							</button>
-						</div>
-					))}
-					{files.length === 0 && (
-						<div className="px-3 py-3 text-[12px] text-muted">
-							Attach files and the agent reads them by path.
-						</div>
-					)}
-					<div className="mt-2 flex gap-2">
+								<span className="shrink-0">
+									{f.path ? (
+										<FaCheck size={13} className="text-primary" />
+									) : f.error ? (
+										<FaXmark size={13} className="text-error" />
+									) : (
+										<Spinner size={13} className="text-muted" />
+									)}
+								</span>
+								<span className="min-w-0 flex-1 truncate font-mono text-[13px] text-base-content">
+									{f.name}
+								</span>
+								{f.error && (
+									<span className="shrink-0 rounded bg-error/15 px-1.5 py-0.5 text-[10px] font-mono text-error">
+										{f.error}
+									</span>
+								)}
+								<button
+									type="button"
+									aria-label={`Remove ${f.name}`}
+									className="press-scale grid h-8 w-8 shrink-0 place-items-center rounded-lg text-muted active:text-error"
+									onClick={() => setFiles((cur) => cur.filter((x) => x.id !== f.id))}
+								>
+									<FaXmark size={14} />
+								</button>
+							</div>
+						))}
+						{files.length === 0 && (
+							<div className="px-2 py-4 text-center text-[12.5px] text-muted">
+								Attach images or files and the agent reads them by path.
+							</div>
+						)}
+					</div>
+
+					<div className="mt-1 flex gap-2.5">
 						<button
 							type="button"
-							className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-base-300 px-3 py-2.5 text-[14px] active:scale-95 disabled:opacity-50"
+							className="press-scale flex flex-1 items-center justify-center gap-2 rounded-2xl border border-base-content/10 bg-base-300/80 px-4 py-3 text-[14px] font-medium text-muted shadow-surface-sm active:text-base-content disabled:opacity-40"
 							disabled={files.length === 0}
 							onClick={() => setFiles([])}
 						>
 							<FaXmark size={13} />
-							Remove all
+							<span>Remove all</span>
 						</button>
 						<button
 							type="button"
-							className="flex flex-1 items-center justify-center rounded-xl bg-primary px-3 py-2.5 text-[14px] text-base-100 active:scale-95"
+							className="press-scale flex flex-1 items-center justify-center rounded-2xl bg-primary px-4 py-3 text-[14.5px] font-semibold text-primary-content shadow-[0_2px_12px_rgba(64,157,212,0.4)]"
 							onClick={() => setSheet("none")}
 						>
 							Done
@@ -620,47 +648,71 @@ export const Composer = memo(function Composer(props: {
 
 			{/* model sheet */}
 			<Sheet
-				className="pb-safe-all"
+				className="pb-safe-all rounded-t-3xl border-t border-base-content/10 bg-base-200/98 shadow-2xl backdrop-blur-xl"
 				opened={sheet === "model"}
 				onBackdropClick={() => setSheet("none")}
 			>
-				<div className="p-3">
-					<input
-						value={modelQuery}
-						onChange={(e) => setModelQuery(e.target.value)}
-						placeholder="Search or type a pattern (provider/model[:thinking])"
-						className="mb-2 w-full rounded-xl bg-base-200 px-3 py-2.5 text-[16px] outline-none"
-					/>
+				<div className="flex flex-col gap-3 p-4">
+					<div className="mx-auto mb-1.5 h-1.5 w-12 rounded-full bg-base-content/25" />
+					<div className="flex items-center justify-between px-1">
+						<span className="text-[13px] font-semibold tracking-wider text-muted uppercase">
+							Select model
+						</span>
+						{props.model && (
+							<span className="truncate rounded-md bg-primary/15 px-2 py-0.5 font-mono text-[11.5px] font-semibold text-primary">
+								current: {props.model}
+							</span>
+						)}
+					</div>
+
+					<div className="relative">
+						<input
+							value={modelQuery}
+							onChange={(e) => setModelQuery(e.target.value)}
+							placeholder="Search or enter model pattern…"
+							className="w-full rounded-2xl border border-base-content/10 bg-base-300/70 py-3 pr-4 pl-10 text-[15px] text-base-content placeholder:text-muted/70 shadow-inner outline-none transition-all focus:border-primary/60 focus:bg-base-300 focus:shadow-[0_0_0_2px_rgba(64,157,212,0.2)]"
+						/>
+						<FaSparkles size={14} className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-muted" />
+					</div>
+
 					{modelQuery.trim() !== "" && (
 						<button
 							type="button"
-							className="mb-1 w-full rounded-xl bg-primary/20 px-3 py-2.5 text-left text-[14px] active:scale-[0.99]"
+							className="press-scale flex w-full items-center justify-between rounded-2xl border border-primary/30 bg-primary/15 px-4 py-3 text-left text-[14px] font-medium text-primary shadow-surface-sm backdrop-blur-sm"
 							onClick={() => applyModel(modelQuery)}
 						>
-							Use pattern: {modelQuery.trim()}
+							<span className="truncate">Use pattern: {modelQuery.trim()}</span>
+							<FaCheck size={13} className="shrink-0" />
 						</button>
 					)}
-					<div className="max-h-[45vh] overflow-y-auto">
-						{modelRows.map((m) => (
-							<button
-								key={m.id}
-								type="button"
-								className={`block w-full rounded-xl px-3 py-2.5 text-left text-[14px] active:bg-base-200 ${
-									m.id === props.model ? "text-primary" : ""
-								}`}
-								onClick={() => applyModel(m.id)}
-							>
-								{m.id}
-							</button>
-						))}
+
+					<div className="flex max-h-[48vh] flex-col gap-1.5 overflow-y-auto pr-1">
+						{modelRows.map((m) => {
+							const selected = m.id === props.model;
+							return (
+								<button
+									key={m.id}
+									type="button"
+									className={`press-scale flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left text-[14px] font-mono shadow-surface-sm transition-all ${
+										selected
+											? "border-primary/50 bg-primary/20 text-base-content"
+											: "border-base-content/6 bg-base-300/50 text-base-content/90 active:bg-base-300"
+									}`}
+									onClick={() => applyModel(m.id)}
+								>
+									<span className="truncate">{m.id}</span>
+									{selected && <FaCheck size={14} className="shrink-0 text-primary" />}
+								</button>
+							);
+						})}
 						{modelsLoading && modelRows.length === 0 ? (
-							<div className="flex items-center gap-2 px-3 py-3 text-[13px] text-muted">
-								<Spinner size={14} />
-								Loading models…
+							<div className="flex items-center justify-center gap-2 py-8 text-[13px] text-muted">
+								<Spinner size={16} className="text-primary" />
+								<span>Loading models…</span>
 							</div>
 						) : modelRows.length === 0 ? (
-							<div className="px-3 py-3 text-[13px] text-muted">
-								No matches. Free text still works.
+							<div className="py-8 text-center text-[13px] text-muted">
+								No catalog matches. Free text pattern still works.
 							</div>
 						) : null}
 					</div>
@@ -669,23 +721,35 @@ export const Composer = memo(function Composer(props: {
 
 			{/* thinking sheet */}
 			<Sheet
-				className="pb-safe-all"
+				className="pb-safe-all rounded-t-3xl border-t border-base-content/10 bg-base-200/98 shadow-2xl backdrop-blur-xl"
 				opened={sheet === "thinking"}
 				onBackdropClick={() => setSheet("none")}
 			>
-				<div className="p-3">
-					{THINKING_LEVELS.map((lv) => (
-						<button
-							key={lv}
-							type="button"
-							className={`block w-full rounded-xl px-3 py-2.5 text-left text-[14px] active:bg-base-200 ${
-								lv === props.thinking ? "text-primary" : ""
-							}`}
-							onClick={() => applyThinking(lv)}
-						>
-							{lv}
-						</button>
-					))}
+				<div className="flex flex-col gap-3 p-4">
+					<div className="mx-auto mb-1.5 h-1.5 w-12 rounded-full bg-base-content/25" />
+					<div className="px-1 text-[13px] font-semibold tracking-wider text-muted uppercase">
+						Thinking budget
+					</div>
+					<div className="flex flex-col gap-1.5 pt-1">
+						{THINKING_LEVELS.map((lv) => {
+							const selected = lv === props.thinking;
+							return (
+								<button
+									key={lv}
+									type="button"
+									className={`press-scale flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left text-[14.5px] font-medium shadow-surface-sm transition-all ${
+										selected
+											? "border-primary/50 bg-primary/20 text-base-content"
+											: "border-base-content/6 bg-base-300/50 text-base-content/90 active:bg-base-300"
+									}`}
+									onClick={() => applyThinking(lv)}
+								>
+									<span className="capitalize">{lv}</span>
+									{selected && <FaCheck size={14} className="shrink-0 text-primary" />}
+								</button>
+							);
+						})}
+					</div>
 				</div>
 			</Sheet>
 

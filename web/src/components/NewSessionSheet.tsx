@@ -96,7 +96,7 @@ export function NewSessionSheet({ opened, onClose }: { opened: boolean; onClose:
 					type="button"
 					disabled={busy || !pickedPath || !prompt.trim()}
 					onClick={() => create(pickedPath)}
-					className="flex min-h-[44px] items-center justify-center gap-2 rounded-xl bg-primary font-semibold text-primary-content disabled:opacity-50"
+					className="press-scale flex min-h-[48px] items-center justify-center gap-2 rounded-2xl bg-primary text-[15px] font-semibold text-primary-content shadow-[0_2px_12px_rgba(64,157,212,0.4)] disabled:opacity-50"
 				>
 					{busy && <Spinner size={14} />}
 					{busy ? "Creating…" : "Create agent here"}

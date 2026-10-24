@@ -6,6 +6,7 @@ import { NewAgentSheet } from "../components/NewAgentSheet";
 import { NewSessionSheet } from "../components/NewSessionSheet";
 import { QuickSheet } from "../components/QuickSheet";
 import { Spinner } from "../components/Spinner";
+import { useTouchRipple } from "../components/useRipple";
 import { short, thousand, tildify } from "../fmt";
 import { navigate, useSheetBack } from "../nav";
 import { quickPath } from "../prefs";
@@ -123,34 +124,16 @@ export default function HomeList() {
 		setQuickSheet(true);
 	};
 
-	const card = (s: SessionMeta) => {
+	const card = (s: SessionMeta, index = 0) => {
 		const st = badges[s.path] ?? "unknown";
 		return (
-			<button
-				type="button"
-				onClick={() => navigate(`/sessions/${encodeURIComponent(s.key)}`, { dir: "fwd" })}
-				className="flex w-full items-center gap-3 rounded-2xl bg-base-200 px-4 py-3 text-left active:scale-[0.99]"
-			>
-				{isWaiting(st) && st === "working" ? (
-					<Spinner size={13} className={awaiting[s.path] ? "text-accent" : "text-primary"} />
-				) : (
-					<span
-						title={awaiting[s.path] ? `${st} · waiting for input` : st}
-						className={`h-2.5 w-2.5 shrink-0 rounded-full ${awaiting[s.path] ? "bg-accent" : (STATUS_DOT[st] ?? "bg-muted")}`}
-					/>
-				)}
-				<span className="min-w-0 flex-1">
-					<span className="block truncate text-[15px] font-medium">
-						{short(s.name || s.cwd.split("/").filter(Boolean).pop() || s.key, 60)}
-					</span>
-					<span className="block truncate text-xs text-muted">{short(tildify(s.cwd), 48)}</span>
-					{(driven[s.path]?.label || driven[s.path]?.title) && (
-						<span className="block truncate text-[11px] text-muted/70">
-							{[driven[s.path]?.label, driven[s.path]?.title].filter(Boolean).join(" · ")}
-						</span>
-					)}
-				</span>
-			</button>
+			<SessionCard
+				s={s}
+				st={st}
+				isAwaiting={!!awaiting[s.path]}
+				drivenMeta={driven[s.path]}
+				index={index}
+			/>
 		);
 	};
 
@@ -162,23 +145,29 @@ export default function HomeList() {
 			style={{ paddingBottom: "var(--safe-bottom, 0px)" }}
 		>
 			<header
-				className="fixed inset-x-0 top-0 z-30 bg-base-300/95 backdrop-blur"
+				className="header-glass fixed inset-x-0 top-0 z-30 border-b border-base-content/8 shadow-surface-sm"
 				style={{ paddingTop: "var(--safe-top, 0px)" }}
 			>
 				<div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-3">
 					{/* The Pi Agent mark, the same three paths as the Android
 					    launcher icon (800x800 box). */}
-					<svg width="31" height="31" viewBox="0 0 800 800" aria-hidden="true">
+					<svg
+						width="31"
+						height="31"
+						viewBox="0 0 800 800"
+						aria-hidden="true"
+						className="drop-shadow-sm"
+					>
 						<path d="M165.29,165.29H517.36V400H400V282.65H165.29Z" fill="#F09082" />
 						<path d="M165.29,282.65H282.65V400H400V517.36H282.65V634.72H165.29Z" fill="#4D9ABF" />
 						<path d="M517.36,400H634.72V634.72H517.36Z" fill="#F1BE58" />
 					</svg>
-					<h1 className="text-lg font-semibold">Couch</h1>
+					<h1 className="text-[19px] font-semibold tracking-tight text-base-content">Couch</h1>
 					<button
 						type="button"
 						aria-label="Settings"
 						onClick={() => navigate("/settings", { dir: "fwd" })}
-						className="ml-auto grid h-11 w-11 place-items-center rounded-xl text-muted"
+						className="press-scale ml-auto grid h-11 w-11 place-items-center rounded-xl text-muted active:text-base-content"
 					>
 						<FaGear size={20} />
 					</button>
@@ -188,7 +177,7 @@ export default function HomeList() {
 							aria-label={push === "on" ? "Notifications on" : "Notifications off"}
 							title={push === "on" ? "Notifications on" : "Notifications off"}
 							onClick={flipPush}
-							className={`grid h-11 w-11 place-items-center rounded-xl ${push === "on" ? "text-warning" : "text-muted"}`}
+							className={`press-scale grid h-11 w-11 place-items-center rounded-xl transition-colors ${push === "on" ? "text-warning" : "text-muted active:text-base-content"}`}
 						>
 							{push === "on" ? <FaBell size={20} /> : <FaBellSlash size={20} />}
 						</button>
@@ -205,18 +194,18 @@ export default function HomeList() {
 						onChange={(e) => setQuery(e.target.value)}
 						placeholder="Search sessions…"
 						autoComplete="off"
-						className="w-full rounded-xl border border-muted/40 bg-transparent py-3 pl-10 pr-10 text-[16px] text-base-content placeholder:text-muted focus:border-primary/60 focus:outline-none"
+						className="w-full rounded-2xl border border-base-content/10 bg-base-200/60 py-3.5 pl-11 pr-10 text-[16px] text-base-content placeholder:text-muted/70 shadow-inner backdrop-blur-sm transition-all focus:border-primary/70 focus:bg-base-200/90 focus:shadow-[0_0_0_3px_rgba(64,157,212,0.18)] focus:outline-none"
 					/>
 					<FaMagnifyingGlass
-						size={18}
-						className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted"
+						size={17}
+						className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-muted"
 					/>
 					{query !== "" && (
 						<button
 							type="button"
 							aria-label="Clear search"
 							onClick={() => setQuery("")}
-							className="absolute top-1/2 right-1 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-lg text-muted"
+							className="press-scale absolute top-1/2 right-1.5 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-lg text-muted active:text-base-content"
 						>
 							<FaXmark size={16} />
 						</button>
@@ -248,28 +237,33 @@ export default function HomeList() {
 					<p className="mt-6 px-1 text-sm text-muted">No sessions match.</p>
 				)}
 				{showPriority && (
-					<section aria-label="priority" className="mt-2">
-						<div className="px-1 pb-2 text-[11px] uppercase tracking-widest text-muted">
-							priority
+					<section aria-label="priority" className="mt-3">
+						<div className="flex items-center gap-2 px-1 pb-2">
+							<span className="text-[11px] font-semibold tracking-wider text-primary uppercase">
+								Priority
+							</span>
+							<span className="h-px flex-1 bg-base-content/10" />
 						</div>
-						<ul className="flex flex-col gap-2">
-							{priority.map((s) => (
-								<li key={s.key}>{card(s)}</li>
+						<ul className="flex flex-col gap-2.5">
+							{priority.map((s, i) => (
+								<li key={s.key}>{card(s, i)}</li>
 							))}
 						</ul>
 						<div aria-hidden="true" className="my-4 flex items-center gap-3">
-							<span className="h-px flex-1 bg-base-300" />
-							<span className="text-[11px] uppercase tracking-widest text-muted">earlier</span>
-							<span className="h-px flex-1 bg-base-300" />
+							<span className="h-px flex-1 bg-base-content/10" />
+							<span className="text-[11px] font-semibold tracking-wider text-muted uppercase">
+								earlier
+							</span>
+							<span className="h-px flex-1 bg-base-content/10" />
 						</div>
 					</section>
 				)}
 				<ul
 					ref={recentsUl}
-					className={showPriority ? "flex flex-col gap-2" : "mt-2 flex flex-col gap-2"}
+					className={showPriority ? "flex flex-col gap-2.5" : "mt-3 flex flex-col gap-2.5"}
 				>
-					{(needle ? searchList : visible).map((s) => (
-						<li key={s.key}>{card(s)}</li>
+					{(needle ? searchList : visible).map((s, i) => (
+						<li key={s.key}>{card(s, showPriority ? priority.length + i : i)}</li>
 					))}
 				</ul>
 				{status === "ok" &&
@@ -279,9 +273,9 @@ export default function HomeList() {
 							type="button"
 							onClick={loadMore}
 							disabled={loadingMore}
-							className="mx-auto mt-3 flex items-center gap-2 rounded-xl bg-base-200 px-5 py-3 text-sm text-muted active:scale-[0.99]"
+							className="press-scale mx-auto mt-4 flex items-center gap-2 rounded-2xl border border-base-content/10 bg-base-200/80 px-6 py-3 text-[13.5px] font-medium text-muted shadow-surface-sm backdrop-blur-sm active:text-base-content"
 						>
-							{loadingMore && <Spinner size={14} />}
+							{loadingMore && <Spinner size={14} className="text-primary" />}
 							Load more{needle ? ` (${thousand(total - limit)} earlier)` : ""}
 						</button>
 					)}
@@ -365,15 +359,73 @@ function FabAction({
 	onClick: () => void;
 	busy?: boolean;
 }) {
+	const ref = useRef<HTMLButtonElement>(null);
+	useTouchRipple(ref, !busy);
+
 	return (
 		<button
+			ref={ref}
 			type="button"
 			disabled={busy}
 			onClick={onClick}
-			className="flex min-h-[52px] items-center gap-2 rounded-full bg-base-200 px-6 text-[15px] font-medium text-base-content shadow-lg active:scale-95 disabled:opacity-60"
+			className="press-scale relative overflow-hidden flex min-h-[52px] items-center gap-2 rounded-full border border-base-content/10 bg-base-200 px-6 text-[15px] font-medium text-base-content shadow-surface-lg disabled:opacity-60"
 		>
 			{busy && <Spinner size={14} />}
 			{label}
+		</button>
+	);
+}
+
+function SessionCard({
+	s,
+	st,
+	isAwaiting,
+	drivenMeta,
+	index = 0,
+}: {
+	s: SessionMeta;
+	st: string;
+	isAwaiting: boolean;
+	drivenMeta?: { label?: string; title?: string };
+	index?: number;
+}) {
+	const ref = useRef<HTMLButtonElement>(null);
+	useTouchRipple(ref);
+
+	// Cap staggering to top rows so fast scrolls or long windows don't lag
+	const delay = Math.min(index * 25, 250);
+
+	return (
+		<button
+			ref={ref}
+			type="button"
+			style={{ animationDelay: `${delay}ms` }}
+			onClick={() => navigate(`/sessions/${encodeURIComponent(s.key)}`, { dir: "fwd" })}
+			className="card-in press-scale relative overflow-hidden flex w-full items-center gap-3.5 rounded-2xl border border-base-content/8 bg-base-200/90 px-4 py-3.5 text-left shadow-surface-sm backdrop-blur-sm"
+		>
+			{isWaiting(st) && st === "working" ? (
+				<div className="grid h-6 w-6 shrink-0 place-items-center">
+					<Spinner size={14} className={isAwaiting ? "text-accent" : "text-primary"} />
+				</div>
+			) : (
+				<div className="grid h-6 w-6 shrink-0 place-items-center">
+					<span
+						title={isAwaiting ? `${st} · waiting for input` : st}
+						className={`h-2.5 w-2.5 rounded-full transition-all duration-300 ${isAwaiting ? "bg-accent shadow-[0_0_8px_rgba(55,181,180,0.6)]" : (STATUS_DOT[st] ?? "bg-muted")}`}
+					/>
+				</div>
+			)}
+			<span className="min-w-0 flex-1">
+				<span className="block truncate text-[15.5px] font-medium tracking-tight text-base-content">
+					{short(s.name || s.cwd.split("/").filter(Boolean).pop() || s.key, 60)}
+				</span>
+				<span className="block truncate text-[12.5px] text-muted">{short(tildify(s.cwd), 48)}</span>
+				{(drivenMeta?.label || drivenMeta?.title) && (
+					<span className="mt-0.5 block truncate text-[11px] font-mono text-muted/75">
+						{[drivenMeta.label, drivenMeta.title].filter(Boolean).join(" · ")}
+					</span>
+				)}
+			</span>
 		</button>
 	);
 }

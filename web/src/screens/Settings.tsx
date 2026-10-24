@@ -68,8 +68,10 @@ export default function SettingsScreen() {
 				style={{ paddingBottom: "var(--safe-bottom, 0px)" }}
 			>
 				<section>
-					<h2 className="px-1 pb-2 text-xs uppercase tracking-widest text-muted">Color scheme</h2>
-					<div className="overflow-hidden rounded-xl border border-muted/40">
+					<h2 className="px-1 pb-2 text-[11px] font-semibold uppercase tracking-wider text-muted">
+						Color scheme
+					</h2>
+					<div className="overflow-hidden rounded-2xl border border-base-content/10 bg-base-200/80 shadow-surface-sm backdrop-blur-sm">
 						{SCHEMES.map((s, i) => (
 							<button
 								key={s.id}
@@ -78,9 +80,9 @@ export default function SettingsScreen() {
 									setScheme(s.id);
 									setSchemeId(s.id);
 								}}
-								className={`flex w-full items-center gap-3 px-3 py-3 text-left active:bg-base-200 ${i > 0 ? "border-t border-muted/20" : ""}`}
+								className={`press-scale flex w-full items-center gap-3 px-4 py-3.5 text-left active:bg-base-300 ${i > 0 ? "border-t border-base-content/8" : ""}`}
 							>
-								<span className="flex shrink-0 gap-1">
+								<span className="flex shrink-0 gap-1.5">
 									{[
 										s.vars["--color-base-100"],
 										s.vars["--color-primary"],
@@ -89,13 +91,15 @@ export default function SettingsScreen() {
 									].map((c) => (
 										<span
 											key={c}
-											className="h-4 w-4 rounded-full border border-white/10"
+											className="h-4 w-4 rounded-full border border-white/10 shadow-sm"
 											style={{ background: c }}
 										/>
 									))}
 								</span>
-								<span className="flex-1 text-[15px]">{s.label}</span>
-								{schemeId === s.id && <FaCheck size={14} className="text-primary" />}
+								<span className="flex-1 text-[15.5px] font-medium text-base-content">
+									{s.label}
+								</span>
+								{schemeId === s.id && <FaCheck size={15} className="text-primary" />}
 							</button>
 						))}
 					</div>
@@ -105,25 +109,29 @@ export default function SettingsScreen() {
 				</section>
 
 				<section>
-					<h2 className="px-1 pb-2 text-xs uppercase tracking-widest text-muted">Enter key</h2>
-					<Segmented
-						className="w-full"
-						colors={{ strongBgMaterial: "bg-base-200", strongHighlightBgMaterial: "bg-primary" }}
-					>
-						{ENTER_CHOICES.map((c) => (
-							<SegmentedButton
-								key={c.value}
-								active={enter === c.value}
-								onClick={() => {
-									setEnterSendsPref(c.value);
-									setEnter(c.value);
-								}}
-								className={`text-[13px] ${enter === c.value ? "text-primary-content" : "text-base-content"}`}
-							>
-								{c.label}
-							</SegmentedButton>
-						))}
-					</Segmented>
+					<h2 className="px-1 pb-2 text-[11px] font-semibold uppercase tracking-wider text-muted">
+						Enter key
+					</h2>
+					<div className="rounded-2xl border border-base-content/10 bg-base-200/80 p-1.5 shadow-surface-sm">
+						<Segmented
+							className="w-full"
+							colors={{ strongBgMaterial: "bg-base-300", strongHighlightBgMaterial: "bg-primary" }}
+						>
+							{ENTER_CHOICES.map((c) => (
+								<SegmentedButton
+									key={c.value}
+									active={enter === c.value}
+									onClick={() => {
+										setEnterSendsPref(c.value);
+										setEnter(c.value);
+									}}
+									className={`text-[13px] font-medium ${enter === c.value ? "text-primary-content" : "text-base-content"}`}
+								>
+									{c.label}
+								</SegmentedButton>
+							))}
+						</Segmented>
+					</div>
 					<p className="px-1 pt-2 text-xs text-muted">
 						{ENTER_CHOICES.find((c) => c.value === enter)?.hint}
 					</p>
@@ -133,9 +141,13 @@ export default function SettingsScreen() {
 				</section>
 
 				<section>
-					<h2 className="px-1 pb-2 text-xs uppercase tracking-widest text-muted">Quick keys</h2>
-					<div className="flex items-center justify-between rounded-xl border border-muted/40 px-3 py-3">
-						<span className="text-[15px]">Show the quick-keys strip in sessions</span>
+					<h2 className="px-1 pb-2 text-[11px] font-semibold uppercase tracking-wider text-muted">
+						Quick keys
+					</h2>
+					<div className="flex items-center justify-between rounded-2xl border border-base-content/10 bg-base-200/80 px-4 py-3.5 shadow-surface-sm backdrop-blur-sm">
+						<span className="text-[15px] font-medium text-base-content">
+							Show the quick-keys strip in sessions
+						</span>
 						<Toggle
 							checked={keys}
 							onChange={() => {
@@ -148,22 +160,22 @@ export default function SettingsScreen() {
 					<p className="px-1 pt-2 text-xs text-muted">
 						Esc, Enter, arrows and the dialog keys above the composer.
 					</p>
-					<div className="mt-3 overflow-hidden rounded-xl border border-muted/40">
+					<div className="mt-3 overflow-hidden rounded-2xl border border-base-content/10 bg-base-200/80 shadow-surface-sm backdrop-blur-sm">
 						{order.map((id, i) => (
 							<div
 								key={id}
-								className={`flex items-center justify-between px-3 py-1 ${i > 0 ? "border-t border-muted/20" : ""}`}
+								className={`flex items-center justify-between px-4 py-2 ${i > 0 ? "border-t border-base-content/8" : ""}`}
 							>
-								<span className="text-[15px]">
+								<span className="text-[15px] font-medium text-base-content">
 									{QUICK_KEYS.find((k) => k.id === id)?.label ?? id}
 								</span>
-								<span className="flex gap-1">
+								<span className="flex gap-1.5">
 									<button
 										type="button"
 										aria-label={`Move ${id} up`}
 										disabled={i === 0}
 										onClick={() => move(id, -1)}
-										className="min-h-[36px] min-w-[44px] rounded-lg bg-base-300 px-3 text-base-content active:scale-95 disabled:opacity-30"
+										className="press-scale min-h-[38px] min-w-[44px] rounded-xl border border-base-content/8 bg-base-300/80 px-3 text-base-content active:bg-base-300 disabled:opacity-30"
 									>
 										<FaArrowUp size={14} />
 									</button>
@@ -172,7 +184,7 @@ export default function SettingsScreen() {
 										aria-label={`Move ${id} down`}
 										disabled={i === order.length - 1}
 										onClick={() => move(id, 1)}
-										className="min-h-[36px] min-w-[44px] rounded-lg bg-base-300 px-3 text-base-content active:scale-95 disabled:opacity-30"
+										className="press-scale min-h-[38px] min-w-[44px] rounded-xl border border-base-content/8 bg-base-300/80 px-3 text-base-content active:bg-base-300 disabled:opacity-30"
 									>
 										<FaArrowDown size={14} />
 									</button>
@@ -186,19 +198,23 @@ export default function SettingsScreen() {
 				</section>
 
 				<section>
-					<h2 className="px-1 pb-2 text-xs uppercase tracking-widest text-muted">Quick agent</h2>
+					<h2 className="px-1 pb-2 text-[11px] font-semibold uppercase tracking-wider text-muted">
+						Quick agent
+					</h2>
 					<button
 						type="button"
 						onClick={() => {
 							setPicked(qPath);
 							setPickerOpen(true);
 						}}
-						className="flex min-h-[48px] w-full items-center justify-between rounded-xl border border-muted/40 px-3 text-left active:scale-[0.99]"
+						className="press-scale flex min-h-[50px] w-full items-center justify-between rounded-2xl border border-base-content/10 bg-base-200/80 px-4 text-left shadow-surface-sm backdrop-blur-sm active:bg-base-300"
 					>
-						<span className="truncate text-[15px]">
+						<span className="truncate text-[15.5px] font-medium text-base-content">
 							{qPath ? qPath.replace(/^\/home\/[^/]+/, "~") : "Choose a folder…"}
 						</span>
-						<span className="ml-2 shrink-0 text-[12px] text-muted">browse</span>
+						<span className="ml-2 shrink-0 rounded-lg bg-base-300/80 px-2.5 py-1 text-[11.5px] font-medium text-primary">
+							browse
+						</span>
 					</button>
 					<p className="px-1 pt-2 text-xs text-muted">
 						The home FAB's Quick agent starts pi here without asking. Each tap adds one agent to the
@@ -227,7 +243,7 @@ export default function SettingsScreen() {
 							setQuickPath(picked);
 							setPickerOpen(false);
 						}}
-						className="flex min-h-[44px] items-center justify-center rounded-xl bg-primary font-semibold text-primary-content disabled:opacity-50"
+						className="press-scale flex min-h-[48px] items-center justify-center rounded-2xl bg-primary text-[15px] font-semibold text-primary-content shadow-[0_2px_12px_rgba(64,157,212,0.4)] disabled:opacity-50"
 					>
 						Use this folder
 					</button>

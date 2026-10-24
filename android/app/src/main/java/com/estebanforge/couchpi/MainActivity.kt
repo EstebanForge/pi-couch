@@ -14,8 +14,10 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.util.Log
+import android.view.HapticFeedbackConstants
 import android.view.View
 import android.view.WindowInsets
+import android.window.OnBackInvokedCallback
 import android.webkit.JavascriptInterface
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -121,7 +123,9 @@ class MainActivity : Activity() {
         // cover), so the shell applies no padding of its own.
         web = view
         view.addJavascriptInterface(speech, "CouchPiSpeech")
+        view.addJavascriptInterface(haptics, "CouchPiHaptics")
         setContentView(view)
+        setupBackInvocation()
         @Suppress("DEPRECATION") // pre-35 devices; ignored on 35+
         window.statusBarColor = Color.TRANSPARENT
         view.loadUrl(url)
@@ -132,6 +136,30 @@ class MainActivity : Activity() {
     // contract the web path offers: finals only, an end, an error. The
     // page installs window.__couchPiDictation callbacks before start().
     private val speech = SpeechBridge()
+    private val haptics = HapticsBridge()
+
+    private inner class HapticsBridge {
+        @JavascriptInterface
+        fun tick() {
+            runOnUiThread {
+                web?.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+            }
+        }
+
+        @JavascriptInterface
+        fun confirm() {
+            runOnUiThread {
+                web?.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+            }
+        }
+
+        @JavascriptInterface
+        fun longPress() {
+            runOnUiThread {
+                web?.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            }
+        }
+    }
 
     private var pendingSpeechLang: String? = null
 
@@ -342,6 +370,22 @@ class MainActivity : Activity() {
             "style='margin-top:16px;padding:10px 24px;border-radius:8px;border:0;" +
             "background:#4d9abf;color:#0f1115'>Reload</button></p></div></body></html>"
         return body
+    }
+
+    private fun setupBackInvocation() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            onBackInvokedDispatcher.registerOnBackInvokedCallback(
+                android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+                OnBackInvokedCallback {
+                    val w = web
+                    if (w != null && w.canGoBack()) {
+                        w.goBack()
+                    } else {
+                        finish()
+                    }
+                }
+            )
+        }
     }
 
     // Back walks browser history inside the shell before leaving the app.

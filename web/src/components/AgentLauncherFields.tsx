@@ -86,7 +86,7 @@ export function AgentLauncherFields({
 
 	const picker =
 		pick === "model" ? (
-			<div className="max-h-40 overflow-y-auto rounded-xl border border-muted/30">
+			<div className="flex max-h-48 flex-col gap-1 overflow-y-auto rounded-2xl border border-base-content/10 bg-base-300/60 p-1.5 shadow-surface-sm backdrop-blur-sm">
 				<button
 					type="button"
 					disabled={busy}
@@ -95,7 +95,11 @@ export function AgentLauncherFields({
 						setThinking("");
 						setPick("none");
 					}}
-					className={`block w-full px-2 py-2 text-left text-[14px] ${model === "" ? "bg-primary/20 text-base-content" : ""}`}
+					className={`press-scale block w-full rounded-xl px-3 py-2 text-left text-[14px] transition-all ${
+						model === ""
+							? "border border-primary/40 bg-primary/20 font-medium text-base-content"
+							: "text-base-content/80 active:bg-base-200"
+					}`}
 				>
 					Agent default
 				</button>
@@ -108,14 +112,18 @@ export function AgentLauncherFields({
 							setModel(m.id);
 							setPick("none");
 						}}
-						className={`block w-full truncate px-2 py-2 text-left text-[14px] ${model === m.id ? "bg-primary/20 text-base-content" : ""}`}
+						className={`press-scale block w-full truncate rounded-xl px-3 py-2 text-left font-mono text-[13.5px] transition-all ${
+							model === m.id
+								? "border border-primary/40 bg-primary/20 font-medium text-base-content"
+								: "text-base-content/80 active:bg-base-200"
+						}`}
 					>
 						{m.id}
 					</button>
 				))}
 			</div>
 		) : pick === "thinking" ? (
-			<div className="rounded-xl border border-muted/30">
+			<div className="flex flex-col gap-1 rounded-2xl border border-base-content/10 bg-base-300/60 p-1.5 shadow-surface-sm backdrop-blur-sm">
 				<button
 					type="button"
 					disabled={busy}
@@ -123,7 +131,11 @@ export function AgentLauncherFields({
 						setThinking("");
 						setPick("none");
 					}}
-					className={`block w-full px-2 py-2 text-left text-[14px] ${thinking === "" ? "bg-primary/20 text-base-content" : ""}`}
+					className={`press-scale block w-full rounded-xl px-3 py-2 text-left text-[14px] transition-all ${
+						thinking === ""
+							? "border border-primary/40 bg-primary/20 font-medium text-base-content"
+							: "text-base-content/80 active:bg-base-200"
+					}`}
 				>
 					Model default
 				</button>
@@ -136,7 +148,11 @@ export function AgentLauncherFields({
 							setThinking(lv);
 							setPick("none");
 						}}
-						className={`block w-full px-2 py-2 text-left text-[14px] ${thinking === lv ? "bg-primary/20 text-base-content" : ""}`}
+						className={`press-scale block w-full rounded-xl px-3 py-2 text-left text-[14px] capitalize transition-all ${
+							thinking === lv
+								? "border border-primary/40 bg-primary/20 font-medium text-base-content"
+								: "text-base-content/80 active:bg-base-200"
+						}`}
 					>
 						{lv}
 					</button>

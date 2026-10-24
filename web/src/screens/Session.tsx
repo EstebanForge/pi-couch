@@ -15,6 +15,7 @@ import {
 import { Composer } from "../components/Composer";
 import { DialogActions } from "../components/DialogActions";
 import {
+	FaArrowDown,
 	FaCaretDown,
 	FaCaretRight,
 	FaCheck,
@@ -222,11 +223,11 @@ function ToolStep({
 				)}
 				<span className="truncate font-mono text-[11px] text-muted">{summary}</span>
 				{live && pair.call?.time ? (
-					<span className="ml-auto shrink-0 font-mono text-[11px] text-accent">
+					<span className="ml-auto shrink-0 font-mono text-[11px] text-accent tabular-nums">
 						<Elapsed from={pair.call.time} />
 					</span>
 				) : last?.duration_ms ? (
-					<span className="ml-auto shrink-0 font-mono text-[11px] text-muted">
+					<span className="ml-auto shrink-0 font-mono text-[11px] text-muted tabular-nums">
 						{fmtDur(last.duration_ms)}
 					</span>
 				) : null}
@@ -268,15 +269,15 @@ function itemRow(
 	switch (it.kind) {
 		case "user":
 			return (
-				<div className="flex justify-end px-3 py-1">
-					<div className="max-w-[85%] rounded-2xl bg-primary/20 px-3 py-2 text-[15px] whitespace-pre-wrap [overflow-wrap:anywhere]">
+				<div className="flex justify-end px-3.5 py-1.5">
+					<div className="max-w-[85%] rounded-2xl rounded-br-sm border border-primary/25 bg-gradient-to-br from-primary/25 to-primary/15 px-3.5 py-2.5 text-[15px] leading-relaxed shadow-surface-sm whitespace-pre-wrap [overflow-wrap:anywhere]">
 						{it.text}
 						{!!it.images && (
 							<ChatImage
 								src={`/api/sessions/${encodeURIComponent(sessionKey)}/items/${it.seq}/image`}
 								zoom={zoom}
 								alt="attachment"
-								className="mt-1 max-h-64 rounded-xl"
+								className="mt-1.5 max-h-64 rounded-xl border border-primary/20"
 							/>
 						)}
 					</div>
@@ -373,8 +374,14 @@ function ChatImage({
 	className: string;
 }) {
 	return (
-		<button type="button" className="block cursor-zoom-in" onClick={() => zoom(src)}>
-			<img src={src} alt={alt} loading="lazy" draggable={false} className={className} />
+		<button type="button" className="press-scale block cursor-zoom-in" onClick={() => zoom(src)}>
+			<img
+				src={src}
+				alt={alt}
+				loading="lazy"
+				draggable={false}
+				className={`${className} aspect-auto min-h-[60px] bg-base-300/60 object-contain`}
+			/>
 		</button>
 	);
 }
@@ -500,15 +507,17 @@ function Lightbox({ src, onClose }: { src: string; onClose: () => void }) {
 const ThinkingGroup = memo(function ThinkingGroup({ items }: { items: StreamItem[] }) {
 	const [open, setOpen] = useState(false);
 	return (
-		<div className="px-3 py-0.5">
+		<div className="px-3 py-1">
 			<button
 				type="button"
-				className="flex min-h-9 w-full items-center gap-2 rounded-lg border border-secondary/30 bg-secondary/10 px-2 py-2 text-left text-[12px] text-secondary"
+				className="press-scale flex min-h-[38px] w-full items-center gap-2 rounded-xl border border-secondary/35 bg-secondary/10 px-3 py-2 text-left text-[12px] text-secondary shadow-surface-sm"
 				onClick={() => setOpen(!open)}
 			>
 				<span>{open ? <FaCaretDown size={12} /> : <FaCaretRight size={12} />}</span>
-				<span className="shrink-0 italic">Thinking</span>
-				<span className="text-[11px] opacity-60">{items.length}</span>
+				<span className="shrink-0 font-medium italic">Thinking</span>
+				<span className="rounded-full bg-secondary/20 px-1.5 py-0.5 text-[10px] font-mono opacity-80">
+					{items.length}
+				</span>
 			</button>
 			{open && (
 				<div className="mt-0.5 space-y-2 px-1">
@@ -542,20 +551,20 @@ const Block = memo(function Block({
 			// Same box as the real user row: when the append frame swaps
 			// this for the item the height must not change, or Virtuoso
 			// re-measures and the view twitches.
-			<div className="flex justify-end px-3 py-1">
+			<div className="flex justify-end px-3.5 py-1.5">
 				<div
-					className={`bubble-in max-w-[85%] rounded-2xl bg-primary/20 px-3 py-2 text-[15px] whitespace-pre-wrap [overflow-wrap:anywhere] ${
-						p.state === "unconfirmed" ? "bg-warning/30" : ""
-					} ${p.state === "sending" ? "opacity-70" : ""}`}
+					className={`bubble-in max-w-[85%] rounded-2xl rounded-br-sm border border-primary/25 bg-gradient-to-br from-primary/25 to-primary/15 px-3.5 py-2.5 text-[15px] leading-relaxed shadow-surface-sm whitespace-pre-wrap [overflow-wrap:anywhere] ${
+						p.state === "unconfirmed" ? "border-warning/40 bg-warning/20 shadow-none" : ""
+					} ${p.state === "sending" ? "opacity-75" : ""}`}
 				>
 					{p.state === "sending" && <Spinner size={14} className="mr-1 text-primary" />}
 					{p.state === "queued" && <FaHourglassHalf size={13} className="mr-1 inline-block" />}
 					{p.text}
 					{p.state === "queued" && (
-						<div className="text-[10px] text-muted">queued for the end of the turn</div>
+						<div className="mt-1 text-[10px] text-muted">queued for the end of the turn</div>
 					)}
 					{p.state === "unconfirmed" && (
-						<div className="text-[10px] text-warning">
+						<div className="mt-1 text-[10px] text-warning">
 							Not confirmed. Check the transcript before sending again.
 						</div>
 					)}
@@ -597,14 +606,16 @@ const Block = memo(function Block({
 	const open = override ?? live;
 	const names = [...new Set(block.items.map((i) => i.tool_name || i.kind))].slice(0, 3).join(", ");
 	return (
-		<div className="px-3 py-0.5">
+		<div className="px-3 py-1">
 			<button
 				type="button"
-				className="flex min-h-9 w-full items-center gap-2 rounded-lg bg-base-200 px-2 py-2 text-left text-[12px] text-muted"
+				className="press-scale flex min-h-[38px] w-full items-center gap-2 rounded-xl border border-base-content/6 bg-base-200/75 px-3 py-2 text-left text-[12px] text-muted shadow-surface-sm"
 				onClick={() => setOverride(!open)}
 			>
-				<span>{open ? <FaCaretDown size={12} /> : <FaCaretRight size={12} />}</span>
-				<span>
+				<span className="text-muted/80">
+					{open ? <FaCaretDown size={12} /> : <FaCaretRight size={12} />}
+				</span>
+				<span className="font-medium text-base-content/85">
 					{block.items.length} {block.items.length === 1 ? "step" : "steps"} · {names}
 					{block.items.length > 3 ? "…" : ""}
 				</span>
@@ -643,6 +654,8 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 	const [lightbox, setLightbox] = useState<string | null>(null);
 	useSheetBack(!!lightbox, () => setLightbox(null));
 	const [notice, setNotice] = useState("");
+	const [unreadCount, setUnreadCount] = useState(0);
+	const [atBottom, setAtBottom] = useState(true);
 	const pinned = useRef(true);
 	const virtuoso = useRef<VirtuosoHandle | null>(null);
 	const scroller = useRef<HTMLDivElement | null>(null);
@@ -661,9 +674,12 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 					setFirstItemIndex(INDEX_BASE);
 					setMoreHistory(true);
 					dispatch({ t: "reset", p: JSON.parse(data) as TranscriptReset });
-				} else if (name === "append")
+				} else if (name === "append") {
 					dispatch({ t: "append", p: JSON.parse(data) as TranscriptAppend });
-				else if (name === "status")
+					if (!pinned.current) {
+						setUnreadCount((c) => c + 1);
+					}
+				} else if (name === "status")
 					dispatch({ t: "status", p: JSON.parse(data) as TranscriptStatus });
 			},
 		});
@@ -879,12 +895,12 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 				paddingBottom: "var(--safe-bottom, 0px)",
 			}}
 		>
-			<header className="flex h-11 shrink-0 items-center gap-1 border-b border-base-300 px-1">
+			<header className="header-glass flex h-12 shrink-0 items-center gap-1.5 border-b border-base-content/8 px-1.5 shadow-surface-sm">
 				<button
 					type="button"
 					onClick={() => history.back()}
 					aria-label="Back"
-					className="flex size-11 items-center justify-center text-[18px] active:scale-95"
+					className="press-scale flex size-11 items-center justify-center rounded-xl text-muted active:text-base-content"
 				>
 					<FaChevronLeft size={20} />
 				</button>
@@ -896,14 +912,16 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 						/>
 					) : (
 						<span
-							className={`size-2 shrink-0 rounded-full ${dot}`}
+							className={`size-2.5 shrink-0 rounded-full transition-all duration-300 ${dot}`}
 							title={state.status || "idle"}
 						/>
 					)}
-					<span className="truncate text-[15px]">{title}</span>
+					<span className="truncate text-[15.5px] font-semibold tracking-tight text-base-content">
+						{title}
+					</span>
 					{(state.dialog || state.awaiting) && (
 						<span
-							className="shrink-0 rounded-full border border-accent/60 px-2 py-0.5 text-[11px] text-accent"
+							className="shrink-0 rounded-full border border-accent/60 bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent shadow-[0_0_6px_rgba(55,181,180,0.3)]"
 							title="pi waits on a dialog - open the Terminal"
 						>
 							{state.dialog ? state.dialog.title || state.dialog.kind : "input"}
@@ -913,7 +931,7 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 			</header>
 			{/* tool strip */}
 			<div
-				className="flex gap-1 overflow-x-auto border-b border-base-300 px-2 py-1"
+				className="flex gap-1.5 overflow-x-auto border-b border-base-content/6 bg-base-200/50 px-2.5 py-1.5 backdrop-blur-sm"
 				style={{ scrollbarWidth: "none" }}
 			>
 				{TOOLS.filter((t) => t.placement === "strip").map((t) => (
@@ -921,9 +939,9 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 						key={t.id}
 						type="button"
 						disabled={t.disabled}
-						className={`min-h-[36px] shrink-0 rounded-lg px-3 text-[13px] ${
-							t.disabled ? "text-muted/40" : "text-base-content active:scale-95"
-						} ${t.id === "search" && query !== null ? "bg-base-300" : ""}`}
+						className={`press-scale min-h-[36px] shrink-0 rounded-xl px-3.5 text-[13px] font-medium transition-all ${
+							t.disabled ? "text-muted/40" : "text-base-content active:bg-base-300"
+						} ${t.id === "search" && query !== null ? "bg-base-300 text-accent font-semibold" : "bg-base-300/40"}`}
 						onClick={() => {
 							if (t.id === "search") setQuery(query === null ? "" : null);
 							else if (t.href) navigate(t.href(sessionKey), { replace: true, dir: "side" });
@@ -934,19 +952,19 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 				))}
 				<button
 					type="button"
-					className="ml-auto min-h-[36px] shrink-0 rounded-lg px-3 text-[13px] text-base-content active:scale-95"
+					className="press-scale ml-auto min-h-[36px] shrink-0 rounded-xl bg-base-300/40 px-3 text-[13px] text-base-content active:bg-base-300"
 					onClick={() => setOverflow(true)}
 				>
 					<FaEllipsis size={18} />
 				</button>
 			</div>
 			{query !== null && (
-				<div className="border-b border-base-300 px-3 py-1">
+				<div className="border-b border-base-content/8 bg-base-200/40 px-3 py-1.5 backdrop-blur-sm">
 					<input
 						value={query}
 						onChange={(e) => setQuery(e.target.value)}
 						placeholder="Filter the transcript…"
-						className="w-full rounded-lg bg-base-200 px-3 py-2 text-[16px] outline-none"
+						className="w-full rounded-xl border border-base-content/10 bg-base-200 px-3.5 py-2 text-[15px] outline-none transition-all focus:border-primary/60 focus:shadow-[0_0_0_2px_rgba(64,157,212,0.18)]"
 					/>
 				</div>
 			)}
@@ -983,8 +1001,10 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 					startReached={loadOlder}
 					followOutput={(isAtBottom) => (pinned.current && isAtBottom ? "auto" : false)}
 					atBottomThreshold={90}
-					atBottomStateChange={(atBottom) => {
-						pinned.current = atBottom;
+					atBottomStateChange={(bottom) => {
+						pinned.current = bottom;
+						setAtBottom(bottom);
+						if (bottom) setUnreadCount(0);
 					}}
 					initialTopMostItemIndex={Math.max(0, blocks.length - 1)}
 					className="h-full"
@@ -995,6 +1015,29 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 					<div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 text-[13px] text-muted">
 						{state.status === "" ? <Spinner size={22} /> : <span>Nothing here yet.</span>}
 					</div>
+				)}
+				{!atBottom && (
+					<button
+						type="button"
+						onClick={() => {
+							pinned.current = true;
+							virtuoso.current?.scrollToIndex({
+								index: blocks.length - 1,
+								align: "end",
+								behavior: "smooth",
+							});
+							setUnreadCount(0);
+						}}
+						className="press-scale absolute bottom-3 right-4 z-20 flex items-center gap-1.5 rounded-full border border-base-content/10 bg-base-200/95 px-3.5 py-2 text-[12px] font-medium text-base-content shadow-surface-lg backdrop-blur-md active:bg-base-300"
+					>
+						<FaArrowDown size={12} className="text-primary" />
+						<span>Latest</span>
+						{unreadCount > 0 && (
+							<span className="ml-1 rounded-full bg-primary px-1.5 py-0.2 text-[10px] font-bold text-primary-content">
+								{unreadCount}
+							</span>
+						)}
+					</button>
 				)}
 			</div>
 
