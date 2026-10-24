@@ -10,7 +10,7 @@ Nothing gets locked into the UI. Sessions stay plain pi jsonl files, herdr stays
 
 ## Running it
 
-The honest requirements: a Linux or macOS box with pi 1.3.x and herdr 0.9.x on it, Go and node to build, and a tunnel you trust. herdr drives the sessions; Pi Couch speaks its socket protocol and nothing else.
+The honest requirements: a Linux or macOS box with pi 1.3.x and herdr 0.9.x on it, Go and node to build, and a tunnel. I use Tailscale and nothing else; it puts a private HTTPS address on the whole thing with zero config beyond the serve line below. herdr drives the sessions; Pi Couch speaks its socket protocol and nothing else.
 
 ```sh
 ./scripts/build.sh              # builds the SPA, then the binary
