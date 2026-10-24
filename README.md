@@ -30,7 +30,11 @@ bin/couch-pi --addr 127.0.0.1:8090
 curl localhost:8090/healthz     # ok
 ```
 
-The server binds 127.0.0.1 and trusts whatever sits in front of it. There is no login screen. I front mine with `tailscale serve --bg --https=8443 8090` and set `origin` in the config to the public URL, so cross-site posts get rejected. Do not port-forward it bare to the internet.
+The server binds 127.0.0.1 and trusts whatever sits in front of it. I front mine with `tailscale serve --bg --https=8443 8090` and set `origin` in the config to the public URL, so cross-site posts get rejected.
+
+## Security
+
+There is no login and there is no token. The security model is the tunnel: the server only listens on loopback, and whatever can reach the tunneled address can drive your agents — read, steer, run commands, commit. Mine is Tailscale, so the address is reachable only inside my tailnet, and the tailnet is the trust boundary. That is the entire model. Do not port-forward this to the public internet; that hands your machine to anyone who finds the port. If you need exposure beyond a private tunnel, add auth in front — a reverse proxy with basic auth works — before you blame the door you left open.
 
 Two wiring steps. First, the dialog bridge (pi loads extensions at agent start, so restart your agents after linking it):
 

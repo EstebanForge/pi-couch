@@ -1,0 +1,32 @@
+name: android
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+
+      # Debug builds sign themselves with the runner's auto-generated
+      # debug keystore. That is a test key, not a release key; swap in a
+      # real keystore via secrets before distributing signed builds.
+      - name: Build debug APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pi-couch-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
