@@ -1,8 +1,7 @@
 name: android
 
+# Manual only: the APK moves on its own schedule, never with the server.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -26,7 +25,10 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
 
+      # Short retention: private-repo artifacts eat the account storage
+      # quota, and the quota refill takes hours.
       - uses: actions/upload-artifact@v4
         with:
           name: pi-couch-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 7

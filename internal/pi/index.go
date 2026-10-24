@@ -97,7 +97,9 @@ type fileID struct {
 
 func statID(st os.FileInfo) fileID {
 	if sys, ok := st.Sys().(*syscall.Stat_t); ok {
-		return fileID{dev: sys.Dev, ino: sys.Ino}
+		// Dev's type is platform-specific (uint64 on linux, int32 on
+		// darwin); the explicit conversion keeps the cross-builds honest.
+		return fileID{dev: uint64(sys.Dev), ino: uint64(sys.Ino)}
 	}
 	return fileID{}
 }

@@ -1,0 +1,48 @@
+name: binaries
+
+# Manual only: the server binary moves on its own schedule, never with
+# the APK.
+on:
+  workflow_dispatch:
+
+jobs:
+  binaries:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # The binary embeds the SPA (vite emits straight into
+      # internal/web/app), so the web build comes first and once.
+      - name: Build the SPA
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Cross-build
+        run: |
+          set -euo pipefail
+          for pair in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            os=${pair%/*}
+            arch=${pair#*/}
+            GOOS=$os GOARCH=$arch go build -trimpath -o "pi-couch-$os-$arch" ./cmd/couch-pi
+          done
+          ls -la pi-couch-*
+
+      # Short retention: private-repo artifacts eat the account storage
+      # quota, and the quota refill takes hours.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pi-couch-binaries
+          path: pi-couch-*
+          retention-days: 7
