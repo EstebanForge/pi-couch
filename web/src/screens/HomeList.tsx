@@ -1,5 +1,6 @@
 import { Fab } from "konsta/react";
 import { useEffect, useRef, useState } from "react";
+import { getHome } from "../api";
 import type { SessionMeta, SessionsPatch } from "../api";
 import {
 	FaBell,
@@ -31,6 +32,7 @@ const SEARCH_DEBOUNCE_MS = 300;
 export default function HomeList() {
 	const { sessions, total, badges, driven, awaiting, status, error, load, apply } = useSessions();
 	const [query, setQuery] = useState("");
+	const [home, setHome] = useState("");
 	const [limit, setLimit] = useState(LIST_WINDOW);
 	const [loadingMore, setLoadingMore] = useState(false);
 	const [createOpen, setCreateOpen] = useState(false);
@@ -82,6 +84,10 @@ export default function HomeList() {
 
 	useEffect(() => {
 		void pushState().then(setPush);
+	}, []);
+
+	useEffect(() => {
+		void getHome().then(setHome);
 	}, []);
 
 	// Windowed home: 15 rows at first, search asks the server (50
@@ -148,6 +154,7 @@ export default function HomeList() {
 				isAwaiting={!!awaiting[s.path]}
 				drivenMeta={driven[s.path]}
 				index={index}
+				home={home}
 			/>
 		);
 	};
@@ -406,12 +413,14 @@ function SessionCard({
 	isAwaiting,
 	drivenMeta,
 	index = 0,
+	home,
 }: {
 	s: SessionMeta;
 	st: string;
 	isAwaiting: boolean;
 	drivenMeta?: { label?: string; title?: string };
 	index?: number;
+	home: string;
 }) {
 	const ref = useRef<HTMLButtonElement>(null);
 	useTouchRipple(ref);
@@ -443,7 +452,7 @@ function SessionCard({
 				<span className="block truncate text-[15.5px] font-medium tracking-tight text-base-content">
 					{short(s.name || s.cwd.split("/").filter(Boolean).pop() || s.key, 60)}
 				</span>
-				<span className="block truncate text-[12.5px] text-muted">{short(tildify(s.cwd), 48)}</span>
+				<span className="block truncate text-[12.5px] text-muted">{short(tildify(s.cwd, home), 48)}</span>
 				{(drivenMeta?.label || drivenMeta?.title) && (
 					<span className="mt-0.5 block truncate text-[11px] font-mono text-muted/75">
 						{[drivenMeta.label, drivenMeta.title].filter(Boolean).join(" · ")}

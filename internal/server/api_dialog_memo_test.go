@@ -216,10 +216,11 @@ func streamTestAppWithHerdr(t *testing.T, sock string) (*app, string, http.Handl
 		logger:      slog.New(slog.NewTextHandler(testDiscard{}, nil)),
 		idx:         pi.NewIndex(root),
 		herdr:       herdr.NewAt(sock),
+		home:        testHome(),
 		watcher:     w,
 		answered:    newDialogMemos(),
 		models:      newModelsCache(filepath.Join(t.TempDir(), "models.json")),
-		memory:      newMemoryProbe(),
+		memory:      newMemoryProbe("", ""),
 		dialogWake:  make(chan struct{}, 1),
 		dialogLatch: map[string]*dialogWire{},
 	}

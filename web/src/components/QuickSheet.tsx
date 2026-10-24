@@ -1,6 +1,6 @@
 import { Sheet } from "konsta/react";
 import { useEffect, useState } from "react";
-import { createQuickAgent } from "../api";
+import { createQuickAgent, getHome } from "../api";
 import { tildify } from "../fmt";
 import { navigate, useSheetBack } from "../nav";
 import { quickPath } from "../prefs";
@@ -16,11 +16,14 @@ export function QuickSheet({ opened, onClose }: { opened: boolean; onClose: () =
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState("");
 
+	const [home, setHome] = useState("");
+
 	useEffect(() => {
 		if (!opened) return;
 		setFields({ body: "", uploading: false });
 		setBusy(false);
 		setError("");
+		void getHome().then(setHome);
 	}, [opened]);
 
 	const create = () => {
@@ -49,7 +52,7 @@ export function QuickSheet({ opened, onClose }: { opened: boolean; onClose: () =
 				<div className="text-[13px] font-bold tracking-wider text-muted uppercase">Quick agent</div>
 
 				<div className="rounded-xl border border-base-content/6 bg-base-300/40 px-3 py-1.5 truncate text-[12.5px] font-mono text-muted">
-					{tildify(quickPath())}
+					{tildify(quickPath(), home)}
 				</div>
 
 				<AgentLauncherFields opened={opened} busy={busy} onChange={setFields} />

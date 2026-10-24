@@ -77,6 +77,11 @@ func asstLineServer(id, parent string, total int64) string {
 	return fmt.Sprintf(`{"type":"message","id":"%s","parentId":%s,"timestamp":"2026-10-10T12:00:04.000Z","message":{"role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"input":10,"output":5,"totalTokens":%d,"cost":{"total":0.01}}}}`, id, p, total)
 }
 
+func testHome() string {
+	h, _ := os.UserHomeDir()
+	return h
+}
+
 func streamTestApp(t *testing.T) (*app, string, http.Handler) {
 	t.Helper()
 	root := t.TempDir()
@@ -95,10 +100,11 @@ func streamTestApp(t *testing.T) (*app, string, http.Handler) {
 		logger:      slog.New(slog.NewTextHandler(testDiscard{}, nil)),
 		idx:         pi.NewIndex(root),
 		herdr:       herdr.New(),
+		home:        testHome(),
 		watcher:     w,
 		answered:    newDialogMemos(),
 		models:      newModelsCache(filepath.Join(t.TempDir(), "models.json")),
-		memory:      newMemoryProbe(),
+		memory:      newMemoryProbe("", ""),
 		dialogWake:  make(chan struct{}, 1),
 		dialogLatch: map[string]*dialogWire{},
 	}

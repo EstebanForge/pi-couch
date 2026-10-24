@@ -12,13 +12,25 @@ Nothing gets locked into the UI. Sessions stay plain pi jsonl files, herdr stays
 
 The honest requirements: a Linux or macOS box with pi 1.3.x and herdr 0.9.x on it, Go and node to build, and a tunnel. I use Tailscale and nothing else; it puts a private HTTPS address on the whole thing with zero config beyond the serve line below. herdr drives the sessions; Pi Couch speaks its socket protocol and nothing else.
 
+## Configuring it
+
+Machine settings live in one commented file, `~/.config/pi-couch/config.toml`. Copy `pi-couch.example.toml` there and edit. Every key is optional; run with no file and you get safe defaults. Command-line flags (`--addr`, `--origin`, `--sessions`) override the file when you just want to poke at something.
+
+- `addr` — where the HTTP server listens. Keep it on loopback; the tunnel fronts TLS. Default `127.0.0.1:8090`.
+- `origin` — the public URL your phone uses, e.g. `https://yourbox.your-tailnet.ts.net:8443`. The cross-site guard accepts exactly this host, so set it, or state-changing requests only work from loopback.
+- `sessions_dir` — where pi writes sessions. Defaults to `~/.pi/agent/sessions`, which is what you want.
+- `uploads_dir` — where attachments land before their paths get pasted into messages. Default `/tmp/couch-pi-uploads`; the pi agents on the same machine read them from there.
+- `memory_url` and `memory_secret` — the agentmemory health probe behind the chip in the composer. Defaults to `localhost:3111`; set the URL if yours is elsewhere. Put the secret in the `AGENTMEMORY_SECRET` environment variable instead of the file, and keep the file 0600 either way.
+
+The environment variables `AGENTMEMORY_URL` and `AGENTMEMORY_SECRET` override the config values; that is how I wire the secret into the systemd unit without it touching the repo.
+
 ```sh
 ./scripts/build.sh              # builds the SPA, then the binary
 bin/couch-pi --addr 127.0.0.1:8090
 curl localhost:8090/healthz     # ok
 ```
 
-The server binds 127.0.0.1 and trusts whatever sits in front of it. There is no login screen. I front mine with `tailscale serve --bg --https=8443 8090` and pass `--origin` with the public URL, so cross-site posts get rejected. Do not port-forward it bare to the internet.
+The server binds 127.0.0.1 and trusts whatever sits in front of it. There is no login screen. I front mine with `tailscale serve --bg --https=8443 8090` and set `origin` in the config to the public URL, so cross-site posts get rejected. Do not port-forward it bare to the internet.
 
 Two wiring steps. First, the dialog bridge (pi loads extensions at agent start, so restart your agents after linking it):
 

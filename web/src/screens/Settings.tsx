@@ -44,7 +44,7 @@ export default function SettingsScreen() {
 
 	useEffect(() => {
 		getVersion()
-			.then(setVersion)
+			.then((v) => setVersion(v.version))
 			.catch(() => {});
 	}, []);
 

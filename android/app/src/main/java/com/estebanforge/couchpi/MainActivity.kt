@@ -58,7 +58,7 @@ class MainActivity : Activity() {
         }
     }
 
-    // First-launch card: confirm or replace the default URL, then connect.
+    // First-launch card: enter the server URL, then connect.
     private fun firstRunView(): View {
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -406,7 +406,8 @@ class MainActivity : Activity() {
         // Tailscale serve fronts the loopback-only Go server; the tailnet is
         // the boundary (project P1). Same URL works on LAN and off-site.
         // :8443 — Wicket stacks publish 0.0.0.0:443 machine-wide.
-        const val DEFAULT_URL = "https://box.example.ts.net:8443"
+        // Blank asks on first launch; preset it here to skip the card.
+        const val DEFAULT_URL = ""
         const val PREF_URL = "url"
         const val speechReq = 7002
 

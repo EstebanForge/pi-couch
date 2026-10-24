@@ -1,0 +1,37 @@
+# Pi Couch configuration.
+#
+# Copy this file to ~/.config/pi-couch/config.toml on the machine that
+# runs the server. Every key is optional: with no config file the server
+# listens on loopback with safe defaults. Flags on the command line
+# override values here.
+
+# Listen address for the HTTP server. Keep it on loopback and let a
+# tunnel front TLS; binding 0.0.0.0 exposes the agent with no login.
+addr = "127.0.0.1:8090"
+
+# The public https origin your phone uses. The cross-site guard accepts
+# exactly this host, so state-changing requests from any other site are
+# rejected. With Tailscale this is your machine's tailnet address:
+#   origin = "https://yourbox.your-tailnet.ts.net:8443"
+# Leave empty to keep the server loopback-only.
+origin = ""
+
+# pi sessions root. The default matches pi's own layout.
+#   sessions_dir = "/home/you/.pi/agent/sessions"
+sessions_dir = ""
+
+# Where uploaded attachments land. Keep it somewhere the pi agents can
+# read: the upload's path is pasted into the message you send.
+#   uploads_dir = "/tmp/pi-couch-uploads"
+uploads_dir = "/tmp/couch-pi-uploads"
+
+# agentmemory health probe, behind the memory chip in the composer.
+# Defaults to localhost:3111. The AGENTMEMORY_URL environment variable
+# overrides this value.
+#   memory_url = "http://192.168.1.20:3111"
+memory_url = ""
+
+# Bearer secret for the memory probe, if your agentmemory has one.
+# Prefer the AGENTMEMORY_SECRET environment variable so the secret
+# stays out of this file; whatever you put here, keep the file 0600.
+memory_secret = ""

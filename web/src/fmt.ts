@@ -13,8 +13,16 @@ export function short(text: string, max: number): string {
 	return line.length > max ? `${line.slice(0, max - 1)}…` : line;
 }
 
-export function tildify(path: string): string {
-	return path.replace(/^\/home\/esteban(?=\/|$)/, "~");
+// tildify shortens the server's home prefix to ~. The server's home
+// rides /api/version; without it a generic single-user /home/<user>
+// match still applies.
+export function tildify(path: string, home = ""): string {
+	if (home) {
+		const esc = home.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+		const re = new RegExp(`^${esc}(?=/|$)`);
+		return path.replace(re, "~");
+	}
+	return path.replace(/^\/home\/[^/]+(?=\/|$)/, "~");
 }
 
 // Chilean number format: dot as the thousand separator, comma decimals.

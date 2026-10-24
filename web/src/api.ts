@@ -133,11 +133,19 @@ export async function getSessions(limit?: number, q?: string): Promise<SessionsS
 	return (await res.json()) as SessionsSnapshot;
 }
 
-export async function getVersion(): Promise<string> {
+export async function getVersion(): Promise<{ version: string; home: string }> {
 	const res = await fetch("/api/version");
 	if (!res.ok) throw new Error(`version ${res.status}`);
-	const out = (await res.json()) as { version: string };
-	return out.version;
+	return (await res.json()) as { version: string; home: string };
+}
+
+// Server home, fetched once; path tildify needs it.
+let homePromise: Promise<string> | undefined;
+export function getHome(): Promise<string> {
+	homePromise ??= getVersion()
+		.then((v) => v.home)
+		.catch(() => "");
+	return homePromise;
 }
 
 // --- new agent: folder picker and create ---

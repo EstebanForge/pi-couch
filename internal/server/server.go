@@ -12,12 +12,14 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/EstebanForge/couch-pi/internal/config"
 	"github.com/EstebanForge/couch-pi/internal/herdr"
 	"github.com/EstebanForge/couch-pi/internal/pi"
 	"github.com/EstebanForge/couch-pi/internal/push"
@@ -45,7 +47,9 @@ type app struct {
 	st            *store.Store
 	pusher        *push.Sender
 	vapidPublic   string
-	allowedOrigin string // -origin; the public https origin served through tailscale
+	allowedOrigin string // config origin; the public https origin served through tailscale
+	uploadDir     string // config uploads_dir; where POST /api/upload lands
+	home          string // server home; the client tildifies paths against it
 	awaiting      *awaitingDetector
 	bridgeMu      sync.Mutex
 	bridge        map[string]bridgeEntry // session path -> open pi dialog (bridge extension)
@@ -58,8 +62,9 @@ type app struct {
 	quotas        *quotas.Service        // provider quotas & limits tracker
 }
 
-func Run(ctx context.Context, logger *slog.Logger, addr string, idx *pi.Index, hc *herdr.Client, w *pi.Watcher, st *store.Store, pusher *push.Sender, allowedOrigin string) error {
-	a := &app{logger: logger, idx: idx, herdr: hc, watcher: w, st: st, pusher: pusher, allowedOrigin: allowedOrigin, answered: newDialogMemos(), models: newModelsCache(filepath.Join(st.Dir(), "models.json")), memory: newMemoryProbe(), dialogWake: make(chan struct{}, 1), dialogLatch: map[string]*dialogWire{}, quotas: quotas.NewService()}
+func Run(ctx context.Context, logger *slog.Logger, cfg *config.Config, idx *pi.Index, hc *herdr.Client, w *pi.Watcher, st *store.Store, pusher *push.Sender) error {
+	home, _ := os.UserHomeDir()
+	a := &app{logger: logger, idx: idx, herdr: hc, watcher: w, st: st, pusher: pusher, allowedOrigin: cfg.Origin, uploadDir: cfg.UploadsDir, home: home, answered: newDialogMemos(), models: newModelsCache(filepath.Join(st.Dir(), "models.json")), memory: newMemoryProbe(cfg.MemoryURL, cfg.MemorySecret), dialogWake: make(chan struct{}, 1), dialogLatch: map[string]*dialogWire{}, quotas: quotas.NewService()}
 	if pusher != nil {
 		a.vapidPublic = pusher.Public
 	}
@@ -69,11 +74,11 @@ func Run(ctx context.Context, logger *slog.Logger, addr string, idx *pi.Index, h
 	a.awaiting.onChange = a.wakeDialog
 	go a.awaiting.run(ctx)
 	srv := &http.Server{
-		Addr:              addr,
+		Addr:              cfg.Addr,
 		Handler:           a.guard(a.routes()),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
-	logger.Info("couch-pi listening", "addr", addr)
+	logger.Info("couch-pi listening", "addr", cfg.Addr)
 	srvErr := make(chan error, 1)
 	go func() {
 		err := srv.ListenAndServe()

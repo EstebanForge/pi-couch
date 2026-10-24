@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"flag"
 	"log/slog"
@@ -11,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/EstebanForge/couch-pi/internal/config"
 	"github.com/EstebanForge/couch-pi/internal/herdr"
 	"github.com/EstebanForge/couch-pi/internal/pi"
 	"github.com/EstebanForge/couch-pi/internal/push"
@@ -19,12 +21,21 @@ import (
 )
 
 func main() {
-	addr := flag.String("addr", "127.0.0.1:8090", "listen address; bind loopback only, tailscale serve fronts TLS")
-	sessions := flag.String("sessions", "", "pi sessions root (default ~/.pi/agent/sessions)")
-	origin := flag.String("origin", "", "public https origin (e.g. https://<host>.ts.net); cross-site POST guard allowlist")
+	addr := flag.String("addr", "", "listen address override (config: addr)")
+	sessions := flag.String("sessions", "", "pi sessions root override (config: sessions_dir)")
+	origin := flag.String("origin", "", "public https origin override (config: origin)")
 	flag.Parse()
 
-	root := *sessions
+	cfg, err := config.Load()
+	if err != nil {
+		slog.Error("config", "err", err)
+		os.Exit(1)
+	}
+	cfg.Addr = cmp.Or(*addr, cfg.Addr)
+	cfg.Origin = cmp.Or(*origin, cfg.Origin)
+	cfg.SessionsDir = cmp.Or(*sessions, cfg.SessionsDir)
+
+	root := cfg.SessionsDir
 	if root == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -71,7 +82,7 @@ func main() {
 	onEvent := notifyFunc(logger, idx, st, pusher)
 	go (&push.Watcher{HC: hc, Reconcile: 15 * time.Second, Stability: 2 * time.Second, WaitMax: 15 * time.Minute, Rearm: 5 * time.Second, OnEvent: onEvent, Log: logger}).Run(ctx)
 
-	if err := server.Run(ctx, logger, *addr, idx, hc, watcher, st, pusher, *origin); err != nil {
+	if err := server.Run(ctx, logger, &cfg, idx, hc, watcher, st, pusher); err != nil {
 		logger.Error("server exited", "err", err)
 		os.Exit(1)
 	}

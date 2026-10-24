@@ -35,9 +35,9 @@ type memoryProbe struct {
 	pending atomic.Bool
 }
 
-func newMemoryProbe() *memoryProbe {
-	m := newMemoryProbeAt(cmp.Or(os.Getenv("AGENTMEMORY_URL"), memoryDefaultURL))
-	m.secret = os.Getenv("AGENTMEMORY_SECRET")
+func newMemoryProbe(cfgURL, cfgSecret string) *memoryProbe {
+	m := newMemoryProbeAt(cmp.Or(os.Getenv("AGENTMEMORY_URL"), cfgURL, memoryDefaultURL))
+	m.secret = cmp.Or(os.Getenv("AGENTMEMORY_SECRET"), cfgSecret)
 	return m
 }
 

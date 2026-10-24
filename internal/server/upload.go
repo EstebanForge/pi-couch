@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
@@ -18,9 +19,9 @@ import (
 
 const maxUploadBytes = 10 << 20
 
-// uploadDir is /tmp so herdr's pi (same machine, no private-tmp in the
-// unit) can read it; the OS clears it like herdr's own clipboard dir.
-const uploadDir = "/tmp/couch-pi-uploads"
+// defaultUploadsDir is /tmp so herdr's pi (same machine, no private-tmp in
+// the unit) can read it; the OS clears it like herdr's own clipboard dir.
+const defaultUploadsDir = "/tmp/couch-pi-uploads"
 
 var sniffExts = map[string]string{
 	"image/png":  ".png",
@@ -47,10 +48,7 @@ func sanitizeExt(clientName, ctype string) string {
 }
 
 func (a *app) uploadHandler(w http.ResponseWriter, r *http.Request) {
-	dir := os.Getenv("COUCHPI_UPLOAD_DIR")
-	if dir == "" {
-		dir = uploadDir
-	}
+	dir := cmp.Or(os.Getenv("COUCHPI_UPLOAD_DIR"), a.uploadDir, defaultUploadsDir)
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
 	if err := r.ParseMultipartForm(maxUploadBytes); err != nil {
 		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "too large (10MB cap)"})

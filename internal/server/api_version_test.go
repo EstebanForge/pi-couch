@@ -19,9 +19,15 @@ func TestVersionEndpoint(t *testing.T) {
 	}
 	var out struct {
 		Version string `json:"version"`
+		Home    string `json:"home"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatalf("decode: %v", err)
+	}
+	// The client tildifies paths against the server's home; without it
+	// every card shows raw absolute paths.
+	if out.Home == "" {
+		t.Fatal("home missing from /api/version")
 	}
 	// The phone confirms deploys by eye: the shape is the contract.
 	re := regexp.MustCompile(`^\d+\.\d+\.\d+\+[0-9A-Za-z.+-]+$`)
