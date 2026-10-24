@@ -16,7 +16,7 @@ import { isWaiting, STATUS_DOT } from "../status";
 import { connectStream } from "../stream";
 
 const LIST_WINDOW = 10;
-const WINDOW_STEP = 5;
+const WINDOW_STEP = 10;
 const SEARCH_WINDOW = 50;
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -49,7 +49,11 @@ export default function HomeList() {
 	const loadMore = () => {
 		if (loadingMore) return;
 		setLoadingMore(true);
-		const prev = limit;
+		// Snapshot the count of rendered recents, not the raw fetch limit:
+		// driven/priority sessions sit in their own section above recentsUl,
+		// so recentsUl.children starts at index 0 for recents, and scrolling
+		// to visibleRecentsCount lands directly on the first newly added card.
+		const prevCount = needle ? searchList.length : visible.length;
 		const next = limit + WINDOW_STEP;
 		setTimeout(() => {
 			setLimit(next);
@@ -57,11 +61,14 @@ export default function HomeList() {
 				.then(() => {
 					if (needle) return;
 					requestAnimationFrame(() => {
-						recentsUl.current?.children[prev]?.scrollIntoView({ block: "start" });
+						recentsUl.current?.children[prevCount]?.scrollIntoView({
+							behavior: "smooth",
+							block: "start",
+						});
 					});
 				})
 				.finally(() => setLoadingMore(false));
-		}, 500);
+		}, 300);
 	};
 	const [push, setPush] = useState<PushState>("off");
 
@@ -295,7 +302,7 @@ export default function HomeList() {
 					type="button"
 					aria-label="Close menu"
 					onClick={() => setFabOpen(false)}
-					className="fixed inset-0 z-40 bg-black/50"
+					className="fixed inset-0 z-40 bg-black/60 backdrop-blur-xs transition-opacity duration-200"
 				/>
 			)}
 			{/* position:fixed overlays escape root/body padding, so the FAB
@@ -310,10 +317,10 @@ export default function HomeList() {
 				}`}
 			>
 				<div
-					className="absolute bottom-full right-0 mb-2 flex w-max flex-col items-end gap-2 transition-all"
+					className="absolute bottom-full right-0 mb-3 flex w-max flex-col items-end gap-2.5 transition-all duration-200 ease-[cubic-bezier(0.05,0.7,0.1,1)]"
 					style={{
 						opacity: fabOpen ? 1 : 0,
-						transform: fabOpen ? "none" : "translateY(8px)",
+						transform: fabOpen ? "none" : "translateY(12px) scale(0.95)",
 						pointerEvents: fabOpen ? "auto" : "none",
 					}}
 				>
@@ -337,6 +344,7 @@ export default function HomeList() {
 					aria-label={fabOpen ? "Close menu" : "New agent"}
 					icon={fabOpen ? <FaXmark size={24} /> : <FaPlus size={24} />}
 					onClick={() => setFabOpen(!fabOpen)}
+					className="shadow-[0_4px_20px_rgba(64,157,212,0.45)] transition-transform active:scale-95"
 					colors={{
 						bgMaterial: "bg-primary",
 						textMaterial: "text-primary-content",

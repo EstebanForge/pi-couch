@@ -672,7 +672,10 @@ export const Composer = memo(function Composer(props: {
 							placeholder="Search or enter model pattern…"
 							className="w-full rounded-2xl border border-base-content/10 bg-base-300/70 py-3 pr-4 pl-10 text-[15px] text-base-content placeholder:text-muted/70 shadow-inner outline-none transition-all focus:border-primary/60 focus:bg-base-300 focus:shadow-[0_0_0_2px_rgba(64,157,212,0.2)]"
 						/>
-						<FaSparkles size={14} className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-muted" />
+						<FaSparkles
+							size={14}
+							className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-muted"
+						/>
 					</div>
 
 					{modelQuery.trim() !== "" && (

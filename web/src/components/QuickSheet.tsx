@@ -44,12 +44,13 @@ export function QuickSheet({ opened, onClose }: { opened: boolean; onClose: () =
 			}}
 			className="pb-safe-all bg-base-200"
 		>
-			<div className="flex max-h-[80dvh] flex-col gap-2 p-3">
-				<div className="text-[13px] font-semibold tracking-wider text-muted uppercase">
-					Quick agent
-				</div>
+			<div className="flex max-h-[85dvh] flex-col gap-2.5 p-4">
+				<div className="mx-auto mb-1 h-1.5 w-12 rounded-full bg-base-content/25" />
+				<div className="text-[13px] font-bold tracking-wider text-muted uppercase">Quick agent</div>
 
-				<div className="truncate text-[12px] text-muted">{tildify(quickPath())}</div>
+				<div className="rounded-xl border border-base-content/6 bg-base-300/40 px-3 py-1.5 truncate text-[12.5px] font-mono text-muted">
+					{tildify(quickPath())}
+				</div>
 
 				<AgentLauncherFields opened={opened} busy={busy} onChange={setFields} />
 

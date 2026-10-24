@@ -664,6 +664,7 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 
 	const [streamRetry, setStreamRetry] = useState(0);
 	const retried = useRef(false);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: streamRetry is intentionally tracked to trigger reconnections.
 	useEffect(() => {
 		const stream = connectStream(`/api/stream/transcript/${encodeURIComponent(sessionKey)}`, {
 			onStatus: setConn,
@@ -689,9 +690,11 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 	// A radio blip during connect can leave the SSE silently dead — no
 	// error event, no frames, an eternal spinner. If nothing has ever
 	// carried a status, force one reconnect.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: sessionKey resets retried flag on screen change.
 	useEffect(() => {
 		retried.current = false;
 	}, [sessionKey]);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: sessionKey resets the timeout per session.
 	useEffect(() => {
 		if (state.status !== "" || retried.current) return;
 		const t = setTimeout(() => {
@@ -1082,49 +1085,78 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 			{/* The ⋯ command panel: drops top-to-bottom under the safe area
 			    and lists every tool on the bar — the strip items and the
 			    overflow actions alike — so the whole bar is reachable from
-			    one tap. Same scrim grammar as every panel: dim, no
-			    tap-through; the scrim tap closes. */}
+			    one tap. Modern frosted top drawer with M3 emphasized deceleration. */}
 			<div
 				aria-hidden={!overflow}
-				className={`fixed inset-0 z-40 bg-black/50 transition-opacity duration-200 ease-in ${
+				className={`fixed inset-0 z-40 bg-black/60 backdrop-blur-xs transition-opacity duration-250 ease-out ${
 					overflow ? "opacity-100" : "pointer-events-none opacity-0"
 				}`}
 				onClick={() => setOverflow(false)}
 			/>
 			<div
 				aria-hidden={!overflow}
-				className={`fixed inset-x-0 top-0 z-50 transition-transform duration-200 ease-in ${
-					overflow ? "translate-y-0" : "pointer-events-none -translate-y-full"
+				className={`fixed inset-x-0 top-0 z-50 transition-all duration-300 ease-[cubic-bezier(0.05,0.7,0.1,1)] ${
+					overflow ? "translate-y-0 opacity-100" : "pointer-events-none -translate-y-4 opacity-0"
 				}`}
 			>
-				{/* The inset pads inside the box so the closed -100% slide
-				    clears the screen edge; offsetting the wrapper by the
-				    inset would leave that much panel visible under the
-				    status bar. */}
+				{/* The inset pads inside the box so the closed slide
+				    clears the screen edge. */}
 				<div
-					className="rounded-b-2xl border-b border-base-300 bg-base-200 shadow-2xl"
-					style={{ paddingTop: "var(--safe-top, 0px)" }}
+					className="rounded-b-[2rem] border-b border-base-content/10 bg-base-200/95 p-4 shadow-[0_12px_40px_rgba(0,0,0,0.65)] backdrop-blur-2xl"
+					style={{ paddingTop: "calc(var(--safe-top, 0px) + 0.75rem)" }}
 				>
-					{TOOLS.map((t) => (
+					<div className="mb-3 flex items-center justify-between px-1">
+						<span className="text-[12px] font-bold uppercase tracking-wider text-muted">
+							Session Actions
+						</span>
 						<button
-							key={t.id}
 							type="button"
-							disabled={!toolEnabled(t, state.status)}
-							className={`flex min-h-[44px] w-full items-center px-5 text-[15px] active:bg-base-300 disabled:text-muted/40 ${
-								t.id === "search" && query !== null ? "text-accent" : ""
-							}`}
-							onClick={() => {
-								setOverflow(false);
-								if (t.id === "search") setQuery(query === null ? "" : null);
-								else if (t.id === "stop") void runStop();
-								else if (t.id === "close") setConfirmClose(true);
-								else if (t.href) navigate(t.href(sessionKey), { replace: true, dir: "side" });
-							}}
+							onClick={() => setOverflow(false)}
+							aria-label="Close"
+							className="press-scale flex size-8 items-center justify-center rounded-full bg-base-300/80 text-muted active:text-base-content"
 						>
-							{t.label}
+							<FaXmark size={14} />
 						</button>
-					))}
-					<div className="mx-auto mb-2 h-1 w-10 rounded-full bg-base-content/20" />
+					</div>
+
+					<div className="grid grid-cols-2 gap-2 pb-2">
+						{TOOLS.map((t) => {
+							const enabled = toolEnabled(t, state.status);
+							const isDangerous = t.id === "close" || t.id === "stop";
+							const isSearchActive = t.id === "search" && query !== null;
+
+							return (
+								<button
+									key={t.id}
+									type="button"
+									disabled={!enabled}
+									onClick={() => {
+										setOverflow(false);
+										if (t.id === "search") setQuery(query === null ? "" : null);
+										else if (t.id === "stop") void runStop();
+										else if (t.id === "close") setConfirmClose(true);
+										else if (t.href) navigate(t.href(sessionKey), { replace: true, dir: "side" });
+									}}
+									className={`press-scale flex min-h-[50px] items-center justify-between rounded-2xl border px-3.5 py-2.5 text-left transition-all ${
+										!enabled
+											? "border-base-content/5 bg-base-300/20 text-muted/30"
+											: isDangerous
+												? "border-error/20 bg-error/10 text-error active:bg-error/20"
+												: isSearchActive
+													? "border-accent/40 bg-accent/15 text-accent shadow-surface-sm"
+													: "border-base-content/8 bg-base-300/60 text-base-content shadow-surface-sm active:bg-base-300"
+									}`}
+								>
+									<span className="text-[14.5px] font-medium leading-snug">{t.label}</span>
+									{isSearchActive && (
+										<span className="size-2 rounded-full bg-accent shadow-[0_0_8px_rgba(55,181,180,0.8)]" />
+									)}
+								</button>
+							);
+						})}
+					</div>
+
+					<div className="mx-auto mt-2 h-1.5 w-12 rounded-full bg-base-content/20" />
 				</div>
 			</div>
 

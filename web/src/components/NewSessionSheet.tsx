@@ -59,19 +59,18 @@ export function NewSessionSheet({ opened, onClose }: { opened: boolean; onClose:
 			className="pb-safe-all bg-base-200"
 		>
 			<div className="flex max-h-[80dvh] flex-col gap-2 p-3">
-				<div className="text-[13px] font-semibold tracking-wider text-muted uppercase">
-					New agent
-				</div>
+				<div className="mx-auto mb-1 h-1.5 w-12 rounded-full bg-base-content/25" />
+				<div className="text-[13px] font-bold tracking-wider text-muted uppercase">New agent</div>
 
 				{recent.length > 0 && (
-					<div className="flex flex-wrap gap-1">
+					<div className="flex flex-wrap gap-1.5 py-1">
 						{recent.map((c) => (
 							<button
 								key={c}
 								type="button"
 								disabled={busy}
 								onClick={() => create(c)}
-								className="max-w-full truncate rounded-full border border-muted/40 px-2 py-1 text-[12px] text-muted active:scale-95"
+								className="press-scale max-w-full truncate rounded-full border border-base-content/10 bg-base-300/80 px-3 py-1 text-[12px] font-medium text-base-content shadow-surface-sm active:bg-base-300"
 								title={c}
 							>
 								{c.replace(/^\/home\/[^/]+/, "~")}
@@ -87,7 +86,7 @@ export function NewSessionSheet({ opened, onClose }: { opened: boolean; onClose:
 					onChange={(e) => setPrompt(e.target.value)}
 					rows={2}
 					placeholder="First prompt for the agent…"
-					className="rounded-xl border border-muted/40 bg-base-300 px-3 py-2 text-[16px] outline-none focus:border-primary/60"
+					className="rounded-2xl border border-base-content/10 bg-base-300/70 p-3 text-[15px] outline-none transition-all placeholder:text-muted/60 focus:border-primary/60 focus:shadow-[0_0_0_2px_rgba(64,157,212,0.18)]"
 				/>
 
 				{error && <div className="text-[12px] text-error">{error}</div>}
