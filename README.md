@@ -8,6 +8,11 @@ Back at the desk I retake control over ssh in the same sessions.
 
 Nothing gets locked into the UI. Sessions stay plain pi jsonl files, herdr stays the only driver, and the phone is just another client. If I delete the app tomorrow I lose a viewer, not my work.
 
+| | |
+|---|---|
+| ![Home with priority sessions](docs/screenshots/home.jpg) | ![The speed dial](docs/screenshots/speed-dial.jpg) |
+| ![The chat, working](docs/screenshots/chat.jpg) | ![The chat, answered](docs/screenshots/chat-answer.jpg) |
+
 ## Running it
 
 The honest requirements: a Linux or macOS box with pi 1.3.x and herdr 0.9.x on it, Go and node to build, and a tunnel. I use Tailscale and nothing else; it puts a private HTTPS address on the whole thing with zero config beyond the serve line below. herdr drives the sessions; Pi Couch speaks its socket protocol and nothing else.
