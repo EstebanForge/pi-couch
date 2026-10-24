@@ -1,7 +1,15 @@
 import { Fab } from "konsta/react";
 import { useEffect, useRef, useState } from "react";
 import type { SessionMeta, SessionsPatch } from "../api";
-import { FaBell, FaBellSlash, FaGear, FaMagnifyingGlass, FaPlus, FaXmark } from "../components/fa";
+import {
+	FaBell,
+	FaBellSlash,
+	FaGauge,
+	FaGear,
+	FaMagnifyingGlass,
+	FaPlus,
+	FaXmark,
+} from "../components/fa";
 import { NewAgentSheet } from "../components/NewAgentSheet";
 import { NewSessionSheet } from "../components/NewSessionSheet";
 import { QuickSheet } from "../components/QuickSheet";
@@ -172,9 +180,17 @@ export default function HomeList() {
 					<h1 className="text-[19px] font-semibold tracking-tight text-base-content">Couch</h1>
 					<button
 						type="button"
+						aria-label="Provider Quotas"
+						onClick={() => navigate("/quotas", { dir: "fwd" })}
+						className="press-scale ml-auto grid h-11 w-11 place-items-center rounded-xl text-muted active:text-base-content"
+					>
+						<FaGauge size={20} />
+					</button>
+					<button
+						type="button"
 						aria-label="Settings"
 						onClick={() => navigate("/settings", { dir: "fwd" })}
-						className="press-scale ml-auto grid h-11 w-11 place-items-center rounded-xl text-muted active:text-base-content"
+						className="press-scale grid h-11 w-11 place-items-center rounded-xl text-muted active:text-base-content"
 					>
 						<FaGear size={20} />
 					</button>

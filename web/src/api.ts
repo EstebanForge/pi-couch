@@ -390,3 +390,39 @@ export async function uploadImage(file: File): Promise<string> {
 	const data = (await res.json()) as { path: string };
 	return data.path;
 }
+
+export type WindowQuota = {
+	label: string;
+	percent: number;
+	used?: number;
+	limit?: number;
+	unit: string;
+	resets_at?: string;
+	remaining?: string;
+};
+
+export type ProviderQuota = {
+	id: string;
+	name: string;
+	plan: string;
+	windows?: WindowQuota[];
+	updated_at: string;
+	error?: string;
+};
+
+export type QuotasSnapshot = {
+	providers: ProviderQuota[];
+	updated_at: string;
+};
+
+export async function getQuotas(): Promise<QuotasSnapshot> {
+	const res = await fetch("/api/quotas");
+	if (!res.ok) throw new Error(`quotas ${res.status}`);
+	return (await res.json()) as QuotasSnapshot;
+}
+
+export async function refreshQuotas(): Promise<QuotasSnapshot> {
+	const res = await fetch("/api/quotas/refresh", { method: "POST" });
+	if (!res.ok) throw new Error(`refresh quotas ${res.status}`);
+	return (await res.json()) as QuotasSnapshot;
+}

@@ -4,6 +4,7 @@ import { usePath } from "./nav";
 import ChangesScreen from "./screens/Changes";
 import FilesScreen from "./screens/Files";
 import HomeScreen from "./screens/HomeList";
+import QuotasScreen from "./screens/Quotas";
 import SessionScreen from "./screens/Session";
 import SettingsScreen from "./screens/Settings";
 
@@ -39,6 +40,9 @@ function Screen() {
 	}
 	if (path === "/settings") {
 		return <SettingsScreen />;
+	}
+	if (path === "/quotas") {
+		return <QuotasScreen />;
 	}
 	return <HomeScreen />;
 }

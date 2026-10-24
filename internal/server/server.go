@@ -21,6 +21,7 @@ import (
 	"github.com/EstebanForge/couch-pi/internal/herdr"
 	"github.com/EstebanForge/couch-pi/internal/pi"
 	"github.com/EstebanForge/couch-pi/internal/push"
+	"github.com/EstebanForge/couch-pi/internal/quotas"
 	"github.com/EstebanForge/couch-pi/internal/store"
 	"github.com/EstebanForge/couch-pi/internal/web"
 )
@@ -54,10 +55,11 @@ type app struct {
 	models        *modelsCache           // pi catalog: memory, state file, then pi
 	memory        *memoryProbe           // agent memory server health
 	dialogWake    chan struct{}          // cap 1: a dialog changed; stream loops push now
+	quotas        *quotas.Service        // provider quotas & limits tracker
 }
 
 func Run(ctx context.Context, logger *slog.Logger, addr string, idx *pi.Index, hc *herdr.Client, w *pi.Watcher, st *store.Store, pusher *push.Sender, allowedOrigin string) error {
-	a := &app{logger: logger, idx: idx, herdr: hc, watcher: w, st: st, pusher: pusher, allowedOrigin: allowedOrigin, answered: newDialogMemos(), models: newModelsCache(filepath.Join(st.Dir(), "models.json")), memory: newMemoryProbe(), dialogWake: make(chan struct{}, 1), dialogLatch: map[string]*dialogWire{}}
+	a := &app{logger: logger, idx: idx, herdr: hc, watcher: w, st: st, pusher: pusher, allowedOrigin: allowedOrigin, answered: newDialogMemos(), models: newModelsCache(filepath.Join(st.Dir(), "models.json")), memory: newMemoryProbe(), dialogWake: make(chan struct{}, 1), dialogLatch: map[string]*dialogWire{}, quotas: quotas.NewService()}
 	if pusher != nil {
 		a.vapidPublic = pusher.Public
 	}
@@ -205,6 +207,8 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("GET /api/push/key", a.pushKey)
 	mux.HandleFunc("POST /api/push/subscribe", a.pushSubscribe)
 	mux.HandleFunc("POST /api/push/unsubscribe", a.pushUnsubscribe)
+	mux.HandleFunc("GET /api/quotas", a.apiQuotas)
+	mux.HandleFunc("POST /api/quotas/refresh", a.apiQuotasRefresh)
 	return mux
 }
 
