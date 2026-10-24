@@ -1,0 +1,31 @@
+# Changelog
+
+Started 2026-10-09 as a plan and a domain glossary. It grew into the phone I drive my work through. Dates below are approximate; the git log holds the precise trail.
+
+## 2026-10-24
+
+- Machine settings moved into `~/.config/pi-couch/config.toml` (TOML, commented, optional). The repo carries none of my server's identity anymore, and the history got scrubbed to match. README rewrite, MIT license, this changelog: the first pass at making this something other people can run.
+
+## 2026-10-22 → 2026-10-23
+
+- Quick agent create rebuilt: pick a prompt, model and thinking level at creation (pi launch flags, no TUI automation), align the new-agent sheet with it, and remove the promptless pending-screen experiment. Create reliability got real: pi ready-gate, first-turn recovery, no duplicate prompts, a client watchdog for dead streams.
+
+## 2026-10-19 → 2026-10-21
+
+- The dialog arc finished: multi-question forms with tab navigation and auto-submit, free-text answers, editable commit messages from the phone even when pi's editor clips long drafts (the answer reads the session file instead of scraping the screen). Color schemes arrived (Cobalt Next Dark and Dracula, live-switching, terminal included), the app became Pi Couch, and stale queued bubbles learned to expire.
+
+## 2026-10-18
+
+- Big phone-polish day: composer streamline with the context line, the memory chip, priority sessions on home, Font Awesome icons everywhere, images rendered and zoomable in chat, live todos with retirement, API errors shown instead of swallowed.
+
+## 2026-10-16 → 2026-10-17
+
+- The pi-durable evaluation: verdict no, but two patterns stolen (dialog answer memos, busy-send dispositions). pi-pocket analyzed the same way. FAB speed dial with quick agents, promptless pending chat, directory picker, history paging, the model catalog cache. First commits shipped from the phone itself.
+
+## 2026-10-13 → 2026-10-15
+
+- The React SPA became the whole site; the templ pages died. Session screen, terminal peek, changes review with line comments, push notifications, back-gesture history markers. Deployed as a systemd user service behind tailscale serve, in daily use from here on.
+
+## 2026-10-09 → 2026-10-12
+
+- Plan, glossary, ADRs, and the M0 probes: what pi's session files really look like, what herdr's socket actually speaks, what herdr-web-ui taught us. No product yet, all ground truth.
