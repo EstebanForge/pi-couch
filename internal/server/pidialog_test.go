@@ -2,6 +2,7 @@ package server
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -412,6 +413,33 @@ func TestEditorBufferMatchesWrapped(t *testing.T) {
 
 // The emptied editor must stay visible to the wire: the sweep that
 // emptied it leaves a state parsePiDialog reads as nil.
+// Without a draft the card still shows the painted tail, but pi's
+// divider rules and the scroll indicator must never ride into the
+// message box as prefilled junk.
+func TestStripEditorChrome(t *testing.T) {
+	body := strings.Join([]string{
+		strings.Repeat("\u2500", 40),
+		"",
+		strings.Repeat("-", 30),
+		"\u2500\u2500\u2500\u2500 \u2191 12 more \u2500\u2500\u2500\u2500",
+		strings.Repeat("\u2500", 40),
+		"",
+		"fix(sync): close the cycle",
+		"",
+		"The real body line.",
+	}, "\n")
+	got := stripEditorChrome(body)
+	want := "fix(sync): close the cycle\n\nThe real body line."
+	if got != want {
+		t.Fatalf("strip %q, want %q", got, want)
+	}
+	// A real message line made of dashes is a casualty only in this
+	// degraded path; unscrolled panes never reach the helper.
+	if s := stripEditorChrome("subject\n---\nbody"); s != "subject\nbody" {
+		t.Fatalf("plain %q", s)
+	}
+}
+
 func TestPiEmptyEditorDialog(t *testing.T) {
 	empty := " Commit staged changes with this message?\n" +
 		"\n" +

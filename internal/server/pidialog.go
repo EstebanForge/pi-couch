@@ -74,6 +74,7 @@ var (
 	// "──── ↑ 4 more ────" and the head window's bottom edge
 	// "──── ↓ 5 more ────".
 	piScrollMoreRe = regexp.MustCompile(`^[-─━═_]{2,}\s*([↑↓])\s*(\d+) more\s*[-─━═_]{2,}$`)
+	piRuleLineRe   = regexp.MustCompile(`^[-─━═_\s]{2,}$`)
 )
 
 // piHintKind scans the trailing lines for one of pi's hint bars, the
@@ -414,6 +415,31 @@ func piDialogEqual(a, b *piDialog) bool {
 // parsePiDialog cannot make that call - it returns nil for both an
 // emptied editor and a gone dialog - and the answer flow's empty gate
 // must never re-sweep a dialog that closed.
+// stripEditorChrome drops pi's divider rules and the scroll
+// indicator from a scrolled fragment served without a draft, so the
+// card never prefills chrome junk above the visible message tail.
+func stripEditorChrome(body string) string {
+	kept := make([]string, 0, 8)
+	sawContent := false
+	for _, line := range strings.Split(body, "\n") {
+		t := strings.TrimSpace(line)
+		if t == "" || piScrollMoreRe.MatchString(t) || piRuleLineRe.MatchString(t) {
+			// Interior blanks are commit-message content (subject and
+			// body separate); leading ones are pi's padding.
+			if t == "" && sawContent {
+				kept = append(kept, line)
+			}
+			continue
+		}
+		sawContent = true
+		kept = append(kept, line)
+	}
+	for len(kept) > 0 && strings.TrimSpace(kept[len(kept)-1]) == "" {
+		kept = kept[:len(kept)-1]
+	}
+	return strings.Join(kept, "\n")
+}
+
 func editorPaneEmpty(text string) bool {
 	lines := strings.Split(text, "\n")
 	hint := -1

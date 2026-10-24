@@ -141,6 +141,10 @@ func (a *app) dialogWireFor(path string, d BridgeDialog, ok bool) *dialogWire {
 				if draft := a.idx.ToolCallDraft(m.Key); draft != "" {
 					w.Body = draft
 					w.Scrolled = false
+				} else {
+					// No draft in reach: show the painted tail without
+					// pi's divider and scroll chrome around it.
+					w.Body = stripEditorChrome(w.Body)
 				}
 			}
 		}

@@ -519,7 +519,10 @@ func (ix *Index) ToolCallDraft(key string) string {
 	if err != nil {
 		return ""
 	}
-	const window = 256 << 10
+	// Long turns can bury the draft under hundreds of KB of later
+	// entries (browser tool schemas, read dumps) — 256KB missed real
+	// drafts in the field, so the window is generous.
+	const window = 8 << 20
 	start := st.Size() - window
 	if start < 0 {
 		start = 0

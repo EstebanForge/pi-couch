@@ -3,6 +3,7 @@ package pi
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -23,6 +24,31 @@ func TestToolCallDraft(t *testing.T) {
 	ix := NewIndex(dir)
 	got := ix.ToolCallDraft("2026-10-18T00-00-00-000Z_a")
 	want := "feat: draft\n\nline one\nline two"
+	if got != want {
+		t.Fatalf("draft %q, want %q", got, want)
+	}
+}
+
+// A long turn can append hundreds of KB after the git_commit call
+// (browser tool schema dumps, big read outputs) — the backward scan
+// must still reach the draft.
+func TestToolCallDraftBuriedUnderBulk(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "proj")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(sub, "2026-10-18T00-00-00-000Z_a.jsonl")
+	header := `{"type":"session","version":3,"id":"11111111-2222-3333-4444-555555555555","timestamp":"2026-10-18T00:00:00.000Z","cwd":"` + sub + `"}` + "\n"
+	draft := `{"type":"message","id":"n2","message":{"role":"assistant","content":[{"type":"toolCall","id":"c1","name":"git_commit","arguments":{"subject":"fix(sync): close the cycle","body":"the real message"}}]}}` + "\n"
+	filler := strings.Repeat("x", 700*1024)
+	after := `{"type":"message","id":"n3","message":{"role":"toolResult","toolCallId":"c0","toolName":"exec_command","content":[{"type":"text","text":"` + filler + `"}]}}` + "\n"
+	if err := os.WriteFile(path, []byte(header+draft+after), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ix := NewIndex(dir)
+	got := ix.ToolCallDraft("2026-10-18T00-00-00-000Z_a")
+	want := "fix(sync): close the cycle\n\nthe real message"
 	if got != want {
 		t.Fatalf("draft %q, want %q", got, want)
 	}
