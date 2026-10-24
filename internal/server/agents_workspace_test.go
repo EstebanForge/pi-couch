@@ -221,6 +221,34 @@ func TestAPIAgentsCarriesModelArgs(t *testing.T) {
 	}
 }
 
+// The new-agent-in-workspace sheet sends model/thinking like the
+// quick sheet; the workspace_id mode must carry the same launch args.
+func TestAPIAgentsWorkspaceCarriesModelArgs(t *testing.T) {
+	var sends int32
+	var sessPath string
+	var startArgs []string
+	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath, sends: &sends, paneReady: &piReadyScreen, lastStartArgs: &startArgs})
+
+	sessPath = filepath.Join(t.TempDir(), "s1.jsonl")
+	if err := os.WriteFile(sessPath, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a, _, _ := streamTestAppWithHerdr(t, sock)
+	seedModelsFile(t, a, "zai/glm-5.3-flash", "zai/glm-5.3")
+	req := httptest.NewRequest(http.MethodPost, "/api/agents",
+		strings.NewReader(`{"workspace_id":"w1","prompt":"go","model":"zai/glm-5.3-flash","thinking":"low"}`))
+	req.Host = "127.0.0.1:8090"
+	rec := httptest.NewRecorder()
+	a.apiAgents(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code=%d body=%s", rec.Code, rec.Body.String())
+	}
+	want := []string{"--model", "zai/glm-5.3-flash:low"}
+	if len(startArgs) != len(want) || startArgs[0] != want[0] || startArgs[1] != want[1] {
+		t.Fatalf("start args=%v want=%v", startArgs, want)
+	}
+}
+
 // The prompt can fail soft — herdr accepts it while pi settles and
 // the keys go nowhere. When the draft sits in the editor the recovery
 // submits it with one enter; when the prompt was lost it re-prompts.

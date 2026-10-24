@@ -164,8 +164,10 @@ export async function createAgent(cwd: string, prompt: string): Promise<{ key: s
 export async function createAgentInWorkspace(
 	workspaceId: string,
 	prompt: string,
+	model?: string,
+	thinking?: string,
 ): Promise<{ key: string }> {
-	return postAgent({ workspace_id: workspaceId, prompt });
+	return postAgent({ workspace_id: workspaceId, prompt, model, thinking });
 }
 
 // The Quick flow: reuse the labeled workspace or create it at cwd.

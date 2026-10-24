@@ -1,6 +1,6 @@
 import { Fab } from "konsta/react";
 import { useEffect, useRef, useState } from "react";
-import { type SessionMeta, type SessionsPatch } from "../api";
+import type { SessionMeta, SessionsPatch } from "../api";
 import { FaBell, FaBellSlash, FaGear, FaMagnifyingGlass, FaPlus, FaXmark } from "../components/fa";
 import { NewAgentSheet } from "../components/NewAgentSheet";
 import { NewSessionSheet } from "../components/NewSessionSheet";
@@ -310,7 +310,9 @@ export default function HomeList() {
 			    sits just above the FAB at any inset and any FAB size. */}
 			<div
 				className={`pb-safe-all fixed right-4 bottom-4 z-50 transition-opacity ${
-					createOpen || quickSheet ? "opacity-0 pointer-events-none" : "opacity-100"
+					createOpen || quickSheet || agentSheetOpen
+						? "opacity-0 pointer-events-none"
+						: "opacity-100"
 				}`}
 			>
 				<div
