@@ -4,7 +4,7 @@ A phone client for the pi coding agents running on my server.
 
 I work from the phone the same way I work from the desk. I open the app over Tailscale and every pi session on the machine is right there, including the ones I started over ssh. I read the transcript live, I steer, I answer dialogs and the commit gate, I review diffs and leave line comments, I peek at the terminal when I have to.
 
-Back at the desk I retake control over ssh in the same sessions.
+Back at the desk I retake control over ssh, and with herdr, all my sessions are still in place.
 
 Nothing gets locked into the UI. Sessions stay plain pi jsonl files, herdr stays the only driver, and the phone is just another client. If I delete the app tomorrow I lose a viewer, not my work.
 
