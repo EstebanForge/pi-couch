@@ -977,9 +977,16 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 							title={state.status || "idle"}
 						/>
 					)}
-					<span className="truncate text-[15.5px] font-semibold tracking-tight text-base-content">
+					<button
+						type="button"
+						onClick={() => {
+							setRenameVal(title === "Session" ? "" : title);
+							setRenameOpen(true);
+						}}
+						className="min-w-0 truncate text-left text-[15.5px] font-semibold tracking-tight text-base-content active:opacity-60"
+					>
 						{title}
-					</span>
+					</button>
 					{(state.dialog || state.awaiting) && (
 						<span
 							className="shrink-0 rounded-full border border-accent/60 bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent shadow-[0_0_6px_rgba(55,181,180,0.3)]"
@@ -1019,21 +1026,6 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 						{t.label}
 					</button>
 				))}
-				<button
-					type="button"
-					disabled={isWaiting(state.status)}
-					className={`press-scale min-h-[36px] shrink-0 rounded-xl px-3.5 text-[13px] font-medium transition-all ${
-						isWaiting(state.status)
-							? "text-muted/40"
-							: "bg-base-300/40 text-base-content active:bg-base-300"
-					}`}
-					onClick={() => {
-						setRenameVal(title === "Session" ? "" : title);
-						setRenameOpen(true);
-					}}
-				>
-					Rename
-				</button>
 				<button
 					type="button"
 					className="press-scale ml-auto min-h-[36px] shrink-0 rounded-xl bg-base-300/40 px-3 text-[13px] text-base-content active:bg-base-300"
@@ -1287,7 +1279,7 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 						</button>
 						<button
 							type="button"
-							disabled={!renameVal.trim()}
+							disabled={!renameVal.trim() || isWaiting(state.status)}
 							onClick={() => void runRename()}
 							className="press-scale min-h-[48px] flex-1 rounded-2xl bg-primary text-[15px] font-semibold text-primary-content shadow-[0_2px_12px_rgba(64,157,212,0.4)] disabled:opacity-50"
 						>
