@@ -250,3 +250,22 @@ export function groupWorkBlocks(items: StreamItem[]): WorkBlock[] {
 	flush();
 	return out;
 }
+
+export type SkillExpansion = { name: string; location: string; body: string; rest: string };
+
+// pi expands a $skill invocation by prepending a <skill> block to the
+// typed text (the terminal renders that block folded in a purple card).
+const skillOpenRe = /^<skill name="([^"]*)"( location="([^"]*)")?>\n/;
+
+export function parseSkillExpansion(text: string): SkillExpansion | null {
+	const open = skillOpenRe.exec(text);
+	if (!open) return null;
+	const close = text.indexOf("</skill>", open[0].length);
+	if (close < 0) return null;
+	return {
+		name: open[1],
+		location: open[3] ?? "",
+		body: text.slice(open[0].length, close).replace(/\n+$/, ""),
+		rest: text.slice(close + "</skill>".length).replace(/^\s+/, ""),
+	};
+}

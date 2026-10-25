@@ -41,6 +41,8 @@ import {
 	mergeOlder,
 	type PendingMsg,
 	pairTools,
+	parseSkillExpansion,
+	type SkillExpansion,
 	reduceAppend,
 	reduceReset,
 	reduceStatus,
@@ -268,11 +270,13 @@ function itemRow(
 	zoom: (src: string) => void,
 ) {
 	switch (it.kind) {
-		case "user":
+		case "user": {
+			const exp = parseSkillExpansion(it.text);
 			return (
 				<div className="flex justify-end px-3.5 py-1.5">
 					<div className="max-w-[85%] rounded-2xl rounded-br-sm border border-primary/25 bg-gradient-to-br from-primary/25 to-primary/15 px-3.5 py-2.5 text-[15px] leading-relaxed shadow-surface-sm whitespace-pre-wrap [overflow-wrap:anywhere]">
-						{it.text}
+						{exp && <SkillCard exp={exp} />}
+						{exp ? exp.rest : it.text}
 						{!!it.images && (
 							<ChatImage
 								src={`/api/sessions/${encodeURIComponent(sessionKey)}/items/${it.seq}/image`}
@@ -284,6 +288,7 @@ function itemRow(
 					</div>
 				</div>
 			);
+		}
 		case "text":
 			return <Markdown text={it.text} />;
 		case "marker":
@@ -533,6 +538,30 @@ const ThinkingGroup = memo(function ThinkingGroup({ items }: { items: StreamItem
 				</div>
 			)}
 		</div>
+	);
+});
+
+// pi paints an expanded $skill as a folded purple box-card in its own
+// terminal; the chat mirrors that instead of showing the whole skill
+// block as bubble text.
+const SkillCard = memo(function SkillCard({ exp }: { exp: SkillExpansion }) {
+	const [open, setOpen] = useState(false);
+	return (
+		<>
+			<button
+				type="button"
+				className="mb-1.5 flex w-full items-center gap-1.5 rounded-xl border border-secondary/35 bg-secondary/10 px-2.5 py-1.5 text-left text-[12px] text-secondary"
+				onClick={() => setOpen(!open)}
+			>
+				<span>{open ? <FaCaretDown size={12} /> : <FaCaretRight size={12} />}</span>
+				<span className="font-medium">skill {exp.name}</span>
+			</button>
+			{open && (
+				<div className="mb-1.5 max-h-72 overflow-y-auto rounded-xl border border-secondary/25 bg-secondary/5 px-2.5 py-2 text-[12px] leading-relaxed whitespace-pre-wrap break-words text-muted">
+					{exp.body}
+				</div>
+			)}
+		</>
 	);
 });
 

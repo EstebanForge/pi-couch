@@ -7,6 +7,7 @@ import {
 	groupWorkBlocks,
 	mergeOlder,
 	pairTools,
+	parseSkillExpansion,
 	reduceAppend,
 	reduceReset,
 	reduceStatus,
@@ -235,5 +236,39 @@ describe("groupWorkBlocks", () => {
 		expect(blocks).toHaveLength(3);
 		expect(blocks[0]).toMatchObject({ type: "thinking" });
 		expect(blocks[1]).toEqual({ type: "item", item: items[1] });
+	});
+});
+
+describe("parseSkillExpansion", () => {
+	it("splits the real pi expansion into skill and typed text", () => {
+		const text =
+			'<skill name="bro" location="/home/you/.agents/skills/bro/SKILL.md">\n# bro\n\nRestate your message.\n</skill>\n\ndo E3 mobile-passkey-provider.';
+		const p = parseSkillExpansion(text);
+		expect(p).not.toBeNull();
+		expect(p?.name).toBe("bro");
+		expect(p?.location).toBe("/home/you/.agents/skills/bro/SKILL.md");
+		expect(p?.body).toBe("# bro\n\nRestate your message.");
+		expect(p?.rest).toBe("do E3 mobile-passkey-provider.");
+	});
+
+	it("keeps interior blank lines of the skill body", () => {
+		const p = parseSkillExpansion(
+			'<skill name="x">\nline one\n\nline two\n</skill>\ndone',
+		);
+		expect(p?.body).toBe("line one\n\nline two");
+		expect(p?.rest).toBe("done");
+	});
+
+	it("returns null for plain text or an unclosed block", () => {
+		expect(parseSkillExpansion("just a normal message")).toBeNull();
+		expect(parseSkillExpansion('<skill name="x">\nnever closed')).toBeNull();
+		expect(parseSkillExpansion('leading text\n<skill name="x">\nbody\n</skill>')).toBeNull();
+	});
+
+	it("tolerates a missing location attribute", () => {
+		const p = parseSkillExpansion('<skill name="x">\nbody\n</skill>');
+		expect(p?.name).toBe("x");
+		expect(p?.location).toBe("");
+		expect(p?.rest).toBe("");
 	});
 });
