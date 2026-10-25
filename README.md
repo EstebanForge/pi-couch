@@ -41,13 +41,19 @@ The server binds 127.0.0.1 and trusts whatever sits in front of it. I front mine
 
 There is no login and there is no token. The security model is the tunnel: the server only listens on loopback, and whatever can reach the tunneled address can drive your agents — read, steer, run commands, commit. Mine is Tailscale, so the address is reachable only inside my tailnet, and the tailnet is the trust boundary. That is the entire model. Do not port-forward this to the public internet; that hands your machine to anyone who finds the port. If you need exposure beyond a private tunnel, add auth in front — a reverse proxy with basic auth works — before you blame the door you left open.
 
-Two wiring steps. First, the dialog bridge (pi loads extensions at agent start, so restart your agents after linking it):
+Three wiring steps. First, the dialog bridge (pi loads extensions at agent start, so restart your agents after linking it):
 
 ```sh
 ln -sf $PWD/extensions/couch-pi-bridge.ts ~/.pi/agent/extensions/couch-pi-bridge.ts
 ```
 
-Second, the service. `systemd/couch-pi.service` is a user unit on Linux: copy it to `~/.config/systemd/user/`, then `systemctl --user daemon-reload && systemctl --user enable --now couch-pi`.
+Second, [skydiver/herdr-pinned-workspaces](https://github.com/skydiver/herdr-pinned-workspaces), the one herdr plugin I run. herdr owns a workspace only while it holds a tab — close the last one and the workspace is gone. This plugin keeps your declared workspaces alive: recreated the moment they die and on every herdr start, so the set you build from the phone survives restarts and stray exits.
+
+```sh
+herdr plugin install skydiver/herdr-pinned-workspaces
+```
+
+Third, the service. `systemd/couch-pi.service` is a user unit on Linux: copy it to `~/.config/systemd/user/`, then `systemctl --user daemon-reload && systemctl --user enable --now couch-pi`.
 
 For the phone, `android/` builds a thin WebView APK: `./gradlew assembleDebug`, debug-signed, sideload it. A mobile browser works fine too. The APK just behaves better with safe areas and a launcher icon.
 
