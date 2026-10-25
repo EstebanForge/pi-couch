@@ -98,6 +98,32 @@ func TestDialogWireKeepsFragmentWithoutDraft(t *testing.T) {
 	}
 }
 
+// With no bridge entry left (TTL expiry, restart) and a scrolled pane
+// that paints no recoverable title block, the card must not wear pane
+// chrome as its title - it falls back to a plain label.
+func TestDialogWireFallsBackWhenEditorTitleEmpty(t *testing.T) {
+	pane := "────── ↑ 16 more ──────\n" +
+		"fix(sync): close the sync-cycle\n" +
+		"────────────────────────────────────────────\n\n" +
+		" enter submit  shift+enter/ctrl+j newline  escape/ctrl+c cancel  ctrl+g external editor"
+	var sends int32
+	var sessPath string
+	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath, sends: &sends, paneText: &pane})
+	a, sub, _ := streamTestAppWithHerdr(t, sock)
+	sessPath = filepath.Join(sub, "s1.jsonl")
+	a.awaiting = newAwaitingDetector(a.herdr, time.Hour)
+	a.awaiting.tick(context.Background())
+
+	d, ok := a.dialogFor(sessPath, "")
+	if !ok || d.ID == "" {
+		t.Fatalf("no dialog: %+v", d)
+	}
+	w := a.dialogWireFor(sessPath, d, ok)
+	if w == nil || w.Title != "Commit message" {
+		t.Fatalf("title=%q, want the clean fallback", w.Title)
+	}
+}
+
 // The backspace sweep must be sized by the full draft, not the painted
 // fragment: a scrolled buffer's fragment is far shorter than the real
 // buffer, and an under-sweep leaves junk that the typed text then

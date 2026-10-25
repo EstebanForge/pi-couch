@@ -151,6 +151,9 @@ func (a *app) dialogWireFor(path string, d BridgeDialog, ok bool) *dialogWire {
 		for _, o := range p.Options {
 			w.Options = append(w.Options, dialogOptionWire{Label: o.Label, Description: o.Description})
 		}
+		if w.Kind == "editor" && w.Title == "" {
+			w.Title = "Commit message"
+		}
 		a.rememberDialogParse(path, w)
 		return w
 	}
@@ -160,6 +163,9 @@ func (a *app) dialogWireFor(path string, d BridgeDialog, ok bool) *dialogWire {
 	// until the parse recovers.
 	if l := a.latchedDialogParse(path); l != nil && l.ID == d.ID {
 		return l
+	}
+	if w.Kind == "editor" && w.Title == "" {
+		w.Title = "Commit message"
 	}
 	return w
 }

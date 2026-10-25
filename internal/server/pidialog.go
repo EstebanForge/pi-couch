@@ -245,6 +245,30 @@ func parsePiEditorBlock(lines []string) *piDialog {
 	if len(buf) == 0 {
 		return nil
 	}
+	d := &piDialog{Kind: "editor", Body: strings.Join(buf, "\n"), Scrolled: scrolled, HiddenAbove: hiddenAbove, HiddenBelow: hiddenBelow}
+	// The scroll rule replaced the buffer's top edge and i still points
+	// at it, so the unscrolled walk below would wear the scroll line as
+	// the title. The overlay's title block (rule, title, rule) sits
+	// above; recover it only when that shape holds, else leave the
+	// title empty rather than serve pane chrome as the card's title.
+	if hiddenAbove > 0 {
+		if j := i - 1; j > 0 && piDividerRe.MatchString(strings.TrimSpace(lines[j-1])) {
+			j--
+			var title []string
+			for j > 0 && len(title) < 4 {
+				line := strings.TrimSpace(lines[j-1])
+				if line == "" || piDividerRe.MatchString(line) {
+					break
+				}
+				title = append([]string{line}, title...)
+				j--
+			}
+			if len(title) > 0 {
+				d.Title = strings.Join(title, " ")
+			}
+		}
+		return d
+	}
 	var title []string
 	pad := 0
 	for i > 0 && len(title) < 4 {
@@ -265,7 +289,6 @@ func parsePiEditorBlock(lines []string) *piDialog {
 		title = append([]string{line}, title...)
 		i--
 	}
-	d := &piDialog{Kind: "editor", Body: strings.Join(buf, "\n"), Scrolled: scrolled, HiddenAbove: hiddenAbove, HiddenBelow: hiddenBelow}
 	if len(title) > 0 {
 		d.Title = strings.Join(title, " ")
 	}

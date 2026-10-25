@@ -340,6 +340,12 @@ func TestParsePiDialogEditorScrolled(t *testing.T) {
 	if !d.Scrolled || d.HiddenAbove != 4 {
 		t.Fatalf("scrolled=%v hidden=%d", d.Scrolled, d.HiddenAbove)
 	}
+	// The scroll rule replaced the buffer's top edge, but the overlay's
+	// title block sits above it and must be recovered, never the scroll
+	// line itself.
+	if d.Title != "Commit staged changes with this message?" {
+		t.Fatalf("title=%q", d.Title)
+	}
 	if want := "the visible tail\nlines two"; d.Body != want {
 		t.Fatalf("body=%q, want %q", d.Body, want)
 	}
