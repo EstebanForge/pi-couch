@@ -41,6 +41,11 @@ function isChatPath(p: string): boolean {
 	return /^\/sessions\/[^/]+$/.test(p);
 }
 
+// Tool-strip sub-routes: /sessions/<key>/<tool>/…
+function isToolPath(p: string): boolean {
+	return /^\/sessions\/[^/]+\/.+/.test(p);
+}
+
 export function usePath(): string {
 	return useSyncExternalStore(subscribe, getPath);
 }
@@ -117,7 +122,11 @@ export function navigate(to: string, opts: { replace?: boolean; dir?: Dir } = {}
 			onMarker = false;
 			history.replaceState({ i: cur }, "", href(getPath()));
 		}
-		if (opts.replace) history.replaceState({ i: cur }, "", href(to));
+		// Entering the tool strip from the chat pushes, so the Back gesture
+		// returns to the chat instead of skipping past it; hopping between
+		// tabs replaces — the strip is one level, not a trail.
+		const sideways = isToolPath(to) && isToolPath(getPath());
+		if (opts.replace || sideways) history.replaceState({ i: cur }, "", href(to));
 		else if (getPath() === to) history.replaceState({ i: cur }, "", href(to));
 		else history.pushState({ i: ++seq }, "", href(to));
 		cur = typeof history.state?.i === "number" ? history.state.i : cur;
@@ -191,11 +200,15 @@ window.addEventListener("popstate", (e) => {
 	// residue: programmatic sheet closes and marker strips relabel the
 	// marker entry in place (same path, same i) instead of removing it,
 	// and each copy used to eat one gesture. A Back landing on any chat
-	// entry replays an old visit. Both keep going back — the phone
-	// gesture must leave the chat in one motion. At the stack bottom
-	// history.back() no-ops harmlessly.
+	// entry replays an old visit — except when leaving a tool tab, whose
+	// chat below is the destination itself. Both residue forms keep
+	// going back — the phone gesture must leave the chat in one motion.
+	// At the stack bottom history.back() no-ops harmlessly.
 	const here = getPath();
-	if (next <= cur && (here === lastPath || (next < cur && isChatPath(here)))) {
+	if (
+		next <= cur &&
+		(here === lastPath || (next < cur && isChatPath(here) && !isToolPath(lastPath)))
+	) {
 		history.back();
 		return;
 	}

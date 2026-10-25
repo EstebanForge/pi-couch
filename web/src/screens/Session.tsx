@@ -985,7 +985,7 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 						} ${t.id === "search" && query !== null ? "bg-base-300 text-accent font-semibold" : "bg-base-300/40"}`}
 						onClick={() => {
 							if (t.id === "search") setQuery(query === null ? "" : null);
-							else if (t.href) navigate(t.href(sessionKey), { replace: true, dir: "side" });
+							else if (t.href) navigate(t.href(sessionKey), { dir: "side" });
 						}}
 					>
 						{t.label}
@@ -1174,7 +1174,7 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 										if (t.id === "search") setQuery(query === null ? "" : null);
 										else if (t.id === "stop") void runStop();
 										else if (t.id === "close") setConfirmClose(true);
-										else if (t.href) navigate(t.href(sessionKey), { replace: true, dir: "side" });
+										else if (t.href) navigate(t.href(sessionKey), { dir: "side" });
 									}}
 									className={`press-scale flex min-h-[50px] items-center justify-between rounded-2xl border px-3.5 py-2.5 text-left transition-all ${
 										!enabled
