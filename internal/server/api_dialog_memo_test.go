@@ -40,6 +40,7 @@ type fakeHerdrOpts struct {
 	lastStartArgs  *[]string   // agent.start args (the pi flags)
 	status         *string     // agent_status in agent.list; blocked when nil
 	paneText       *string     // pane.read text; the menu fixture when nil
+	readSeq        []string    // per-read states: read n serves readSeq[min(n-1, len-1)]
 	paneAfterSend  *string     // pane.read text once a send_input landed
 	paneSeq        []string    // per-send states: after send n, serve paneSeq[min(n-1, len-1)]
 	lastText       *string     // last send_input text param
@@ -50,6 +51,7 @@ type fakeHerdrOpts struct {
 
 func herdrFake(t *testing.T, o fakeHerdrOpts) string {
 	var startFails int32
+	var readN int32
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "herdr.sock")
@@ -131,7 +133,16 @@ func herdrFake(t *testing.T, o fakeHerdrOpts) string {
 					resp = `{"id":"x","result":{"type":"ok"}}`
 				case "pane.read":
 					pane := menuScreen
-					if o.paneReady != nil && (o.prompts == nil || int(atomic.LoadInt32(o.prompts)) == 0) {
+					if len(o.readSeq) > 0 {
+						// Per-read states model repaint races: the same send
+						// count can paint differently read to read.
+						n := int(atomic.AddInt32(&readN, 1))
+						idx := n - 1
+						if idx >= len(o.readSeq) {
+							idx = len(o.readSeq) - 1
+						}
+						pane = o.readSeq[idx]
+					} else if o.paneReady != nil && (o.prompts == nil || int(atomic.LoadInt32(o.prompts)) == 0) {
 						// Pre-prompt reads serve the ready knob: create-flow
 						// tests shape pi's readiness window.
 						pane = *o.paneReady

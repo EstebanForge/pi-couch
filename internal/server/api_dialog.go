@@ -230,24 +230,42 @@ func (a *app) answerFreeText(w http.ResponseWriter, r *http.Request, ctx context
 		return false, false
 	}
 	for attempt := 0; attempt < 4; attempt++ {
-		pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 30)
-		if err != nil {
-			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-			return false, false
+		// The pane can be mid-repaint when the answer lands (the dialog
+		// just opened, the transcript above is redrawing), so the first
+		// reads may parse nothing; settle before classifying instead of
+		// refusing on a blind read.
+		var m *piDialog
+		for settle := 0; settle < 4; settle++ {
+			if settle > 0 {
+				select {
+				case <-ctx.Done():
+					writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+					return false, false
+				case <-time.After(250 * time.Millisecond):
+				}
+			}
+			pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 30)
+			if err != nil {
+				writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+				return false, false
+			}
+			m = parsePiDialog(pr.Text)
+			if m == nil && editorPaneEmpty(pr.Text) {
+				// An emptied editor parses nil (no buffer rows); a sweep
+				// that emptied it must still be completable - type into the
+				// empty buffer and submit.
+				m = &piDialog{Kind: "editor"}
+			}
+			if m != nil {
+				break
+			}
 		}
-		m := parsePiDialog(pr.Text)
-		if m == nil && editorPaneEmpty(pr.Text) {
-			// An emptied editor parses nil (no buffer rows); a sweep
-			// that emptied it must still be completable - type into the
-			// empty buffer and submit.
-			m = &piDialog{Kind: "editor"}
-		}
-		if m != nil && m.Kind == "editor" {
+		if m.Kind == "editor" {
 			// The editor buffer is editable in one step: rewrite and
 			// submit, like pi's own accept.
 			return a.editEditorSubmit(w, r, ctx, paneID, sessionPath, m, text), true
 		}
-		if m != nil && m.InputMode {
+		if m.InputMode {
 			// rpiv activates input mode the moment the cursor lands on
 			// the free-text row - no enter to open it; enter submits.
 			ok := a.typeAndSubmit(w, r, ctx, paneID, trimmed)
@@ -256,13 +274,9 @@ func (a *app) answerFreeText(w http.ResponseWriter, r *http.Request, ctx context
 			}
 			return ok, false
 		}
-		if m != nil && m.Kind == "input" {
+		if m.Kind == "input" {
 			// pi's native input widget.
 			return a.typeAndSubmit(w, r, ctx, paneID, trimmed), false
-		}
-		if m == nil {
-			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-			return false, false
 		}
 		own := -1
 		for i := range m.Options {
@@ -484,7 +498,10 @@ func (a *app) editEditorSubmit(w http.ResponseWriter, r *http.Request, ctx conte
 		}
 	}
 	// pi repaints after the burst; poll briefly instead of one fixed
-	// wait so a slow paint cannot force a spurious refusal.
+	// wait so a slow paint cannot force a spurious refusal. A read can
+	// still land mid-repaint and parse nothing; only a pane that stays
+	// unparseable means the dialog moved on.
+	blind = 0
 	for poll := 0; poll < 6; poll++ {
 		select {
 		case <-ctx.Done():
@@ -497,8 +514,13 @@ func (a *app) editEditorSubmit(w http.ResponseWriter, r *http.Request, ctx conte
 		}
 		m := parsePiDialog(pr.Text)
 		if m == nil || m.Kind != "editor" {
-			return refuse()
+			blind++
+			if blind >= 3 {
+				return refuse()
+			}
+			continue
 		}
+		blind = 0
 		if editorBufferMatches(m, want) {
 			return a.answerSend(w, ctx, paneID, []string{"enter"})
 		}

@@ -567,3 +567,75 @@ func TestDialogAnswerEditorEdit(t *testing.T) {
 		t.Fatalf("third call must be enter: %v", keysLog[2])
 	}
 }
+
+// A mid-repaint read can parse nothing while pi redraws the freshly
+// opened dialog; the answer must settle and retry instead of refusing
+// on the first blind read.
+func TestDialogAnswerEntryRetriesMidRepaint(t *testing.T) {
+	editor := editorPaint("probe commit\n")
+	var sends int32
+	var sessPath string
+	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath, sends: &sends,
+		readSeq: []string{
+			"plain transcript lines\nnothing dialog shaped here\n",
+			editor,
+			editorPaint("\n"),
+			editor,
+		}})
+	a, sub, _ := streamTestAppWithHerdr(t, sock)
+	sessPath = filepath.Join(sub, "s1.jsonl")
+	a.bridgeMu.Lock()
+	a.bridge = map[string]bridgeEntry{}
+	a.bridge[sessPath] = bridgeEntry{
+		dialog:  BridgeDialog{ID: "d9", Kind: "editor", Title: "Commit staged changes with this message?"},
+		expires: time.Now().Add(time.Minute),
+	}
+	a.bridgeMu.Unlock()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/s1/dialog/answer", strings.NewReader(
+		`{"id":"d9","answer":"type","text":"probe commit"}`))
+	req.Host = "127.0.0.1:8090"
+	rec := httptest.NewRecorder()
+	a.guard(a.routes()).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if n := atomic.LoadInt32(&sends); n != 4 {
+		t.Fatalf("sends=%d, want walk,backspaces,text,enter", n)
+	}
+}
+
+func TestDialogAnswerVerifyToleratesMidRepaint(t *testing.T) {
+	editor := editorPaint("probe commit\n")
+	var sends int32
+	var sessPath string
+	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath, sends: &sends,
+		readSeq: []string{
+			editor,
+			editorPaint("\n"),
+			"plain transcript lines\nnothing dialog shaped here\n",
+			"plain transcript lines\nnothing dialog shaped here\n",
+			editor,
+		}})
+	a, sub, _ := streamTestAppWithHerdr(t, sock)
+	sessPath = filepath.Join(sub, "s1.jsonl")
+	a.bridgeMu.Lock()
+	a.bridge = map[string]bridgeEntry{}
+	a.bridge[sessPath] = bridgeEntry{
+		dialog:  BridgeDialog{ID: "d9", Kind: "editor", Title: "Commit staged changes with this message?"},
+		expires: time.Now().Add(time.Minute),
+	}
+	a.bridgeMu.Unlock()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/s1/dialog/answer", strings.NewReader(
+		`{"id":"d9","answer":"type","text":"probe commit"}`))
+	req.Host = "127.0.0.1:8090"
+	rec := httptest.NewRecorder()
+	a.guard(a.routes()).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if n := atomic.LoadInt32(&sends); n != 4 {
+		t.Fatalf("sends=%d, want walk,backspaces,text,enter", n)
+	}
+}
