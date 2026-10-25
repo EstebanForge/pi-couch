@@ -28,12 +28,11 @@ type TermKey = { id: string; label: string; keys: string[]; enabled: (status: st
 
 const hasDriver = (status: string) => status !== "";
 
-// Zoom mode: herdr's observe viewport cannot rewrap pi's paint (it
-// clips the cursor-addressed screen), so "see it all" means asking for
-// a wider viewport and shrinking the font until it fits the screen.
-const ZOOM_COLS = 160;
-const ZOOM_FONT_START = 11;
-const ZOOM_FONT_FLOOR = 3.5;
+// Wide mode: herdr's observe viewport cannot rewrap pi's paint (it
+// clips the cursor-addressed screen), so seeing the full width means
+// requesting a wider grid and panning across it at a readable size.
+const WIDE_COLS = 160;
+const WIDE_FONT = 9;
 
 const TERM_KEYS: TermKey[] = [
 	{ id: "esc", label: "Esc", keys: ["esc"], enabled: (s) => s === "working" || s === "blocked" },
@@ -60,7 +59,7 @@ export default function TerminalScreen({ sessionKey }: { sessionKey: string }) {
 	const [draft, setDraft] = useState("");
 	const [toast, setToast] = useState("");
 	const [dims, setDims] = useState({ cols: 100, rows: 30 });
-	const [mode, setMode] = useState<"fit" | "zoom">("fit");
+	const [mode, setMode] = useState<"fit" | "wide">("fit");
 	const building = useRef(false);
 	const toastTimer = useRef(0);
 
@@ -100,19 +99,19 @@ export default function TerminalScreen({ sessionKey }: { sessionKey: string }) {
 		});
 	};
 
-	// The grid: rebuilt per view mode, refit on resize. Zoom mode walks
-	// the font down until the grid holds at least ZOOM_COLS so the whole
-	// pane width fits on screen (herdr's observe viewport clips pi's
-	// cursor-addressed paint — nothing can rewrap it, so seeing it all
-	// means more columns, not wrapping). No onData — the screen never
-	// takes the soft keyboard; all input is the key row and box.
+	// The grid: rebuilt per view mode, refit on resize. Wide mode holds
+	// the full WIDE_COLS data grid at a fixed readable font and pans
+	// horizontally (herdr's observe viewport clips pi's cursor-addressed
+	// paint — nothing can rewrap it, so seeing it all means more columns,
+	// not wrapping). No onData — the screen never takes the soft
+	// keyboard; all input is the key row and box.
 	useEffect(() => {
 		const host = wrapRef.current;
 		if (!host) return;
 		building.current = true;
 		const term = new Terminal({
 			convertEol: false,
-			fontSize: mode === "zoom" ? ZOOM_FONT_START : 12,
+			fontSize: mode === "wide" ? WIDE_FONT : 12,
 			fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
 			scrollback: 0,
 			theme: activeScheme().term,
@@ -120,19 +119,18 @@ export default function TerminalScreen({ sessionKey }: { sessionKey: string }) {
 		const fit = new FitAddon();
 		term.loadAddon(fit);
 		term.open(host);
-		if (mode === "zoom") {
-			for (let fs = ZOOM_FONT_START; fs >= ZOOM_FONT_FLOOR; fs -= 0.5) {
-				term.options.fontSize = fs;
-				fit.fit();
-				if (term.cols >= ZOOM_COLS) break;
-			}
-			if (term.cols > ZOOM_COLS) term.resize(ZOOM_COLS, term.rows);
+		if (mode === "wide") {
+			// fixed readable font; only the rows follow the viewport —
+			// fit() here would collapse the wide grid back to ~73 cols
+			term.options.fontSize = WIDE_FONT;
+			const prop = fit.proposeDimensions();
+			term.resize(WIDE_COLS, Math.max(10, Math.min(200, prop?.rows ?? 30)));
 		} else {
 			fit.fit();
 		}
 		setDims({ cols: term.cols, rows: term.rows });
-		// the fit walk above resizes the grid repeatedly; the ResizeObserver
-		// must not feed those intermediate sizes back into the stream
+		// the mode rebuild rewrites the grid once; the ResizeObserver
+		// must not feed intermediate sizes back into the stream
 		requestAnimationFrame(() => {
 			building.current = false;
 		});
@@ -141,6 +139,15 @@ export default function TerminalScreen({ sessionKey }: { sessionKey: string }) {
 		const ro = new ResizeObserver(() => {
 			if (building.current) return;
 			try {
+				if (mode === "wide") {
+					// cols stay pinned to the wide data grid; only rows track
+					const prop = fit.proposeDimensions();
+					if (prop?.rows && prop.rows !== term.rows) {
+						term.resize(term.cols, prop.rows);
+						setDims({ cols: term.cols, rows: prop.rows });
+					}
+					return;
+				}
 				fit.fit();
 				setDims((d) => (d.cols === term.cols && d.rows === term.rows ? d : { cols: term.cols, rows: term.rows }));
 			} catch {
@@ -261,11 +268,11 @@ export default function TerminalScreen({ sessionKey }: { sessionKey: string }) {
 							Fit
 						</SegmentedButton>
 						<SegmentedButton
-							active={mode === "zoom"}
-							onClick={() => setMode("zoom")}
+							active={mode === "wide"}
+							onClick={() => setMode("wide")}
 							className="min-w-0 px-2 text-[12px]"
 						>
-							Zoom out
+							Wide
 						</SegmentedButton>
 					</Segmented>
 					<button
@@ -281,7 +288,13 @@ export default function TerminalScreen({ sessionKey }: { sessionKey: string }) {
 					{/* absolutely positioned: xterm's grid must never feed its
 						rendered height back into this box's size, or fit()
 						and the ResizeObserver chase each other forever */}
-					<div ref={wrapRef} className={`absolute inset-0 ${wheel ? "" : "opacity-80"}`} />
+					<div
+						ref={wrapRef}
+						className={`absolute inset-0 ${mode === "wide" ? "overflow-x-auto overflow-y-hidden" : "overflow-hidden"} ${wheel ? "" : "opacity-80"}`}
+					/>
+					{mode === "wide" && (
+						<div className="pointer-events-none absolute right-2 bottom-1 text-[10px] text-muted/70">swipe to pan →</div>
+					)}
 				</div>
 
 				{gone && (
