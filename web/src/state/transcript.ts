@@ -60,8 +60,15 @@ export const emptyDriver: DriverState = {
 
 // normalizeSeed folds whitespace so the seed matches the server's
 // re-serialization of the same text.
+// normalizeSeed folds whitespace so the seed matches the server's
+// rendering; the match side uses the untruncated fold, because pi can
+// prepend a whole skill block before the typed text.
+function foldWs(text: string): string {
+	return text.replace(/\s+/g, " ").trim();
+}
+
 function normalizeSeed(text: string): string {
-	return text.replace(/\s+/g, " ").trim().slice(0, 60);
+	return foldWs(text).slice(0, 60);
 }
 
 export function addPending(
@@ -92,15 +99,18 @@ export function removePending(s: DriverState, id: number): DriverState {
 	return { ...s, pending: s.pending.filter((p) => p.id !== id) };
 }
 
-// reconcilePending drops bubbles whose user item arrived (text starts
-// with the seed). A reset re-syncs everything, so it clears all.
+// reconcilePending drops bubbles whose user item arrived. The landed
+// text must CONTAIN the seed, not start with it: pi expands $skill
+// invocations by prepending the <skill> block to the typed text, so a
+// seeded draft no longer prefixes the landed message (stuck-bubble
+// field bug). A reset re-syncs everything, so it clears all.
 function reconcile(s: DriverState): DriverState {
 	if (s.pending.length === 0) return s;
 	const keep = s.pending.filter(
 		(p) =>
 			Date.now() - p.at < PENDING_TTL_MS &&
 			!s.items.some(
-				(it) => it.kind === "user" && p.seed !== "" && normalizeSeed(it.text).startsWith(p.seed),
+				(it) => it.kind === "user" && p.seed !== "" && foldWs(it.text).includes(p.seed),
 			),
 	);
 	return keep.length === s.pending.length ? s : { ...s, pending: keep };

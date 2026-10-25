@@ -42,6 +42,23 @@ describe("pending bubbles", () => {
 		expect(s.pending).toEqual([]);
 	});
 
+	it("reconciles when pi expands a skill around the text", () => {
+		// pi expands $skill invocations by prepending the skill block to
+		// the typed text, so the landed message no longer STARTS with the
+		// seed - only a contains match drops the bubble.
+		let s = addPending(base, 1, "do E3 mobile-passkey-provider.", false);
+		s = reduceAppend(s, {
+			items: [
+				{
+					kind: "user",
+					text: '<skill name="bro" location="/skills/bro/SKILL.md">\nlong skill body\n</skill>\n\ndo E3 mobile-passkey-provider. and more',
+					seq: 13,
+				},
+			],
+		});
+		expect(s.pending).toEqual([]);
+	});
+
 	it("keeps the bubble when no user item matches", () => {
 		let s = addPending(base, 1, "unrelated prompt", false);
 		s = reduceAppend(s, { items: [{ kind: "text", text: "some reply", seq: 11 }] });
