@@ -4,14 +4,18 @@
 // window, and an unknown outcome never restores or retries.
 
 import { Sheet, Toast } from "konsta/react";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
 	getModels,
+	getPrompts,
+	getSkills,
 	type ModelRow,
+	type PromptInfo,
 	sendKeys,
 	sendPrompt,
 	setModel,
 	setThinking,
+	type SkillInfo,
 	uploadImage,
 } from "../api";
 import { dispositionFor } from "../chat/disposition";
@@ -22,6 +26,7 @@ import { useSheetBack } from "../nav";
 import {
 	effectiveEnterSends,
 	prefKey,
+	quickCommands,
 	quickKeyOrder,
 	quickKeysEnabled,
 	readPref,
@@ -29,8 +34,10 @@ import {
 } from "../prefs";
 import {
 	FaBrain,
+	FaCaretRight,
 	FaCheck,
 	FaChevronDown,
+	FaChevronLeft,
 	FaPaperclip,
 	FaPaperPlane,
 	FaSparkles,
@@ -54,6 +61,7 @@ export const Composer = memo(function Composer(props: {
 	ctxTokens: number;
 	memory: string | null;
 	cost: number;
+	cwd: string;
 	addPending: (text: string, queued: boolean) => number;
 	markPending: (id: number, state: "sent" | "queued" | "unconfirmed") => void;
 	removePending: (id: number) => void;
@@ -65,6 +73,12 @@ export const Composer = memo(function Composer(props: {
 	const [notice, setNotice] = useState("");
 	const [toast, setToast] = useState("");
 	const [sheet, setSheet] = useState<"none" | "model" | "thinking" | "commands" | "attach">("none");
+	const [qaStep, setQaStep] = useState<"menu" | "skills" | "commands" | "prompts">("menu");
+	const [skills, setSkills] = useState<SkillInfo[] | null>(null);
+	const [prompts, setPrompts] = useState<PromptInfo[] | null>(null);
+	const [skillsError, setSkillsError] = useState(false);
+	const [promptsError, setPromptsError] = useState(false);
+	const quickCmds = useMemo(() => quickCommands(), []);
 	useSheetBack(sheet !== "none", () => setSheet("none"));
 	const [modelQuery, setModelQuery] = useState("");
 	const [modelRows, setModelRows] = useState<ModelRow[]>([]);
@@ -76,6 +90,45 @@ export const Composer = memo(function Composer(props: {
 	const ta = useRef<HTMLTextAreaElement | null>(null);
 	const fileInput = useRef<HTMLInputElement | null>(null);
 	const keyChain = useRef<Promise<unknown>>(Promise.resolve());
+
+	// The quick actions panel opens on its kind menu; skills and
+	// prompts load from pi's own discovery the first time each list is
+	// entered, and every tap fills the draft so companion text can
+	// follow - the panel never sends.
+	useEffect(() => {
+		if (sheet !== "commands") return;
+		setQaStep("menu");
+	}, [sheet]);
+
+	useEffect(() => {
+		if (sheet !== "commands" || qaStep !== "skills" || skills) return;
+		getSkills(props.cwd || undefined)
+			.then((rows) => {
+				setSkills(rows);
+			})
+			.catch(() => {
+				setSkills([]);
+				setSkillsError(true);
+			});
+	}, [sheet, qaStep, skills, props.cwd]);
+
+	useEffect(() => {
+		if (sheet !== "commands" || qaStep !== "prompts" || prompts) return;
+		getPrompts(props.cwd || undefined)
+			.then((rows) => {
+				setPrompts(rows);
+			})
+			.catch(() => {
+				setPrompts([]);
+				setPromptsError(true);
+			});
+	}, [sheet, qaStep, prompts, props.cwd]);
+
+	const fillQuick = (value: string) => {
+		setText(value);
+		setSheet("none");
+		window.setTimeout(() => ta.current?.focus(), 80);
+	};
 	const nextId = useRef(1);
 	// One request per intent: a double-tap on send (or Alt+Enter while a
 	// send is in flight) must not POST twice - pi would queue both.
@@ -532,29 +585,96 @@ export const Composer = memo(function Composer(props: {
 				)}
 			</div>
 
-			{/* commands sheet */}
+			{/* quick actions: step 1 picks a kind, step 2 lists it */}
 			<Sheet
 				className="pb-safe-all rounded-t-3xl border-t border-base-content/10 bg-base-200/98 shadow-2xl backdrop-blur-xl"
 				opened={sheet === "commands"}
 				onBackdropClick={() => setSheet("none")}
 			>
-				<div className="flex flex-col gap-2 p-4">
-					<div className="mx-auto mb-1.5 h-1.5 w-12 rounded-full bg-base-content/25" />
-					<div className="px-1 text-[13px] font-semibold tracking-wider text-muted uppercase">
-						Quick commands
-					</div>
-					<div className="flex flex-col gap-1.5 pt-1">
-						{["Command one", "Command two", "Command three"].map((c) => (
+				<div className="flex max-h-[72dvh] flex-col gap-1.5 overflow-y-auto p-4">
+					<div className="mx-auto mb-1.5 h-1.5 w-12 shrink-0 rounded-full bg-base-content/25" />
+					{qaStep === "menu" ? (
+						<>
+							<div className="px-1 pb-1 text-[13px] font-semibold tracking-wider text-muted uppercase">
+								Quick actions
+							</div>
+							<QaKind
+								icon={<FaSparkles size={17} />}
+								title="Skills"
+								sub="pi skills, invoked as /skill:name"
+								onClick={() => setQaStep("skills")}
+							/>
+							<QaKind
+								icon={<FaTableCellsLarge size={17} />}
+								title="Commands"
+								sub="pi slash commands, editable in Settings"
+								onClick={() => setQaStep("commands")}
+							/>
+							<QaKind
+								icon={<FaPaperPlane size={16} />}
+								title="Prompts"
+								sub="pi prompt templates as /commands"
+								onClick={() => setQaStep("prompts")}
+							/>
+						</>
+					) : (
+						<>
 							<button
-								key={c}
 								type="button"
-								className="press-scale flex w-full items-center rounded-2xl border border-base-content/8 bg-base-300/60 px-4 py-3 text-left text-[14.5px] font-medium text-base-content shadow-surface-sm backdrop-blur-sm active:bg-base-300"
+								onClick={() => setQaStep("menu")}
+								className="press-scale -mx-1 flex min-h-[40px] items-center gap-1.5 rounded-xl px-1 text-[13.5px] font-medium text-muted active:text-base-content"
 							>
-								{c}
+								<FaChevronLeft size={13} /> Quick actions
 							</button>
-						))}
-					</div>
-					<div className="px-1 py-2 text-[12px] text-muted">More commands land here soon.</div>
+							{qaStep === "skills" &&
+								(skills === null ? (
+									<QaNote>Loading skills…</QaNote>
+								) : skillsError ? (
+									<QaNote>pi skills unavailable.</QaNote>
+								) : skills.length === 0 ? (
+									<QaNote>No pi skills installed.</QaNote>
+								) : (
+									skills.map((s) => (
+										<QaItem
+											key={s.name}
+											title={`/skill:${s.name}`}
+											sub={s.description}
+											onClick={() => fillQuick(`/skill:${s.name} `)}
+										/>
+									))
+								))}
+							{qaStep === "commands" &&
+								(quickCmds.length === 0 ? (
+									<QaNote>No commands configured.</QaNote>
+								) : (
+									quickCmds.map((c) => (
+										<QaItem
+											key={c}
+											title={c}
+											sub="pi command - add arguments after it"
+											onClick={() => fillQuick(`${c} `)}
+										/>
+									))
+								))}
+							{qaStep === "prompts" &&
+								(prompts === null ? (
+									<QaNote>Loading prompts…</QaNote>
+								) : promptsError ? (
+									<QaNote>pi prompts unavailable.</QaNote>
+								) : prompts.length === 0 ? (
+									<QaNote>No prompt templates installed.</QaNote>
+								) : (
+									prompts.map((p) => (
+										<QaItem
+											key={p.name}
+											title={`/${p.name}`}
+											sub={p.hint ? `${p.description} (${p.hint})` : p.description}
+											onClick={() => fillQuick(`/${p.name} `)}
+										/>
+									))
+								))}
+						</>
+					)}
 				</div>
 			</Sheet>
 
@@ -768,4 +888,43 @@ function runQueueEnabled(status: string, hasText: boolean): boolean {
 // Enter sends on fine pointers; touch keeps Enter as a newline.
 function enterSends(): boolean {
 	return effectiveEnterSends();
+}
+
+// Quick actions rows: kind cards on the menu step, list entries on the
+// second step. Module-level so the memoized Composer keeps stable
+// element types across renders.
+function QaKind(props: { icon: ReactNode; title: string; sub: string; onClick: () => void }) {
+	return (
+		<button
+			type="button"
+			onClick={props.onClick}
+			className="press-scale flex w-full items-center gap-3 rounded-2xl border border-base-content/8 bg-base-300/60 px-4 py-3 text-left shadow-surface-sm active:bg-base-300"
+		>
+			<span className="grid size-9 shrink-0 place-items-center rounded-xl bg-base-200 text-primary">
+				{props.icon}
+			</span>
+			<span className="min-w-0 flex-1">
+				<span className="block text-[15px] font-semibold text-base-content">{props.title}</span>
+				<span className="block truncate text-[12px] text-muted">{props.sub}</span>
+			</span>
+			<FaCaretRight size={14} className="shrink-0 text-muted" />
+		</button>
+	);
+}
+
+function QaItem(props: { title: string; sub: string; onClick: () => void }) {
+	return (
+		<button
+			type="button"
+			onClick={props.onClick}
+			className="press-scale flex w-full flex-col gap-0.5 rounded-2xl border border-base-content/8 bg-base-300/60 px-4 py-2.5 text-left shadow-surface-sm active:bg-base-300"
+		>
+			<span className="font-mono text-[14px] font-medium text-base-content">{props.title}</span>
+			<span className="line-clamp-2 text-[12px] text-muted">{props.sub}</span>
+		</button>
+	);
+}
+
+function QaNote(props: { children: ReactNode }) {
+	return <div className="px-1 py-3 text-center text-[12.5px] text-muted">{props.children}</div>;
 }

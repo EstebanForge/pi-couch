@@ -105,6 +105,32 @@ export function setQuickPath(path: string): void {
 	writePref(prefKey("quickPath"), path.trim() || null);
 }
 
+/** Quick commands: pi slash commands one tap away in the quick actions
+ * panel. Per-device, junk-tolerant; the defaults cover the safe
+ * built-ins devs use most (nothing that strands the chat in a picker
+ * the phone cannot answer, like /model or /resume). */
+export const DEFAULT_QUICK_COMMANDS = ["/compact", "/name", "/reload", "/session"];
+
+export function quickCommands(): string[] {
+	const raw = readPref(prefKey("quickCommands"));
+	if (!raw) return [...DEFAULT_QUICK_COMMANDS];
+	try {
+		const parsed: unknown = JSON.parse(raw);
+		if (Array.isArray(parsed)) {
+			const list = parsed.filter((c): c is string => typeof c === "string" && c.trim() !== "");
+			if (list.length > 0) return list;
+		}
+	} catch {
+		// fall through to the defaults
+	}
+	return [...DEFAULT_QUICK_COMMANDS];
+}
+
+export function setQuickCommands(list: string[]): void {
+	const clean = list.map((c) => c.trim()).filter((c) => c !== "");
+	writePref(prefKey("quickCommands"), clean.length === 0 ? null : JSON.stringify(clean));
+}
+
 /** Effective Enter behavior: the pref wins; "auto" falls back to the
  * fine-pointer heuristic (desktop keyboards send, touch adds a
  * newline). */

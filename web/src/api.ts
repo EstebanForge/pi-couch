@@ -390,6 +390,21 @@ export async function getModels(q: string): Promise<ModelRow[]> {
 	return (await res.json()) as ModelRow[];
 }
 
+export type SkillInfo = { name: string; description: string };
+export type PromptInfo = { name: string; description: string; hint?: string };
+
+export async function getSkills(cwd?: string): Promise<SkillInfo[]> {
+	const res = await fetch(`/api/skills${cwd ? `?cwd=${encodeURIComponent(cwd)}` : ""}`);
+	if (!res.ok) throw new Error(`skills ${res.status}`);
+	return ((await res.json()) as { skills: SkillInfo[] }).skills;
+}
+
+export async function getPrompts(cwd?: string): Promise<PromptInfo[]> {
+	const res = await fetch(`/api/prompts${cwd ? `?cwd=${encodeURIComponent(cwd)}` : ""}`);
+	if (!res.ok) throw new Error(`prompts ${res.status}`);
+	return ((await res.json()) as { prompts: PromptInfo[] }).prompts;
+}
+
 export async function uploadImage(file: File): Promise<string> {
 	const fd = new FormData();
 	fd.append("file", file);

@@ -2,9 +2,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	effectiveEnterSends,
 	enterSendsPref,
+	quickCommands,
 	quickKeyOrder,
 	quickKeysEnabled,
 	setEnterSendsPref,
+	setQuickCommands,
 	setQuickKeyOrder,
 	setQuickKeysEnabled,
 } from "./prefs";
@@ -105,5 +107,24 @@ describe("prefs", () => {
 		expect(enterSendsPref()).toBe("auto");
 		setEnterSendsPref("send");
 		expect(backing.has("couch-pi.enterSends")).toBe(false);
+	});
+
+	describe("quickCommands", () => {
+		it("defaults when unset", () => {
+			expect(quickCommands()).toContain("/compact");
+		});
+
+		it("round-trips a custom list", () => {
+			setQuickCommands(["/compact", "/mycmd"]);
+			expect(quickCommands()).toEqual(["/compact", "/mycmd"]);
+		});
+
+		it("falls back to defaults on junk and empty lists", () => {
+			backing.set("pi-couch.quickCommands", "{not json");
+			expect(quickCommands()).toContain("/compact");
+			setQuickCommands([]);
+			expect(backing.has("pi-couch.quickCommands")).toBe(false);
+			expect(quickCommands()).toContain("/compact");
+		});
 	});
 });

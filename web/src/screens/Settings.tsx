@@ -8,17 +8,19 @@ import { useEffect, useState } from "react";
 import { getVersion } from "../api";
 import { orderKeys, QUICK_KEYS } from "../chat/quick-keys";
 import { DirBrowser } from "../components/DirBrowser";
-import { FaArrowDown, FaArrowUp, FaCheck } from "../components/fa";
+import { FaArrowDown, FaArrowUp, FaCheck, FaPlus, FaXmark } from "../components/fa";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { useSheetBack } from "../nav";
 import {
 	type EnterSendsPref,
 	effectiveEnterSends,
 	enterSendsPref,
+	quickCommands,
 	quickKeyOrder,
 	quickKeysEnabled,
 	quickPath,
 	setEnterSendsPref,
+	setQuickCommands,
 	setQuickKeyOrder,
 	setQuickKeysEnabled,
 	setQuickPath,
@@ -38,6 +40,8 @@ export default function SettingsScreen() {
 	const [order, setOrder] = useState(() => orderKeys(quickKeyOrder()).map((k) => k.id));
 	const [qPath, setQPath] = useState(quickPath);
 	const [pickerOpen, setPickerOpen] = useState(false);
+	const [cmds, setCmds] = useState(quickCommands);
+	const [newCmd, setNewCmd] = useState("");
 	useSheetBack(pickerOpen, () => setPickerOpen(false));
 	const [picked, setPicked] = useState("");
 	const [version, setVersion] = useState<string | null>(null);
@@ -219,6 +223,79 @@ export default function SettingsScreen() {
 					<p className="px-1 pt-2 text-xs text-muted">
 						The home FAB's Quick agent starts pi here without asking. Each tap adds one agent to the
 						Quick workspace at this folder.
+					</p>
+				</section>
+
+				<section>
+					<h2 className="px-1 pb-2 text-[11px] font-semibold uppercase tracking-wider text-muted">
+						Quick commands
+					</h2>
+					<div className="flex flex-col gap-1.5">
+						{cmds.map((c) => (
+							<div
+								key={c}
+								className="flex min-h-[44px] items-center rounded-2xl border border-base-content/10 bg-base-200/80 pl-4 shadow-surface-sm"
+							>
+								<span className="min-w-0 flex-1 truncate font-mono text-[14px] text-base-content">
+									{c}
+								</span>
+								<button
+									type="button"
+									aria-label={`Remove ${c}`}
+									onClick={() => {
+										const next = cmds.filter((x) => x !== c);
+										setCmds(next);
+										setQuickCommands(next);
+									}}
+									className="grid h-11 w-11 shrink-0 place-items-center text-muted active:text-error"
+								>
+									<FaXmark size={14} />
+								</button>
+							</div>
+						))}
+					</div>
+					<div className="mt-1.5 flex gap-1.5">
+						<input
+							type="text"
+							value={newCmd}
+							onChange={(e) => setNewCmd(e.target.value)}
+							onKeyDown={(e) => {
+								if (e.key === "Enter") {
+									e.preventDefault();
+									const v = newCmd.trim();
+									if (v && !cmds.includes(v)) {
+										const next = [...cmds, v];
+										setCmds(next);
+										setQuickCommands(next);
+									}
+									setNewCmd("");
+								}
+							}}
+							placeholder="/command"
+							aria-label="New quick command"
+							className="h-11 min-w-0 flex-1 rounded-2xl border border-base-content/10 bg-base-200/80 px-4 font-mono text-[14px] text-base-content placeholder:text-muted"
+						/>
+						<button
+							type="button"
+							aria-label="Add quick command"
+							disabled={!newCmd.trim() || cmds.includes(newCmd.trim())}
+							onClick={() => {
+								const v = newCmd.trim();
+								if (v && !cmds.includes(v)) {
+									const next = [...cmds, v];
+									setCmds(next);
+									setQuickCommands(next);
+								}
+								setNewCmd("");
+							}}
+							className="press-scale grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-primary text-base-100 disabled:opacity-40"
+						>
+							<FaPlus size={15} />
+						</button>
+					</div>
+					<p className="px-1 pt-2 text-xs text-muted">
+						Slash commands offered in the chat's quick actions panel. pi built-ins like /compact
+						work; clearing every entry restores the defaults.
 					</p>
 				</section>
 

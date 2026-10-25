@@ -208,6 +208,8 @@ func (a *app) routes() http.Handler {
 	// names (term/gone/ping), not one of the JSON /api/stream feeds.
 	mux.HandleFunc("GET /stream/terminal/{key}", a.streamTerminal)
 	mux.HandleFunc("GET /api/models", a.apiModels)
+	mux.HandleFunc("GET /api/skills", a.apiSkills)
+	mux.HandleFunc("GET /api/prompts", a.apiPrompts)
 	mux.HandleFunc("POST /api/upload", a.uploadHandler)
 	mux.HandleFunc("GET /api/push/key", a.pushKey)
 	mux.HandleFunc("POST /api/push/subscribe", a.pushSubscribe)
