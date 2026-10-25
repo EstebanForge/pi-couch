@@ -5,7 +5,7 @@ import type { SessionMeta, SessionsPatch } from "../api";
 import {
 	FaBell,
 	FaBellSlash,
-	FaGauge,
+	FaGaugeHigh,
 	FaGear,
 	FaMagnifyingGlass,
 	FaPlus,
@@ -191,7 +191,7 @@ export default function HomeList() {
 						onClick={() => navigate("/quotas", { dir: "fwd" })}
 						className="press-scale ml-auto grid h-11 w-11 place-items-center rounded-xl text-muted active:text-base-content"
 					>
-						<FaGauge size={20} />
+						<FaGaugeHigh size={20} />
 					</button>
 					<button
 						type="button"

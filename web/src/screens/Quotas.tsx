@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { getQuotas, type ProviderQuota, refreshQuotas, type WindowQuota } from "../api";
-import { FaChevronLeft, FaGauge } from "../components/fa";
+import { FaChevronLeft, FaGaugeHigh } from "../components/fa";
 import { Spinner } from "../components/Spinner";
 import { relTime } from "../fmt";
 
@@ -58,7 +58,7 @@ export default function QuotasScreen() {
 						<FaChevronLeft size={20} />
 					</button>
 					<div className="flex items-center gap-2">
-						<FaGauge size={19} className="text-primary" />
+						<FaGaugeHigh size={19} className="text-primary" />
 						<h1 className="text-[18px] font-semibold tracking-tight text-base-content">
 							Provider Quotas
 						</h1>

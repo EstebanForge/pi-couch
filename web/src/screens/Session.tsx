@@ -22,7 +22,7 @@ import {
 	FaChevronLeft,
 	FaCircle,
 	FaEllipsis,
-	FaGauge,
+	FaGaugeHigh,
 	FaGear,
 	FaHourglassHalf,
 	FaXmark,
@@ -939,7 +939,7 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 					onClick={() => navigate("/quotas", { dir: "fwd" })}
 					className="press-scale ml-auto grid h-11 w-11 place-items-center rounded-xl text-muted active:text-base-content"
 				>
-					<FaGauge size={20} />
+					<FaGaugeHigh size={20} />
 				</button>
 				<button
 					type="button"
