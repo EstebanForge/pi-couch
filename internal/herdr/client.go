@@ -68,6 +68,10 @@ func NewAt(path string) *Client {
 	return &Client{path: path, timeout: 3 * time.Second}
 }
 
+// SocketPath exposes the unix socket for out-of-band helpers that talk
+// to the same herdr (the terminal observe subprocess).
+func (c *Client) SocketPath() string { return c.path }
+
 // Agents returns the live agent list. A missing or dead socket returns nil
 // and the dial error: callers decide the degradation (the badge path treats
 // an error as no badges, the push watcher just retries on the next tick).

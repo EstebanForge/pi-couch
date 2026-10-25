@@ -1,9 +1,11 @@
 // Terminal.tsx — /sessions/{key}/terminal: the pi TUI mirrored over
-// SSE. The stream is the legacy /stream/terminal/{key} (term frames
-// carry a whole-screen pane.read snapshot per revision, gone means no
-// driver). Input never rides xterm's textarea (that is where Android
-// IME composition breaks); it rides the key row and the input box
-// through the terminal input endpoint, behind a take-the-wheel gate.
+// SSE. The stream is /stream/terminal/{key}: delta frames carry raw
+// base64 pty bytes from a `herdr terminal session observe` viewport
+// (frame 0 is a full repaint), term frames are the legacy whole-screen
+// pane.read snapshot fallback, gone means no driver. Input never rides
+// xterm's textarea (that is where Android IME composition breaks); it
+// rides the key row and the input box through the terminal input
+// endpoint, behind a take-the-wheel gate.
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
@@ -50,6 +52,7 @@ export default function TerminalScreen({ sessionKey }: { sessionKey: string }) {
 	const [status, setStatus] = useState("");
 	const [draft, setDraft] = useState("");
 	const [toast, setToast] = useState("");
+	const [dims, setDims] = useState({ cols: 100, rows: 30 });
 	const toastTimer = useRef(0);
 
 	const say = useCallback((msg: string) => {
@@ -104,11 +107,13 @@ export default function TerminalScreen({ sessionKey }: { sessionKey: string }) {
 		term.loadAddon(fit);
 		term.open(host);
 		fit.fit();
+		setDims({ cols: term.cols, rows: term.rows });
 		termRef.current = term;
 		fitRef.current = fit;
 		const ro = new ResizeObserver(() => {
 			try {
 				fit.fit();
+				setDims((d) => (d.cols === term.cols && d.rows === term.rows ? d : { cols: term.cols, rows: term.rows }));
 			} catch {
 				// fit can throw while the host is display:none mid-nav
 			}
@@ -126,39 +131,63 @@ export default function TerminalScreen({ sessionKey }: { sessionKey: string }) {
 		};
 	}, []);
 
-	// The mirror stream: a term frame is a whole-screen snapshot (the
-	// server hash-gates it — herdr's per-connection revision reads 0 on
-	// our one-shot connections). gone ends it for good.
+	// The mirror stream: delta frames are incremental pty bytes (the
+	// first one repaints the whole viewport, so reset once per connect);
+	// term frames are the fallback's whole-screen snapshots. gone ends
+	// it for good. Reconnecting on dims changes respawns the observe
+	// viewport at the new grid.
 	useEffect(() => {
 		let stream: Stream | null = null;
+		let first = true;
 		const run = () => {
-			stream = connectStream(`/stream/terminal/${encodeURIComponent(sessionKey)}`, {
-				events: ["term", "gone", "ping"],
-				onEvent: (name, data) => {
-					if (name === "gone") {
-						setGone(true);
-						stream?.close();
-						return;
-					}
-					if (name !== "term") return;
-					let frame: { text?: string; revision?: number };
-					try {
-						frame = JSON.parse(data) as typeof frame;
-					} catch {
-						return;
-					}
-					if (typeof frame.text !== "string") return;
-					const term = termRef.current;
-					if (!term) return;
-					setGone(false);
-					term.reset();
-					term.write(frame.text);
+			stream = connectStream(
+				`/stream/terminal/${encodeURIComponent(sessionKey)}?cols=${dims.cols}&rows=${dims.rows}`,
+				{
+					events: ["delta", "term", "gone", "ping"],
+					onEvent: (name, data) => {
+						if (name === "gone") {
+							setGone(true);
+							stream?.close();
+							return;
+						}
+						if (name !== "delta" && name !== "term") return;
+						const term = termRef.current;
+						if (!term) return;
+						setGone(false);
+						if (name === "term") {
+							let frame: { text?: string };
+							try {
+								frame = JSON.parse(data) as typeof frame;
+							} catch {
+								return;
+							}
+							if (typeof frame.text !== "string") return;
+							term.reset();
+							term.write(frame.text);
+							return;
+						}
+						let frame: { bytes?: string };
+						try {
+							frame = JSON.parse(data) as typeof frame;
+						} catch {
+							return;
+						}
+						if (typeof frame.bytes !== "string") return;
+						const bin = atob(frame.bytes);
+						const arr = new Uint8Array(bin.length);
+						for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+						if (first) {
+							first = false;
+							term.reset();
+						}
+						term.write(arr);
+					},
 				},
-			});
+			);
 		};
 		run();
 		return () => stream?.close();
-	}, [sessionKey]);
+	}, [sessionKey, dims]);
 
 	// Driver status rides the sessions stream; an agentless session has
 	// no badge, which disables every key.

@@ -233,6 +233,7 @@ func streamTestAppWithHerdr(t *testing.T, sock string) (*app, string, http.Handl
 		models:      newModelsCache(filepath.Join(t.TempDir(), "models.json")),
 		memory:      newMemoryProbe("", ""),
 		dialogWake:  make(chan struct{}, 1),
+		observes:    newObserveHub(sock),
 		dialogLatch: map[string]*dialogWire{},
 	}
 	return a, sub, a.guard(a.routes())

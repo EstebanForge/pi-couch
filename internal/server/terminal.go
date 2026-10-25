@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -27,6 +28,60 @@ func (a *app) streamTerminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	cols, rows := terminalDims(r)
+	ch, unsub := a.observes.subscribe(target, cols, rows)
+	defer unsub()
+	ticker := time.NewTicker(keepaliveEvery)
+	defer ticker.Stop()
+	for {
+		select {
+		case f, ok := <-ch:
+			if !ok {
+				return
+			}
+			if f.failed {
+				// No herdr binary to observe with: legacy snapshot loop.
+				a.pollTerminal(w, r, target)
+				return
+			}
+			if f.closed {
+				if !writeSSE(w, "gone", "{}") {
+					return
+				}
+				flusher.Flush()
+				return
+			}
+			frame, err := json.Marshal(map[string]string{"bytes": f.bytes})
+			if err != nil || !writeSSE(w, "delta", string(frame)) {
+				return
+			}
+		case <-ticker.C:
+			if !writeSSE(w, "ping", "{}") {
+				return
+			}
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+// terminalDims reads the viewer's xterm fit size so herdr frames the
+// observe viewport to the same grid.
+func terminalDims(r *http.Request) (int, int) {
+	cols, rows := 100, 30
+	if v, err := strconv.Atoi(r.URL.Query().Get("cols")); err == nil && v >= 40 && v <= 500 {
+		cols = v
+	}
+	if v, err := strconv.Atoi(r.URL.Query().Get("rows")); err == nil && v >= 10 && v <= 200 {
+		rows = v
+	}
+	return cols, rows
+}
+
+// pollTerminal is the pre-observe fallback: a hash-gated whole-screen
+// pane.read snapshot loop, kept for boxes without the herdr CLI.
+func (a *app) pollTerminal(w http.ResponseWriter, r *http.Request, target string) {
+	ctx := r.Context()
 	lastHash := ""
 	lastSent := time.Now()
 	for {

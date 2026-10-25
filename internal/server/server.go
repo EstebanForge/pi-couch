@@ -59,12 +59,13 @@ type app struct {
 	models        *modelsCache           // pi catalog: memory, state file, then pi
 	memory        *memoryProbe           // agent memory server health
 	dialogWake    chan struct{}          // cap 1: a dialog changed; stream loops push now
+	observes      *observeHub            // per-pane `herdr observe` subprocesses fanned to terminal viewers
 	quotas        *quotas.Service        // provider quotas & limits tracker
 }
 
 func Run(ctx context.Context, logger *slog.Logger, cfg *config.Config, idx *pi.Index, hc *herdr.Client, w *pi.Watcher, st *store.Store, pusher *push.Sender) error {
 	home, _ := os.UserHomeDir()
-	a := &app{logger: logger, idx: idx, herdr: hc, watcher: w, st: st, pusher: pusher, allowedOrigin: cfg.Origin, uploadDir: cfg.UploadsDir, home: home, answered: newDialogMemos(), models: newModelsCache(filepath.Join(st.Dir(), "models.json")), memory: newMemoryProbe(cfg.MemoryURL, cfg.MemorySecret), dialogWake: make(chan struct{}, 1), dialogLatch: map[string]*dialogWire{}, quotas: quotas.NewService()}
+	a := &app{logger: logger, idx: idx, herdr: hc, watcher: w, st: st, pusher: pusher, allowedOrigin: cfg.Origin, uploadDir: cfg.UploadsDir, home: home, answered: newDialogMemos(), models: newModelsCache(filepath.Join(st.Dir(), "models.json")), memory: newMemoryProbe(cfg.MemoryURL, cfg.MemorySecret), dialogWake: make(chan struct{}, 1), dialogLatch: map[string]*dialogWire{}, observes: newObserveHub(hc.SocketPath()), quotas: quotas.NewService()}
 	if pusher != nil {
 		a.vapidPublic = pusher.Public
 	}
