@@ -1,11 +1,13 @@
-import { Dialog, DialogButton } from "konsta/react";
+import { Dialog, DialogButton, Sheet } from "konsta/react";
 import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import {
 	closeSession,
 	getItemText,
 	getTranscriptPage,
+	type SessionsPatch,
 	type StreamItem,
+	sendPrompt,
 	stopSession,
 	type Todo,
 	type TranscriptAppend,
@@ -42,11 +44,11 @@ import {
 	type PendingMsg,
 	pairTools,
 	parseSkillExpansion,
-	type SkillExpansion,
 	reduceAppend,
 	reduceReset,
 	reduceStatus,
 	removePending,
+	type SkillExpansion,
 	type ToolPair,
 	type WorkBlock,
 } from "../state/transcript";
@@ -673,6 +675,8 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 	const [query, setQuery] = useState<string | null>(null);
 	const [overflow, setOverflow] = useState(false);
 	const [confirmClose, setConfirmClose] = useState(false);
+	const [renameOpen, setRenameOpen] = useState(false);
+	const [renameVal, setRenameVal] = useState("");
 	// Reverse pagination: firstItemIndex drops as older pages prepend so
 	// Virtuoso anchors the scroll instead of jumping.
 	const [firstItemIndex, setFirstItemIndex] = useState(INDEX_BASE);
@@ -681,6 +685,7 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 	const paging = useRef(false);
 	useSheetBack(overflow, () => setOverflow(false));
 	useSheetBack(confirmClose, () => setConfirmClose(false));
+	useSheetBack(renameOpen, () => setRenameOpen(false));
 	const [lightbox, setLightbox] = useState<string | null>(null);
 	useSheetBack(!!lightbox, () => setLightbox(null));
 	const [notice, setNotice] = useState("");
@@ -792,12 +797,25 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 		return () => clearTimeout(t);
 	}, [hadItems]);
 
+	// The sessions store feeds the title; without this stream a /name
+	// rename only reaches the chat after some other screen reconnects.
+	const applySessions = useSessions((s) => s.apply);
+	useEffect(() => {
+		const stream = connectStream("/api/stream/sessions", {
+			onEvent: (_name, data) => applySessions(JSON.parse(data) as SessionsPatch),
+		});
+		return () => stream.close();
+	}, [applySessions]);
+
 	const meta = useSessions((s) => s.sessions.find((x) => x.key === sessionKey));
+	// meta.name refreshes on every watcher tick via the sessions stream;
+	// the transcript reset's header only refreshes on reconnect, so the
+	// store wins — a /name rename must flip the title without one.
 	const title =
-		state.header?.name ||
-		state.header?.first_user ||
 		meta?.name ||
+		state.header?.name ||
 		meta?.first_user ||
+		state.header?.first_user ||
 		state.items.find((it) => it.kind === "user")?.text.slice(0, 60) ||
 		"Session";
 	const dot = STATUS_DOT[state.status] ?? "bg-muted";
@@ -907,6 +925,16 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 		if (!r.ok) setNotice(r.error === "notdriven" ? "No driver runs this session." : "Stop failed.");
 	};
 
+	// pi's /name command writes a session_info entry, which rides the
+	// existing watcher tick and sessions-stream upsert into the title.
+	const runRename = async () => {
+		const name = renameVal.trim();
+		setRenameOpen(false);
+		if (!name || name === title) return;
+		const r = await sendPrompt(sessionKey, `/name ${name}`);
+		if (!r.ok) setNotice("Rename failed.");
+	};
+
 	const runClose = async () => {
 		setOverflow(false);
 		setConfirmClose(false);
@@ -991,6 +1019,21 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 						{t.label}
 					</button>
 				))}
+				<button
+					type="button"
+					disabled={isWaiting(state.status)}
+					className={`press-scale min-h-[36px] shrink-0 rounded-xl px-3.5 text-[13px] font-medium transition-all ${
+						isWaiting(state.status)
+							? "text-muted/40"
+							: "bg-base-300/40 text-base-content active:bg-base-300"
+					}`}
+					onClick={() => {
+						setRenameVal(title === "Session" ? "" : title);
+						setRenameOpen(true);
+					}}
+				>
+					Rename
+				</button>
 				<button
 					type="button"
 					className="press-scale ml-auto min-h-[36px] shrink-0 rounded-xl bg-base-300/40 px-3 text-[13px] text-base-content active:bg-base-300"
@@ -1214,6 +1257,45 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 			>
 				Close this session? The pi agent exits; the transcript stays readable.
 			</Dialog>
+
+			<Sheet
+				opened={renameOpen}
+				onBackdropClick={() => setRenameOpen(false)}
+				className="pb-safe-all bg-base-200"
+			>
+				<div className="flex flex-col gap-2 p-3">
+					<div className="text-[13px] font-semibold uppercase tracking-wider text-muted">
+						Rename session
+					</div>
+					<input
+						value={renameVal}
+						onChange={(e) => setRenameVal(e.target.value)}
+						onKeyDown={(e) => {
+							if (e.key === "Enter") void runRename();
+						}}
+						aria-label="Session name"
+						placeholder="New name here"
+						className="w-full rounded-2xl border border-base-content/10 bg-base-200/80 px-3 py-2 text-[15px] text-base-content placeholder:text-muted"
+					/>
+					<div className="flex gap-2">
+						<button
+							type="button"
+							onClick={() => setRenameOpen(false)}
+							className="press-scale min-h-[48px] flex-1 rounded-2xl border border-base-content/15 bg-base-300/40 text-[15px] font-semibold text-base-content"
+						>
+							Cancel
+						</button>
+						<button
+							type="button"
+							disabled={!renameVal.trim()}
+							onClick={() => void runRename()}
+							className="press-scale min-h-[48px] flex-1 rounded-2xl bg-primary text-[15px] font-semibold text-primary-content shadow-[0_2px_12px_rgba(64,157,212,0.4)] disabled:opacity-50"
+						>
+							Rename
+						</button>
+					</div>
+				</div>
+			</Sheet>
 		</div>
 	);
 }
