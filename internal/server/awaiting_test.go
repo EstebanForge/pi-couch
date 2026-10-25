@@ -60,6 +60,39 @@ func (f *fakePaneHerdr) PaneRead(ctx context.Context, paneID, source string, lin
 	return herdr.PaneRead{Text: f.panes[paneID]}, nil
 }
 
+// The follow-ups queue panel paints its own middle-dot hint bar; the
+// detector must treat it as a working session with queued messages,
+// not as a parked dialog (field report 2026-10-25: the chat showed
+// "Waiting for input" while pi held three queued follow-ups).
+func TestAwaitingDetectorIgnoresFollowUpQueue(t *testing.T) {
+	f := &fakePaneHerdr{
+		agents: []herdr.Agent{
+			{Name: "a", AgentStatus: "working", PaneID: "p1", Session: &herdr.AgentSessionRef{Value: "/s/q.jsonl"}},
+		},
+		panes: map[string]string{
+			"p1": "╭─ follow-ups (3) · after this run ──╮\n" +
+				"○ The about screen still is displaying the old logo: /tmp/herdr-clipboard-ima…\n" +
+				"○ In readme, on top of <h1 align=\"center\">QuotaGauge</h1>, add our new logo,\n" +
+				"○ The header window bar here /tmp/herdr-clipboard-images-1000/client-1715-cl…\n" +
+				"alt+enter add follow-up · enter send next · alt+up edit\n" +
+				"── : Working ──\n" +
+				"|\n" +
+				"~/Dev/EstebanForge/QuotaGauge (main) · QuotaGauge\n" +
+				"↑8.1M ↓382k R128.7M CH98.9%  $0.1407 20.9%/1.0M\n" +
+				"💻 ATTD-Zenless 🧠|\n",
+		},
+	}
+	d := newAwaitingDetector(f, time.Hour)
+	d.tick(context.Background())
+
+	if d.isAwaiting("/s/q.jsonl") {
+		t.Error("a follow-ups queue is a working session, not a parked dialog")
+	}
+	if d.parsed("/s/q.jsonl") != nil {
+		t.Error("the queue panel must not parse as an answerable dialog")
+	}
+}
+
 func TestAwaitingDetectorReadsEveryAgent(t *testing.T) {
 	f := &fakePaneHerdr{
 		agents: []herdr.Agent{

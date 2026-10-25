@@ -198,10 +198,11 @@ func (d *awaitingDetector) tick(ctx context.Context) {
 		var st paneState
 		if pr.Text != "" {
 			plain := ansiRe.ReplaceAllString(pr.Text, "")
-			st.awaiting = hintBarRe.MatchString(plain) ||
-				piHintAtEnd(plain) ||
-				externalEditorRe.MatchString(plain) ||
-				selectCounterRe.MatchString(plain)
+			// One cue set, shared with dialogOpen: the follow-up queue
+			// panel and the trailing-window anchoring live there, and a
+			// forked copy here already regressed once (the detector read a
+			// queued session as waiting for input).
+			st.awaiting = dialogOpen(plain)
 			st.dialog = parsePiDialog(pr.Text)
 			if st.dialog != nil {
 				delete(d.emptySeen, a.Session.Value)
