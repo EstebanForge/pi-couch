@@ -22,6 +22,8 @@ import {
 	FaChevronLeft,
 	FaCircle,
 	FaEllipsis,
+	FaGauge,
+	FaGear,
 	FaHourglassHalf,
 	FaXmark,
 } from "../components/fa";
@@ -931,6 +933,22 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 						</span>
 					)}
 				</div>
+				<button
+					type="button"
+					aria-label="Provider Quotas"
+					onClick={() => navigate("/quotas", { dir: "fwd" })}
+					className="press-scale ml-auto grid h-11 w-11 place-items-center rounded-xl text-muted active:text-base-content"
+				>
+					<FaGauge size={20} />
+				</button>
+				<button
+					type="button"
+					aria-label="Settings"
+					onClick={() => navigate("/settings", { dir: "fwd" })}
+					className="press-scale grid h-11 w-11 place-items-center rounded-xl text-muted active:text-base-content"
+				>
+					<FaGear size={20} />
+				</button>
 			</header>
 			{/* tool strip */}
 			<div
