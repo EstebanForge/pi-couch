@@ -4,6 +4,7 @@
 // window, and an unknown outcome never restores or retries.
 
 import { Sheet, Toast } from "konsta/react";
+import { flushSync } from "react-dom";
 import { memo, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
 	getModels,
@@ -96,6 +97,26 @@ export const Composer = memo(function Composer(props: {
 						p.description.toLowerCase().includes(qaQ) ||
 						p.hint?.toLowerCase().includes(qaQ),
 			  );
+	// Step switches morph instead of snapping: the content wrapper
+	// carries view-transition-name qa-content, and the swap runs inside
+	// startViewTransition so the browser cross-fades old and new.
+	// Reduced motion and engines without the API fall back to the
+	// instant swap.
+	const goStep = (s: "menu" | "skills" | "commands" | "prompts") => {
+		const apply = () => {
+			flushSync(() => {
+				setQaStep(s);
+				if (s === "menu") setQaFilter("");
+			});
+		};
+		const doc = document as Document & { startViewTransition?: (cb: () => void) => unknown };
+		if (window.matchMedia("(prefers-reduced-motion: reduce)").matches || !doc.startViewTransition) {
+			apply();
+			return;
+		}
+		doc.startViewTransition(apply);
+	};
+
 	// The step and filter reset on every close, not on open: the sheet
 	// stays mounted while hidden, so a reset deferred to the next open
 	// would slide up with the previous step's content and collapse to
@@ -630,7 +651,7 @@ export const Composer = memo(function Composer(props: {
 				opened={sheet === "commands"}
 				onBackdropClick={closeQuick}
 			>
-				<div className="flex max-h-[72dvh] flex-col gap-1.5 overflow-y-auto p-4">
+				<div className="qa-content flex max-h-[72dvh] flex-col gap-1.5 overflow-y-auto p-4">
 					<div className="mx-auto mb-1.5 h-1.5 w-12 shrink-0 rounded-full bg-base-content/25" />
 					{qaStep === "menu" ? (
 						<>
@@ -641,29 +662,26 @@ export const Composer = memo(function Composer(props: {
 								icon={<FaSparkles size={17} />}
 								title="Skills"
 								sub="pi skills, invoked as /skill:name"
-								onClick={() => setQaStep("skills")}
+								onClick={() => goStep("skills")}
 							/>
 							<QaKind
 								icon={<FaTableCellsLarge size={17} />}
 								title="Commands"
 								sub="pi slash commands, editable in Settings"
-								onClick={() => setQaStep("commands")}
+								onClick={() => goStep("commands")}
 							/>
 							<QaKind
 								icon={<FaPaperPlane size={16} />}
 								title="Prompts"
 								sub="pi prompt templates as /commands"
-								onClick={() => setQaStep("prompts")}
+								onClick={() => goStep("prompts")}
 							/>
 						</>
 					) : (
 						<>
 							<button
 								type="button"
-								onClick={() => {
-									setQaStep("menu");
-									setQaFilter("");
-								}}
+								onClick={() => goStep("menu")}
 								className="press-scale -mx-1 flex min-h-[40px] items-center gap-1.5 rounded-xl px-1 text-[13.5px] font-medium text-muted active:text-base-content"
 							>
 								<FaChevronLeft size={13} /> Quick actions
