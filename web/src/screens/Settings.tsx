@@ -3,7 +3,7 @@
 // the composer reads at mount), so they follow the browser/device, not
 // the session. Konsta supplies the controls (Segmented, Toggle); List
 // stays rejected like everywhere else (material look fights dracula).
-import { Segmented, SegmentedButton, Sheet, Toggle } from "konsta/react";
+import { Dialog, DialogButton, Segmented, SegmentedButton, Sheet, Toggle } from "konsta/react";
 import { useEffect, useState } from "react";
 import { getVersion } from "../api";
 import { orderKeys, QUICK_KEYS } from "../chat/quick-keys";
@@ -42,7 +42,11 @@ export default function SettingsScreen() {
 	const [pickerOpen, setPickerOpen] = useState(false);
 	const [cmds, setCmds] = useState(quickCommands);
 	const [newCmd, setNewCmd] = useState("");
+	const [editIdx, setEditIdx] = useState<number | null>(null);
+	const [editText, setEditText] = useState("");
+	const [confirmIdx, setConfirmIdx] = useState<number | null>(null);
 	useSheetBack(pickerOpen, () => setPickerOpen(false));
+	useSheetBack(editIdx !== null, () => setEditIdx(null));
 	const [picked, setPicked] = useState("");
 	const [version, setVersion] = useState<string | null>(null);
 
@@ -231,22 +235,26 @@ export default function SettingsScreen() {
 						Quick commands
 					</h2>
 					<div className="flex flex-col gap-1.5">
-						{cmds.map((c) => (
+						{cmds.map((c, i) => (
 							<div
 								key={c}
-								className="flex min-h-[44px] items-center rounded-2xl border border-base-content/10 bg-base-200/80 pl-4 shadow-surface-sm"
+								className="flex min-h-[44px] items-center rounded-2xl border border-base-content/10 bg-base-200/80 shadow-surface-sm"
 							>
-								<span className="min-w-0 flex-1 truncate font-mono text-[14px] text-base-content">
-									{c}
-								</span>
+								<button
+									type="button"
+									aria-label={`Edit ${c}`}
+									onClick={() => {
+										setEditIdx(i);
+										setEditText(c);
+									}}
+									className="min-w-0 flex-1 px-4 py-2 text-left"
+								>
+									<span className="block truncate font-mono text-[14px] text-base-content">{c}</span>
+								</button>
 								<button
 									type="button"
 									aria-label={`Remove ${c}`}
-									onClick={() => {
-										const next = cmds.filter((x) => x !== c);
-										setCmds(next);
-										setQuickCommands(next);
-									}}
+									onClick={() => setConfirmIdx(i)}
 									className="grid h-11 w-11 shrink-0 place-items-center text-muted active:text-error"
 								>
 									<FaXmark size={14} />
@@ -294,9 +302,9 @@ export default function SettingsScreen() {
 						</button>
 					</div>
 					<p className="px-1 pt-2 text-xs text-muted">
-						Entries starting with / are pi commands: they fill the chat box so pi can take
-						arguments. Anything else is bash and runs right away in the session's folder.
-						Clearing every entry restores the defaults.
+						Tap a command to edit it; the ✕ removes it after a confirmation. Entries starting with /
+						are pi commands: they fill the chat box so pi can take arguments. Anything else is bash
+						and runs right away in the session's folder. Clearing every entry restores the defaults.
 					</p>
 				</section>
 
@@ -327,6 +335,78 @@ export default function SettingsScreen() {
 					</button>
 				</div>
 			</Sheet>
+
+			<Sheet
+				opened={editIdx !== null}
+				onBackdropClick={() => setEditIdx(null)}
+				className="pb-safe-all bg-base-200"
+			>
+				<div className="flex flex-col gap-2 p-3">
+					<div className="text-[13px] font-semibold tracking-wider text-muted uppercase">
+						Edit command
+					</div>
+					<textarea
+						value={editText}
+						onChange={(e) => setEditText(e.target.value)}
+						rows={3}
+						aria-label="Command"
+						className="w-full resize-none rounded-2xl border border-base-content/10 bg-base-200/80 px-3 py-2 font-mono text-[14px] leading-relaxed text-base-content placeholder:text-muted"
+					/>
+					<div className="flex gap-2">
+						<button
+							type="button"
+							onClick={() => setEditIdx(null)}
+							className="press-scale min-h-[48px] flex-1 rounded-2xl border border-base-content/15 bg-base-300/40 text-[15px] font-semibold text-base-content"
+						>
+							Cancel
+						</button>
+						<button
+							type="button"
+							disabled={
+								!editText.trim() || cmds.some((c, i) => i !== editIdx && c === editText.trim())
+							}
+							onClick={() => {
+								if (editIdx === null) return;
+								const next = cmds.map((c, i) => (i === editIdx ? editText.trim() : c));
+								setCmds(next);
+								setQuickCommands(next);
+								setEditIdx(null);
+							}}
+							className="press-scale min-h-[48px] flex-1 rounded-2xl bg-primary text-[15px] font-semibold text-primary-content shadow-[0_2px_12px_rgba(64,157,212,0.4)] disabled:opacity-50"
+						>
+							Save
+						</button>
+					</div>
+				</div>
+			</Sheet>
+
+			<Dialog
+				opened={confirmIdx !== null}
+				onBackdropClick={() => setConfirmIdx(null)}
+				title="Remove command"
+				buttons={
+					<>
+						<DialogButton onClick={() => setConfirmIdx(null)}>Cancel</DialogButton>
+						<DialogButton
+							className="text-error"
+							onClick={() => {
+								const next = cmds.filter((_, i) => i !== confirmIdx);
+								setCmds(next);
+								setQuickCommands(next);
+								setConfirmIdx(null);
+							}}
+						>
+							Remove
+						</DialogButton>
+					</>
+				}
+			>
+				{confirmIdx !== null && cmds[confirmIdx] ? (
+					<span className="font-mono text-[13px]">{cmds[confirmIdx]}</span>
+				) : (
+					""
+				)}
+			</Dialog>
 		</div>
 	);
 }
