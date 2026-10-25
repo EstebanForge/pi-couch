@@ -294,8 +294,8 @@ export default function SettingsScreen() {
 						</button>
 					</div>
 					<p className="px-1 pt-2 text-xs text-muted">
-						Slash commands offered in the chat's quick actions panel. pi built-ins like /compact
-						work; clearing every entry restores the defaults.
+						Slash commands fill the chat box so pi can take arguments; anything else runs as bash in
+						the session's folder. Clearing every entry restores the defaults.
 					</p>
 				</section>
 

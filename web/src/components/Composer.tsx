@@ -11,6 +11,7 @@ import {
 	getSkills,
 	type ModelRow,
 	type PromptInfo,
+	runCommand,
 	sendKeys,
 	sendPrompt,
 	setModel,
@@ -78,6 +79,8 @@ export const Composer = memo(function Composer(props: {
 	const [prompts, setPrompts] = useState<PromptInfo[] | null>(null);
 	const [skillsError, setSkillsError] = useState(false);
 	const [promptsError, setPromptsError] = useState(false);
+	const [runningCmd, setRunningCmd] = useState<string | null>(null);
+	const [execResult, setExecResult] = useState<{ cmd: string; output: string; code: number } | null>(null);
 	const quickCmds = useMemo(() => quickCommands(), []);
 	useSheetBack(sheet !== "none", () => setSheet("none"));
 	const [modelQuery, setModelQuery] = useState("");
@@ -128,6 +131,23 @@ export const Composer = memo(function Composer(props: {
 		setText(value);
 		setSheet("none");
 		window.setTimeout(() => ta.current?.focus(), 80);
+	};
+
+	// A non-slash quick command is bash for a one-off task: it runs on
+	// the box in the session's folder and the panel shows the output;
+	// slash entries still fill the draft so pi can take arguments.
+	const runBash = async (cmd: string) => {
+		if (runningCmd) return;
+		setRunningCmd(cmd);
+		setExecResult(null);
+		try {
+			const r = await runCommand(cmd, props.cwd);
+			setExecResult({ cmd, output: r.output, code: r.code });
+		} catch {
+			setExecResult({ cmd, output: "the command failed to run", code: -1 });
+		} finally {
+			setRunningCmd(null);
+		}
 	};
 	const nextId = useRef(1);
 	// One request per intent: a double-tap on send (or Alt+Enter while a
@@ -647,14 +667,33 @@ export const Composer = memo(function Composer(props: {
 								(quickCmds.length === 0 ? (
 									<QaNote>No commands configured.</QaNote>
 								) : (
-									quickCmds.map((c) => (
-										<QaItem
-											key={c}
-											title={c}
-											sub="pi command - add arguments after it"
-											onClick={() => fillQuick(`${c} `)}
-										/>
-									))
+									quickCmds.map((c) => {
+										const isSlash = c.startsWith("/");
+										return (
+											<div key={c}>
+												<QaItem
+													title={c}
+													sub={isSlash ? "pi command - add arguments after it" : "bash - runs in this session's folder"}
+													onClick={() => (isSlash ? fillQuick(`${c} `) : void runBash(c))}
+												/>
+												{runningCmd === c && (
+													<div className="flex items-center gap-2 px-4 py-2 text-[12px] text-muted">
+														<Spinner size={13} /> running…
+													</div>
+												)}
+												{execResult?.cmd === c && runningCmd !== c && (
+													<div className="mx-1 rounded-2xl border border-base-content/8 bg-base-100/80 p-3">
+														<div className={`pb-1 text-[11px] font-semibold ${execResult.code === 0 ? "text-success" : "text-error"}`}>
+															exit {execResult.code}
+														</div>
+														<pre className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words font-mono text-[11.5px] text-base-content/85">
+															{execResult.output || "(no output)"}
+														</pre>
+													</div>
+												)}
+											</div>
+										);
+									})
 								))}
 							{qaStep === "prompts" &&
 								(prompts === null ? (

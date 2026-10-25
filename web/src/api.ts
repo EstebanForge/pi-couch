@@ -393,6 +393,19 @@ export async function getModels(q: string): Promise<ModelRow[]> {
 export type SkillInfo = { name: string; description: string };
 export type PromptInfo = { name: string; description: string; hint?: string };
 
+export async function runCommand(
+	cmd: string,
+	cwd: string,
+): Promise<{ output: string; code: number; truncated?: boolean }> {
+	const res = await fetch("/api/exec", {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ cmd, cwd }),
+	});
+	if (!res.ok) throw new Error(`exec ${res.status}`);
+	return (await res.json()) as { output: string; code: number; truncated?: boolean };
+}
+
 export async function getSkills(cwd?: string): Promise<SkillInfo[]> {
 	const res = await fetch(`/api/skills${cwd ? `?cwd=${encodeURIComponent(cwd)}` : ""}`);
 	if (!res.ok) throw new Error(`skills ${res.status}`);
