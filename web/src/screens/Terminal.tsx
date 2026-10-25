@@ -9,7 +9,7 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { Toast } from "konsta/react";
+import { Segmented, SegmentedButton, Toast } from "konsta/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type SessionsSnapshot, sendKeys, sendTextInput } from "../api";
 import { ESC_SETTLE_MS } from "../chat/quick-keys";
@@ -27,6 +27,13 @@ import { activeScheme, onSchemeChange } from "../theme";
 type TermKey = { id: string; label: string; keys: string[]; enabled: (status: string) => boolean };
 
 const hasDriver = (status: string) => status !== "";
+
+// Zoom mode: herdr's observe viewport cannot rewrap pi's paint (it
+// clips the cursor-addressed screen), so "see it all" means asking for
+// a wider viewport and shrinking the font until it fits the screen.
+const ZOOM_COLS = 160;
+const ZOOM_FONT_START = 11;
+const ZOOM_FONT_FLOOR = 3.5;
 
 const TERM_KEYS: TermKey[] = [
 	{ id: "esc", label: "Esc", keys: ["esc"], enabled: (s) => s === "working" || s === "blocked" },
@@ -53,6 +60,8 @@ export default function TerminalScreen({ sessionKey }: { sessionKey: string }) {
 	const [draft, setDraft] = useState("");
 	const [toast, setToast] = useState("");
 	const [dims, setDims] = useState({ cols: 100, rows: 30 });
+	const [mode, setMode] = useState<"fit" | "zoom">("fit");
+	const building = useRef(false);
 	const toastTimer = useRef(0);
 
 	const say = useCallback((msg: string) => {
@@ -91,14 +100,19 @@ export default function TerminalScreen({ sessionKey }: { sessionKey: string }) {
 		});
 	};
 
-	// The grid: created once, refit on resize. No onData — the screen
-	// never takes the soft keyboard; all input is the key row and box.
+	// The grid: rebuilt per view mode, refit on resize. Zoom mode walks
+	// the font down until the grid holds at least ZOOM_COLS so the whole
+	// pane width fits on screen (herdr's observe viewport clips pi's
+	// cursor-addressed paint — nothing can rewrap it, so seeing it all
+	// means more columns, not wrapping). No onData — the screen never
+	// takes the soft keyboard; all input is the key row and box.
 	useEffect(() => {
 		const host = wrapRef.current;
 		if (!host) return;
+		building.current = true;
 		const term = new Terminal({
 			convertEol: false,
-			fontSize: 12,
+			fontSize: mode === "zoom" ? ZOOM_FONT_START : 12,
 			fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
 			scrollback: 0,
 			theme: activeScheme().term,
@@ -106,11 +120,26 @@ export default function TerminalScreen({ sessionKey }: { sessionKey: string }) {
 		const fit = new FitAddon();
 		term.loadAddon(fit);
 		term.open(host);
-		fit.fit();
+		if (mode === "zoom") {
+			for (let fs = ZOOM_FONT_START; fs >= ZOOM_FONT_FLOOR; fs -= 0.5) {
+				term.options.fontSize = fs;
+				fit.fit();
+				if (term.cols >= ZOOM_COLS) break;
+			}
+			if (term.cols > ZOOM_COLS) term.resize(ZOOM_COLS, term.rows);
+		} else {
+			fit.fit();
+		}
 		setDims({ cols: term.cols, rows: term.rows });
+		// the fit walk above resizes the grid repeatedly; the ResizeObserver
+		// must not feed those intermediate sizes back into the stream
+		requestAnimationFrame(() => {
+			building.current = false;
+		});
 		termRef.current = term;
 		fitRef.current = fit;
 		const ro = new ResizeObserver(() => {
+			if (building.current) return;
 			try {
 				fit.fit();
 				setDims((d) => (d.cols === term.cols && d.rows === term.rows ? d : { cols: term.cols, rows: term.rows }));
@@ -129,7 +158,7 @@ export default function TerminalScreen({ sessionKey }: { sessionKey: string }) {
 			termRef.current = null;
 			fitRef.current = null;
 		};
-	}, []);
+	}, [mode]);
 
 	// The mirror stream: delta frames are incremental pty bytes (the
 	// first one repaints the whole viewport, so reset once per connect);
@@ -212,7 +241,7 @@ export default function TerminalScreen({ sessionKey }: { sessionKey: string }) {
 
 	return (
 		<div
-			className="mx-auto flex min-h-dvh max-w-3xl flex-col"
+			className="flex min-h-dvh flex-col"
 			style={{ paddingBottom: "var(--safe-bottom, 0px)", paddingTop: "64px" }}
 		>
 			<ScreenHeader
@@ -221,22 +250,39 @@ export default function TerminalScreen({ sessionKey }: { sessionKey: string }) {
 				onBack={back}
 			/>
 
-			<main className="flex min-h-0 flex-1 flex-col px-3 pb-2">
-				<div className="flex items-center justify-between pb-2">
+			<main className="flex min-h-0 flex-1 flex-col px-1 pb-2">
+				<div className="flex items-center justify-between gap-2 px-1 pb-2">
+					<Segmented strong className="min-w-0">
+						<SegmentedButton
+							active={mode === "fit"}
+							onClick={() => setMode("fit")}
+							className="min-w-0 px-2 text-[12px]"
+						>
+							Fit
+						</SegmentedButton>
+						<SegmentedButton
+							active={mode === "zoom"}
+							onClick={() => setMode("zoom")}
+							className="min-w-0 px-2 text-[12px]"
+						>
+							Zoom out
+						</SegmentedButton>
+					</Segmented>
 					<button
 						type="button"
 						onClick={() => setWheel((w) => !w)}
-						className={`rounded-full px-4 py-2 text-[13px] font-medium active:scale-[0.98] ${wheel ? "bg-primary text-primary-content" : "bg-base-200 text-base-content"}`}
+						className={`shrink-0 rounded-full px-4 py-2 text-[13px] font-medium active:scale-[0.98] ${wheel ? "bg-primary text-primary-content" : "bg-base-200 text-base-content"}`}
 					>
 						{wheel ? "Wheel: on" : "Take the wheel"}
 					</button>
-					<span className="text-xs text-muted">{status ? `agent ${status}` : "read-only"}</span>
 				</div>
 
-				<div
-					ref={wrapRef}
-					className={`min-h-[46dvh] flex-1 overflow-hidden rounded-2xl border border-base-300 p-1 ${wheel ? "" : "opacity-80"}`}
-				/>
+				<div className="relative min-h-0 flex-1 overflow-hidden rounded-2xl border border-base-300 p-1">
+					{/* absolutely positioned: xterm's grid must never feed its
+						rendered height back into this box's size, or fit()
+						and the ResizeObserver chase each other forever */}
+					<div ref={wrapRef} className={`absolute inset-0 ${wheel ? "" : "opacity-80"}`} />
+				</div>
 
 				{gone && (
 					<p className="mt-3 rounded-xl bg-base-200 p-4 text-sm text-muted">
