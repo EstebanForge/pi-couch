@@ -131,6 +131,31 @@ func TestSkillsSymlinkedDirs(t *testing.T) {
 	}
 }
 
+func TestPromptsSymlinkedFiles(t *testing.T) {
+	home := t.TempDir()
+	// this box's prompt files are symlinks into a central repo
+	real := filepath.Join(home, "elsewhere")
+	if err := os.MkdirAll(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(real, "review.md"), []byte(
+		"---\ndescription: Review staged git changes\nargument-hint: \"[focus]\"\n---\nReview things.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	prompts := filepath.Join(home, ".pi", "agent", "prompts")
+	if err := os.MkdirAll(prompts, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(real, "review.md"), filepath.Join(prompts, "review.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	got := scanPiPrompts(home, "")
+	if len(got) != 1 || got[0].Name != "review" || got[0].Hint != "[focus]" {
+		t.Fatalf("prompts %+v, want review with its hint", got)
+	}
+}
+
 func TestPromptsEndpoint(t *testing.T) {
 	home := t.TempDir()
 	prompts := filepath.Join(home, ".pi", "agent", "prompts")
