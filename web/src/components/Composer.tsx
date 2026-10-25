@@ -96,7 +96,17 @@ export const Composer = memo(function Composer(props: {
 						p.description.toLowerCase().includes(qaQ) ||
 						p.hint?.toLowerCase().includes(qaQ),
 			  );
-	useSheetBack(sheet !== "none", () => setSheet("none"));
+	// The step and filter reset on every close, not on open: the sheet
+	// stays mounted while hidden, so a reset deferred to the next open
+	// would slide up with the previous step's content and collapse to
+	// the menu mid-animation - the second-open flash.
+	const closeQuick = () => {
+		setSheet("none");
+		setQaStep("menu");
+		setQaFilter("");
+	};
+
+	useSheetBack(sheet !== "none", closeQuick);
 	const [modelQuery, setModelQuery] = useState("");
 	const [modelRows, setModelRows] = useState<ModelRow[]>([]);
 	const [modelsLoading, setModelsLoading] = useState(false);
@@ -112,12 +122,6 @@ export const Composer = memo(function Composer(props: {
 	// prompts load from pi's own discovery the first time each list is
 	// entered, and every tap fills the draft so companion text can
 	// follow - the panel never sends.
-	useEffect(() => {
-		if (sheet !== "commands") return;
-		setQaStep("menu");
-		setQaFilter("");
-	}, [sheet]);
-
 	useEffect(() => {
 		if (sheet !== "commands" || qaStep !== "skills" || skills) return;
 		getSkills(props.cwd || undefined)
@@ -144,7 +148,7 @@ export const Composer = memo(function Composer(props: {
 
 	const fillQuick = (value: string) => {
 		setText(value);
-		setSheet("none");
+		closeQuick();
 		window.setTimeout(() => ta.current?.focus(), 80);
 	};
 
@@ -624,7 +628,7 @@ export const Composer = memo(function Composer(props: {
 			<Sheet
 				className="pb-safe-all rounded-t-3xl border-t border-base-content/10 bg-base-200/98 shadow-2xl backdrop-blur-xl"
 				opened={sheet === "commands"}
-				onBackdropClick={() => setSheet("none")}
+				onBackdropClick={closeQuick}
 			>
 				<div className="flex max-h-[72dvh] flex-col gap-1.5 overflow-y-auto p-4">
 					<div className="mx-auto mb-1.5 h-1.5 w-12 shrink-0 rounded-full bg-base-content/25" />
