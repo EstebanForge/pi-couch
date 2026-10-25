@@ -15,7 +15,7 @@ Nothing gets locked into the UI. Sessions stay plain pi jsonl files, herdr stays
 
 ## Running it
 
-The honest requirements: a Linux or macOS box (Windows WSL also works) with pi 1.x.x and herdr 0.9.x on it, Go and node to build, and a tunnel. I use Tailscale and nothing else; it puts a private HTTPS address on the whole thing with zero config beyond the serve line below. herdr drives the sessions; Pi Couch speaks its socket protocol and nothing else.
+The honest requirements: a Linux or macOS box (Windows WSL also works) with [pi](https://pi.dev) 1.x.x and [herdr](https://herdr.dev) 0.9.x on it, and a tunnel. I use [Tailscale](https://tailscale.com) and nothing else; it puts a private HTTPS address on the whole thing with zero config beyond the serve line below. herdr drives the sessions; Pi Couch speaks its socket protocol and nothing else.
 
 ## Configuring it
 
@@ -28,6 +28,8 @@ Machine settings live in one commented file, `~/.config/pi-couch/config.toml`. C
 - `memory_url` and `memory_secret`: the agentmemory health probe behind the chip in the composer. Defaults to `localhost:3111`; set the URL if yours is elsewhere. Put the secret in the `AGENTMEMORY_SECRET` environment variable instead of the file, and keep the file 0600 either way.
 
 The environment variables `AGENTMEMORY_URL` and `AGENTMEMORY_SECRET` override the config values; that's how I wire the secret into the systemd unit without it touching the repo.
+
+Releases carry compiled binaries, so most people just grab one from the [releases page](https://github.com/EstebanForge/pi-couch/releases) and skip the build. Building from source:
 
 ```sh
 ./scripts/build.sh              # builds the SPA, then the binary
@@ -58,6 +60,8 @@ herdr plugin install skydiver/herdr-pinned-workspaces
 Third, the service. `systemd/couch-pi.service` is a user unit on Linux: copy it to `~/.config/systemd/user/`, then `systemctl --user daemon-reload && systemctl --user enable --now couch-pi`.
 
 For the phone, `android/` builds a thin WebView APK: `./gradlew assembleDebug`, debug-signed, sideload it. A mobile browser works fine too. The APK just behaves better with safe areas and a launcher icon.
+
+If you also want the full terminal on the go, [herdrui.dev](https://herdrui.dev) is a nice integrated UI with the full terminal power.
 
 ## Notes
 
