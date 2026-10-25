@@ -639,3 +639,141 @@ func TestDialogAnswerVerifyToleratesMidRepaint(t *testing.T) {
 		t.Fatalf("sends=%d, want walk,backspaces,text,enter", n)
 	}
 }
+
+// herdr's socket stalls for seconds under load, so a read can fail
+// without the dialog going anywhere. The "!!err" readSeq marker makes
+// the fake fail that read; the answer must ride it out at every
+// classification point instead of refusing on one lost read.
+func TestDialogAnswerEntryToleratesReadErrors(t *testing.T) {
+	editor := editorPaint("probe commit\n")
+	var sends int32
+	var sessPath string
+	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath, sends: &sends,
+		readSeq: []string{
+			"!!err",
+			"!!err",
+			editor,
+			editorPaint("\n"),
+			editor,
+		}})
+	a, sub, _ := streamTestAppWithHerdr(t, sock)
+	sessPath = filepath.Join(sub, "s1.jsonl")
+	a.bridgeMu.Lock()
+	a.bridge = map[string]bridgeEntry{}
+	a.bridge[sessPath] = bridgeEntry{
+		dialog:  BridgeDialog{ID: "d9", Kind: "editor", Title: "Commit staged changes with this message?"},
+		expires: time.Now().Add(time.Minute),
+	}
+	a.bridgeMu.Unlock()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/s1/dialog/answer", strings.NewReader(
+		`{"id":"d9","answer":"type","text":"probe commit"}`))
+	req.Host = "127.0.0.1:8090"
+	rec := httptest.NewRecorder()
+	a.guard(a.routes()).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if n := atomic.LoadInt32(&sends); n != 4 {
+		t.Fatalf("sends=%d, want walk,backspaces,text,enter", n)
+	}
+}
+
+func TestDialogAnswerGateToleratesReadErrors(t *testing.T) {
+	editor := editorPaint("probe commit\n")
+	var sends int32
+	var sessPath string
+	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath, sends: &sends,
+		readSeq: []string{
+			editor,
+			"!!err",
+			editorPaint("\n"),
+			editor,
+		}})
+	a, sub, _ := streamTestAppWithHerdr(t, sock)
+	sessPath = filepath.Join(sub, "s1.jsonl")
+	a.bridgeMu.Lock()
+	a.bridge = map[string]bridgeEntry{}
+	a.bridge[sessPath] = bridgeEntry{
+		dialog:  BridgeDialog{ID: "d9", Kind: "editor", Title: "Commit staged changes with this message?"},
+		expires: time.Now().Add(time.Minute),
+	}
+	a.bridgeMu.Unlock()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/s1/dialog/answer", strings.NewReader(
+		`{"id":"d9","answer":"type","text":"probe commit"}`))
+	req.Host = "127.0.0.1:8090"
+	rec := httptest.NewRecorder()
+	a.guard(a.routes()).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if n := atomic.LoadInt32(&sends); n != 4 {
+		t.Fatalf("sends=%d, want walk,backspaces,text,enter", n)
+	}
+}
+
+func TestDialogAnswerVerifyToleratesReadErrors(t *testing.T) {
+	editor := editorPaint("probe commit\n")
+	var sends int32
+	var sessPath string
+	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath, sends: &sends,
+		readSeq: []string{
+			editor,
+			editorPaint("\n"),
+			"!!err",
+			"!!err",
+			editor,
+		}})
+	a, sub, _ := streamTestAppWithHerdr(t, sock)
+	sessPath = filepath.Join(sub, "s1.jsonl")
+	a.bridgeMu.Lock()
+	a.bridge = map[string]bridgeEntry{}
+	a.bridge[sessPath] = bridgeEntry{
+		dialog:  BridgeDialog{ID: "d9", Kind: "editor", Title: "Commit staged changes with this message?"},
+		expires: time.Now().Add(time.Minute),
+	}
+	a.bridgeMu.Unlock()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/s1/dialog/answer", strings.NewReader(
+		`{"id":"d9","answer":"type","text":"probe commit"}`))
+	req.Host = "127.0.0.1:8090"
+	rec := httptest.NewRecorder()
+	a.guard(a.routes()).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if n := atomic.LoadInt32(&sends); n != 4 {
+		t.Fatalf("sends=%d, want walk,backspaces,text,enter", n)
+	}
+}
+
+// Every entry read blind must refuse, not dereference a nil parse.
+func TestDialogAnswerEntryAllBlindRefuses(t *testing.T) {
+	var sends int32
+	var sessPath string
+	prose := "plain transcript lines\nnothing dialog shaped here\n"
+	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath, sends: &sends,
+		readSeq: []string{prose, prose, prose, prose, prose}})
+	a, sub, _ := streamTestAppWithHerdr(t, sock)
+	sessPath = filepath.Join(sub, "s1.jsonl")
+	a.bridgeMu.Lock()
+	a.bridge = map[string]bridgeEntry{}
+	a.bridge[sessPath] = bridgeEntry{
+		dialog:  BridgeDialog{ID: "d9", Kind: "editor", Title: "Commit staged changes with this message?"},
+		expires: time.Now().Add(time.Minute),
+	}
+	a.bridgeMu.Unlock()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/s1/dialog/answer", strings.NewReader(
+		`{"id":"d9","answer":"type","text":"probe commit"}`))
+	req.Host = "127.0.0.1:8090"
+	rec := httptest.NewRecorder()
+	a.guard(a.routes()).ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("code=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if n := atomic.LoadInt32(&sends); n != 0 {
+		t.Fatalf("sends=%d, want none", n)
+	}
+}

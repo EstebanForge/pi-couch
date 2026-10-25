@@ -68,7 +68,7 @@ func (a *app) apiDialogAnswer(w http.ResponseWriter, r *http.Request) {
 // answerDispatch runs one answer attempt; true means keys were sent
 // and the 200 already written.
 func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, text, path string) (bool, bool) {
-	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
 	paneID, err := a.herdr.TargetForPath(ctx, path)
 	if err != nil {
@@ -79,7 +79,19 @@ func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, tex
 	switch {
 	case answer == "yes" || answer == "no":
 		pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 30)
+		if err != nil {
+			// One stall retry: a single lost read must not refuse a
+			// live confirm.
+			select {
+			case <-ctx.Done():
+				writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+				return false, true
+			case <-time.After(300 * time.Millisecond):
+			}
+			pr, err = a.herdr.PaneRead(ctx, paneID, "detection", 30)
+		}
 		if err != nil || !piConfirmOnScreen(pr.Text) {
+			a.logger.Warn("dialog answer refused", "cause", "confirm off screen", "session", path)
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
 			return false, true
 		}
@@ -94,7 +106,17 @@ func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, tex
 
 	case answer == "escape":
 		pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 30)
+		if err != nil {
+			select {
+			case <-ctx.Done():
+				writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+				return false, true
+			case <-time.After(300 * time.Millisecond):
+			}
+			pr, err = a.herdr.PaneRead(ctx, paneID, "detection", 30)
+		}
 		if err != nil || !dialogOpen(pr.Text) {
+			a.logger.Warn("dialog answer refused", "cause", "dialog off screen", "session", path)
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
 			return false, true
 		}
@@ -171,8 +193,14 @@ func (a *app) settleWalk(w http.ResponseWriter, r *http.Request, ctx context.Con
 	for attempt := 0; attempt < 3; attempt++ {
 		pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 30)
 		if err != nil {
-			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-			return false
+			// Ride out a herdr stall like any other blind read.
+			select {
+			case <-ctx.Done():
+				writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+				return false
+			case <-time.After(250 * time.Millisecond):
+			}
+			continue
 		}
 		m = parsePiDialog(pr.Text)
 		if m == nil || len(m.Options) == 0 {
@@ -213,6 +241,7 @@ func (a *app) settleWalk(w http.ResponseWriter, r *http.Request, ctx context.Con
 	}
 	if m == nil || m.Cursor != target {
 		// The cursor never settled on the target row.
+		a.logger.Warn("dialog answer refused", "cause", "cursor never settled", "option", want)
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
 		return false
 	}
@@ -245,20 +274,25 @@ func (a *app) answerFreeText(w http.ResponseWriter, r *http.Request, ctx context
 				}
 			}
 			pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 30)
-			if err != nil {
-				writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-				return false, false
-			}
-			m = parsePiDialog(pr.Text)
-			if m == nil && editorPaneEmpty(pr.Text) {
-				// An emptied editor parses nil (no buffer rows); a sweep
-				// that emptied it must still be completable - type into the
-				// empty buffer and submit.
-				m = &piDialog{Kind: "editor"}
+			// A lost read is a stall, not a dead dialog; it counts
+			// against the same blind budget as an unparseable paint.
+			if err == nil {
+				m = parsePiDialog(pr.Text)
+				if m == nil && editorPaneEmpty(pr.Text) {
+					// An emptied editor parses nil (no buffer rows); a sweep
+					// that emptied it must still be completable - type into the
+					// empty buffer and submit.
+					m = &piDialog{Kind: "editor"}
+				}
 			}
 			if m != nil {
 				break
 			}
+		}
+		if m == nil {
+			a.logger.Warn("dialog answer refused", "cause", "entry unparseable", "session", sessionPath)
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+			return false, false
 		}
 		if m.Kind == "editor" {
 			// The editor buffer is editable in one step: rewrite and
@@ -340,8 +374,9 @@ func (a *app) typeAndSubmit(w http.ResponseWriter, r *http.Request, ctx context.
 		}
 		pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 30)
 		if err != nil {
-			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-			return false
+			// Lost echo read: the next attempt ctrl+u's any partial
+			// type before retyping, so a retry cannot double-send.
+			continue
 		}
 		if piEchoHit(pr.Text, text) {
 			return a.answerSend(w, ctx, paneID, []string{"enter"})
@@ -458,7 +493,14 @@ func (a *app) editEditorSubmit(w http.ResponseWriter, r *http.Request, ctx conte
 		}
 		pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 30)
 		if err != nil {
-			return refuse()
+			// A stall is not a dead dialog; it burns the same blind
+			// budget as an unparseable paint.
+			blind++
+			if blind >= 3 {
+				a.logger.Warn("dialog answer refused", "cause", "gate blind", "session", sessionPath)
+				return refuse()
+			}
+			continue
 		}
 		if editorPaneEmpty(pr.Text) {
 			emptied = true
@@ -483,6 +525,7 @@ func (a *app) editEditorSubmit(w http.ResponseWriter, r *http.Request, ctx conte
 		if n == prevLen {
 			stale++
 			if stale >= 2 {
+				a.logger.Warn("dialog answer refused", "cause", "gate plateau", "session", sessionPath)
 				return refuse()
 			}
 		} else {
@@ -490,6 +533,7 @@ func (a *app) editEditorSubmit(w http.ResponseWriter, r *http.Request, ctx conte
 		}
 	}
 	if !emptied {
+		a.logger.Warn("dialog answer refused", "cause", "gate deadline", "session", sessionPath)
 		return refuse()
 	}
 	for _, chunk := range editorChunks(want) {
@@ -510,7 +554,12 @@ func (a *app) editEditorSubmit(w http.ResponseWriter, r *http.Request, ctx conte
 		}
 		pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 30)
 		if err != nil {
-			return refuse()
+			blind++
+			if blind >= 3 {
+				a.logger.Warn("dialog answer refused", "cause", "verify blind", "session", sessionPath)
+				return refuse()
+			}
+			continue
 		}
 		m := parsePiDialog(pr.Text)
 		if m == nil || m.Kind != "editor" {
@@ -525,6 +574,7 @@ func (a *app) editEditorSubmit(w http.ResponseWriter, r *http.Request, ctx conte
 			return a.answerSend(w, ctx, paneID, []string{"enter"})
 		}
 	}
+	a.logger.Warn("dialog answer refused", "cause", "verify mismatch", "session", sessionPath)
 	return refuse()
 }
 

@@ -161,6 +161,12 @@ func herdrFake(t *testing.T, o fakeHerdrOpts) string {
 					}
 					// json.Marshal escapes the newlines a multi-line
 					// screen carries; raw ones would break the reply.
+					if pane == "!!err" {
+						// readSeq's stall marker: this read fails the way
+						// the real socket fails under load.
+						resp = `{"id":"x","error":{"code":"stalled","message":"pane read stalled"}}`
+						break
+					}
 					paneJSON, _ := json.Marshal(pane)
 					resp = `{"id":"x","result":{"read":{"pane_id":"p1","source":"screen","format":"ansi","text":` + string(paneJSON) + `,"revision":1}}}`
 				case "pane.send_input":
