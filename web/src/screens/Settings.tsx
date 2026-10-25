@@ -271,7 +271,7 @@ export default function SettingsScreen() {
 									setNewCmd("");
 								}
 							}}
-							placeholder="/command"
+							placeholder="/command or bash one-liner"
 							aria-label="New quick command"
 							className="h-11 min-w-0 flex-1 rounded-2xl border border-base-content/10 bg-base-200/80 px-4 font-mono text-[14px] text-base-content placeholder:text-muted"
 						/>
@@ -294,8 +294,9 @@ export default function SettingsScreen() {
 						</button>
 					</div>
 					<p className="px-1 pt-2 text-xs text-muted">
-						Slash commands fill the chat box so pi can take arguments; anything else runs as bash in
-						the session's folder. Clearing every entry restores the defaults.
+						Entries starting with / are pi commands: they fill the chat box so pi can take
+						arguments. Anything else is bash and runs right away in the session's folder.
+						Clearing every entry restores the defaults.
 					</p>
 				</section>
 

@@ -105,11 +105,19 @@ export function setQuickPath(path: string): void {
 	writePref(prefKey("quickPath"), path.trim() || null);
 }
 
-/** Quick commands: pi slash commands one tap away in the quick actions
- * panel. Per-device, junk-tolerant; the defaults cover the safe
- * built-ins devs use most (nothing that strands the chat in a picker
- * the phone cannot answer, like /model or /resume). */
-export const DEFAULT_QUICK_COMMANDS = ["/compact", "/name", "/reload", "/session"];
+/** Quick commands: pi slash commands plus raw bash one-liners one tap
+ * away in the quick actions panel. Per-device, junk-tolerant; the
+ * defaults cover the safe built-ins devs use most (nothing that
+ * strands the chat in a picker the phone cannot answer, like /model
+ * or /resume) and one git catch-all. Slash fills the draft, bash
+ * runs. */
+export const DEFAULT_QUICK_COMMANDS = [
+	"/compact",
+	"/name",
+	"/reload",
+	"/session",
+	'git add -A && (git commit -m "wip $(date +%FT%H:%M)" || true) && git push -u origin HEAD',
+];
 
 export function quickCommands(): string[] {
 	const raw = readPref(prefKey("quickCommands"));

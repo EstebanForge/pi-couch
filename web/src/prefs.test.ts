@@ -112,6 +112,9 @@ describe("prefs", () => {
 	describe("quickCommands", () => {
 		it("defaults when unset", () => {
 			expect(quickCommands()).toContain("/compact");
+			expect(quickCommands()).toContain(
+				'git add -A && (git commit -m "wip $(date +%FT%H:%M)" || true) && git push -u origin HEAD',
+			);
 		});
 
 		it("round-trips a custom list", () => {
