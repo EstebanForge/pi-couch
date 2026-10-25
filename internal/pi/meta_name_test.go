@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // pi's session name lives only in session_info entries: the latest wins and
@@ -85,5 +86,37 @@ func TestMetaSessionNameClearWins(t *testing.T) {
 	}
 	if !strings.Contains(meta.FirstUser, "hello") {
 		t.Fatalf("first_user = %q, want the first user text", meta.FirstUser)
+	}
+}
+
+// The newest user entry's timestamp is the FIFO receipt the phone uses
+// to retire queued-bubble pending state across reset windows.
+func userAtLine(id, parent, ts string) string {
+	p := "null"
+	if parent != "" {
+		p = `"` + parent + `"`
+	}
+	return `{"type":"message","id":"` + id + `","parentId":` + p + `,"timestamp":"` + ts + `","message":{"role":"user","content":"hi","timestamp":1760000001000}}`
+}
+
+func TestMetaLastUserAt(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "sess")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(sub, "s1.jsonl")
+	writeSession(t, path, headerLine,
+		userAtLine("a", "", "2026-10-10T12:00:01.000Z"),
+		userAtLine("b", "a", "2026-10-10T12:00:05.000Z"))
+
+	ix := NewIndex(dir)
+	meta, ok := ix.Meta("s1")
+	if !ok {
+		t.Fatal("meta not found")
+	}
+	want := time.Date(2026, 10, 10, 12, 0, 5, 0, time.UTC).UnixMilli()
+	if meta.LastUserAt != want {
+		t.Fatalf("LastUserAt = %d, want %d", meta.LastUserAt, want)
 	}
 }

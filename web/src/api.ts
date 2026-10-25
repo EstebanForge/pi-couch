@@ -108,6 +108,7 @@ export type TranscriptReset = {
 		cwd: string;
 		ctx_tokens?: number;
 		total_cost?: number;
+		last_user_at?: number;
 	} | null;
 };
 

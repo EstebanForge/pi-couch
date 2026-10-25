@@ -53,15 +53,16 @@ type transcriptReset struct {
 }
 
 type sessionHeader struct {
-	Name      string  `json:"name"`
-	FirstUser string  `json:"first_user"`
-	Cwd       string  `json:"cwd"`
-	CtxTokens int64   `json:"ctx_tokens,omitempty"`
-	TotalCost float64 `json:"total_cost,omitempty"`
+	Name       string  `json:"name"`
+	FirstUser  string  `json:"first_user"`
+	Cwd        string  `json:"cwd"`
+	CtxTokens  int64   `json:"ctx_tokens,omitempty"`
+	TotalCost  float64 `json:"total_cost,omitempty"`
+	LastUserAt int64   `json:"last_user_at,omitempty"`
 }
 
 func headerOf(m pi.SessionMeta) *sessionHeader {
-	return &sessionHeader{Name: m.Name, FirstUser: m.FirstUser, Cwd: m.Cwd, CtxTokens: m.CtxTokens, TotalCost: m.TotalCost}
+	return &sessionHeader{Name: m.Name, FirstUser: m.FirstUser, Cwd: m.Cwd, CtxTokens: m.CtxTokens, TotalCost: m.TotalCost, LastUserAt: m.LastUserAt}
 }
 
 type transcriptAppend struct {

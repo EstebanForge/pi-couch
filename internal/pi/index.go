@@ -30,9 +30,12 @@ type SessionMeta struct {
 	TotalCost   float64   `json:"total_cost"`
 	// CtxTokens is the newest turn's usage total, a stand-in for the
 	// current context-window fill.
-	CtxTokens int64  `json:"ctx_tokens,omitempty"`
-	Model     string `json:"model"`
-	Thinking  string `json:"thinking"`
+	CtxTokens int64 `json:"ctx_tokens,omitempty"`
+	// LastUserAt is the newest user message's entry time (epoch ms) -
+	// the FIFO receipt the phone uses to retire queued-bubble state.
+	LastUserAt int64  `json:"last_user_at,omitempty"`
+	Model      string `json:"model"`
+	Thinking   string `json:"thinking"`
 	// Todos is the latest rpiv-todo-state checklist; empty when the
 	// session never ran the todo extension.
 	Todos []Todo `json:"todos,omitempty"`
@@ -317,6 +320,9 @@ func (ix *Index) parse(path, key string, st os.FileInfo) (SessionMeta, bool) {
 			}
 			if m.Role == "user" {
 				lastUserIdx = i
+				if t, err := time.Parse(time.RFC3339Nano, e.Timestamp); err == nil {
+					meta.LastUserAt = t.UnixMilli()
+				}
 			}
 		}
 	}

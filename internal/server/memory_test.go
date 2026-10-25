@@ -103,4 +103,10 @@ func TestTranscriptResetCarriesMemory(t *testing.T) {
 	if rs.Memory != "degraded" {
 		t.Fatalf("reset memory = %q, want degraded", rs.Memory)
 	}
+	// The s1 fixture's user entry is stamped 2026-10-10T12:00:01Z; the
+	// reset meta must carry it as the client's FIFO pending receipt.
+	wantUser := time.Date(2026, 10, 10, 12, 0, 1, 0, time.UTC).UnixMilli()
+	if rs.Meta == nil || rs.Meta.LastUserAt != wantUser {
+		t.Fatalf("reset meta last_user_at = %+v, want %d", rs.Meta, wantUser)
+	}
 }

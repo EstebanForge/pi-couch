@@ -67,6 +67,48 @@ describe("pending survives resets", () => {
 		expect(after.pending.map((p) => p.id)).toEqual([1]);
 	});
 
+	it("retires queued bubbles once a user entry lands at or after them", () => {
+		// pi's queue is FIFO: any user entry stamped at/after the queue
+		// moment proves the queued message was delivered, even when the
+		// landed item fell outside the reset window and its text never
+		// matched (skill expansions, trimming).
+		let s = reduceReset(emptyDriver, {
+			items: [],
+			status: "working",
+			model: "",
+			thinking: "",
+		});
+		s = addPending(s, 1, "queued while busy", true);
+		const at = s.pending[0].at;
+		const after = reduceReset(s, {
+			items: [item(0, "text", "answer")],
+			status: "working",
+			model: "",
+			thinking: "",
+			meta: { name: "x", first_user: "", cwd: "", last_user_at: at + 900 },
+		});
+		expect(after.pending).toEqual([]);
+	});
+
+	it("keeps queued bubbles while the newest user entry predates them", () => {
+		let s = reduceReset(emptyDriver, {
+			items: [item(0, "user", "old")],
+			status: "working",
+			model: "",
+			thinking: "",
+		});
+		s = addPending(s, 1, "queued while busy", true);
+		const at = s.pending[0].at;
+		const after = reduceReset(s, {
+			items: [item(0, "user", "old")],
+			status: "working",
+			model: "",
+			thinking: "",
+			meta: { name: "x", first_user: "", cwd: "", last_user_at: at - 60000 },
+		});
+		expect(after.pending).toHaveLength(1);
+	});
+
 	it("drops a bubble whose user item arrived", () => {
 		let s = reduceReset(emptyDriver, {
 			items: [item(0, "user", "earlier")],

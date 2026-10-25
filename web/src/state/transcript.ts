@@ -40,6 +40,7 @@ export type DriverState = {
 		cwd: string;
 		ctx_tokens?: number;
 		total_cost?: number;
+		last_user_at?: number;
 	} | null;
 	pending: PendingMsg[];
 };
@@ -106,9 +107,15 @@ export function removePending(s: DriverState, id: number): DriverState {
 // field bug). A reset re-syncs everything, so it clears all.
 function reconcile(s: DriverState): DriverState {
 	if (s.pending.length === 0) return s;
+	// FIFO receipt: pi's queue delivers in order, so any user entry
+	// stamped at/after a bubble's queue moment proves that bubble was
+	// delivered - even when its landed item fell outside the reset
+	// window and its text never matched (skill expansions, trimming).
+	const lastUserAt = s.header?.last_user_at ?? 0;
 	const keep = s.pending.filter(
 		(p) =>
 			Date.now() - p.at < PENDING_TTL_MS &&
+			!(lastUserAt > 0 && p.at > 0 && lastUserAt >= p.at) &&
 			!s.items.some(
 				(it) => it.kind === "user" && p.seed !== "" && foldWs(it.text).includes(p.seed),
 			),
