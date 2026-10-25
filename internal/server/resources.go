@@ -2,7 +2,6 @@ package server
 
 import (
 	"encoding/json"
-	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -77,26 +76,38 @@ func scanPiSkills(home, cwd string) []piSkill {
 		}
 	}
 	for _, root := range skillRoots(home, cwd) {
-		// A dir holding SKILL.md is one skill; pi does not descend into it.
-		_ = fs.WalkDir(os.DirFS(root), ".", func(path string, d fs.DirEntry, err error) error {
-			if err != nil || !d.IsDir() {
-				return nil
+		// pi's skill sets commonly symlink dirs into a central repo, so
+		// the walk must stat through symlinks (DirFS will not); the depth
+		// cap bounds symlink loops.
+		var walk func(dir string, depth int)
+		walk = func(dir string, depth int) {
+			if depth > 6 {
+				return
 			}
-			raw, readErr := os.ReadFile(filepath.Join(root, filepath.FromSlash(path), "SKILL.md"))
-			if readErr != nil {
-				return nil
+			entries, err := os.ReadDir(dir)
+			if err != nil {
+				return
 			}
-			name, desc := piFrontmatter(string(raw))
-			if name == "" {
-				if path == "." {
-					name = filepath.Base(root)
-				} else {
-					name = d.Name()
+			for _, e := range entries {
+				p := filepath.Join(dir, e.Name())
+				info, statErr := os.Stat(p)
+				if statErr != nil || !info.IsDir() {
+					continue
 				}
+				raw, readErr := os.ReadFile(filepath.Join(p, "SKILL.md"))
+				if readErr != nil {
+					walk(p, depth+1)
+					continue
+				}
+				name, desc := piFrontmatter(string(raw))
+				if name == "" {
+					name = e.Name()
+				}
+				add(name, desc)
+				// a dir holding SKILL.md is one skill; pi does not descend
 			}
-			add(name, desc)
-			return fs.SkipDir
-		})
+		}
+		walk(root, 0)
 	}
 	out := make([]piSkill, 0, len(found))
 	for name, desc := range found {

@@ -104,6 +104,33 @@ func TestSkillsProjectDirs(t *testing.T) {
 	}
 }
 
+func TestSkillsSymlinkedDirs(t *testing.T) {
+	home := t.TempDir()
+	// pi's own set keeps skill dirs as symlinks into a central repo;
+	// the scan must follow them or the phone sees one real dir only.
+	real := filepath.Join(home, "elsewhere", "commit")
+	writeSkill(t, filepath.Join(home, "elsewhere"), "commit",
+		"name: commit\ndescription: Create git commits with care.\n", "# c\n")
+	if err := os.MkdirAll(filepath.Join(home, ".agents", "skills"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, filepath.Join(home, ".agents", "skills", "commit")); err != nil {
+		t.Fatal(err)
+	}
+	// a symlink loop must terminate, not spin the walk
+	loop := filepath.Join(home, ".agents", "skills", "loop")
+	if err := os.Symlink(filepath.Join(home, ".agents", "skills"), loop); err != nil {
+		t.Fatal(err)
+	}
+
+	a, _, _ := streamTestApp(t)
+	a.home = home
+	skills := scanPiSkills(a.home, "")
+	if len(skills) != 1 || skills[0].Name != "commit" {
+		t.Fatalf("skills %+v, want commit", skills)
+	}
+}
+
 func TestPromptsEndpoint(t *testing.T) {
 	home := t.TempDir()
 	prompts := filepath.Join(home, ".pi", "agent", "prompts")
