@@ -1,4 +1,4 @@
-import { Dialog, DialogButton, Sheet } from "konsta/react";
+import { Dialog, DialogButton } from "konsta/react";
 import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import {
@@ -1250,44 +1250,59 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 				Close this session? The pi agent exits; the transcript stays readable.
 			</Dialog>
 
-			<Sheet
-				opened={renameOpen}
-				onBackdropClick={() => setRenameOpen(false)}
-				className="pb-safe-all bg-base-200"
+			{/* rename drops from the top, where the title lives */}
+			<button
+				type="button"
+				aria-label="Cancel rename"
+				className={`fixed inset-0 z-40 bg-black/50 transition-opacity duration-200 ${
+					renameOpen ? "opacity-100" : "pointer-events-none opacity-0"
+				}`}
+				onClick={() => setRenameOpen(false)}
+			/>
+			<div
+				className={`fixed inset-x-0 top-0 z-50 transition-transform duration-200 ease-out ${
+					renameOpen ? "translate-y-0" : "-translate-y-full"
+				}`}
 			>
-				<div className="flex flex-col gap-2 p-3">
-					<div className="text-[13px] font-semibold uppercase tracking-wider text-muted">
-						Rename session
-					</div>
-					<input
-						value={renameVal}
-						onChange={(e) => setRenameVal(e.target.value)}
-						onKeyDown={(e) => {
-							if (e.key === "Enter") void runRename();
-						}}
-						aria-label="Session name"
-						placeholder="New name here"
-						className="w-full rounded-2xl border border-base-content/10 bg-base-200/80 px-3 py-2 text-[15px] text-base-content placeholder:text-muted"
-					/>
-					<div className="flex gap-2">
-						<button
-							type="button"
-							onClick={() => setRenameOpen(false)}
-							className="press-scale min-h-[48px] flex-1 rounded-2xl border border-base-content/15 bg-base-300/40 text-[15px] font-semibold text-base-content"
-						>
-							Cancel
-						</button>
-						<button
-							type="button"
-							disabled={!renameVal.trim() || isWaiting(state.status)}
-							onClick={() => void runRename()}
-							className="press-scale min-h-[48px] flex-1 rounded-2xl bg-primary text-[15px] font-semibold text-primary-content shadow-[0_2px_12px_rgba(64,157,212,0.4)] disabled:opacity-50"
-						>
-							Rename
-						</button>
+				{/* the inset rides inside the box so the closed slide clears the screen edge */}
+				<div
+					className="rounded-b-2xl border-b border-base-content/10 bg-base-200 shadow-2xl"
+					style={{ paddingTop: "var(--safe-top, 0px)" }}
+				>
+					<div className="flex flex-col gap-2 p-3">
+						<div className="text-[13px] font-semibold uppercase tracking-wider text-muted">
+							Rename session
+						</div>
+						<input
+							value={renameVal}
+							onChange={(e) => setRenameVal(e.target.value)}
+							onKeyDown={(e) => {
+								if (e.key === "Enter") void runRename();
+							}}
+							aria-label="Session name"
+							placeholder="New name here"
+							className="w-full rounded-2xl border border-base-content/10 bg-base-200/80 px-3 py-2 text-[15px] text-base-content placeholder:text-muted"
+						/>
+						<div className="flex gap-2">
+							<button
+								type="button"
+								onClick={() => setRenameOpen(false)}
+								className="press-scale min-h-[48px] flex-1 rounded-2xl border border-base-content/15 bg-base-300/40 text-[15px] font-semibold text-base-content"
+							>
+								Cancel
+							</button>
+							<button
+								type="button"
+								disabled={!renameVal.trim() || isWaiting(state.status)}
+								onClick={() => void runRename()}
+								className="press-scale min-h-[48px] flex-1 rounded-2xl bg-primary text-[15px] font-semibold text-primary-content shadow-[0_2px_12px_rgba(64,157,212,0.4)] disabled:opacity-50"
+							>
+								Rename
+							</button>
+						</div>
 					</div>
 				</div>
-			</Sheet>
+			</div>
 		</div>
 	);
 }
