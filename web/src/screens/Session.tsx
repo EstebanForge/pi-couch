@@ -50,7 +50,7 @@ import {
 	type ToolPair,
 	type WorkBlock,
 } from "../state/transcript";
-import { isWaiting, STATUS_DOT } from "../status";
+import { isWaiting } from "../status";
 import { connectStream, type StreamStatus } from "../stream";
 
 const LIMIT = 2000; // client-side tail cap; the server re-resets past it
@@ -800,7 +800,6 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 		meta?.first_user ||
 		state.items.find((it) => it.kind === "user")?.text.slice(0, 60) ||
 		"Session";
-	const dot = STATUS_DOT[state.status] ?? "bg-muted";
 	const hasItems = state.items.length > 0;
 	// Stable identities: fresh closures per tick would re-render every
 	// mounted row (and re-parse its markdown) on each stream frame.
@@ -938,20 +937,6 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 					<FaChevronLeft size={20} />
 				</button>
 				<div className="flex min-w-0 items-center gap-2">
-					{isWaiting(state.status) ? (
-						<Spinner
-							size={14}
-							className={state.status === "blocked" ? "text-error" : "text-primary"}
-						/>
-					) : (
-						<span
-							className={`size-2.5 shrink-0 rounded-full transition-all duration-300 ${dot}`}
-							title={state.status || "idle"}
-						/>
-					)}
-					<span className="truncate text-[15.5px] font-semibold tracking-tight text-base-content">
-						{title}
-					</span>
 					{(state.dialog || state.awaiting) && (
 						<span
 							className="shrink-0 rounded-full border border-accent/60 bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent shadow-[0_0_6px_rgba(55,181,180,0.3)]"
@@ -970,30 +955,15 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 					<FaGaugeHigh size={20} />
 				</button>
 			</header>
-			{/* tool strip */}
-			<div
-				className="flex gap-1.5 overflow-x-auto border-b border-base-content/6 bg-base-200/50 px-2.5 py-1.5 backdrop-blur-sm"
-				style={{ scrollbarWidth: "none" }}
-			>
-				{TOOLS.filter((t) => t.placement === "strip").map((t) => (
-					<button
-						key={t.id}
-						type="button"
-						disabled={t.disabled}
-						className={`press-scale min-h-[36px] shrink-0 rounded-xl px-3.5 text-[13px] font-medium transition-all ${
-							t.disabled ? "text-muted/40" : "text-base-content active:bg-base-300"
-						} ${t.id === "search" && query !== null ? "bg-base-300 text-accent font-semibold" : "bg-base-300/40"}`}
-						onClick={() => {
-							if (t.id === "search") setQuery(query === null ? "" : null);
-							else if (t.href) navigate(t.href(sessionKey), { dir: "side" });
-						}}
-					>
-						{t.label}
-					</button>
-				))}
+			{/* session context: what am I working on, with the ⋯ panel entry */}
+			<div className="flex shrink-0 items-center gap-2 border-b border-base-content/8 px-2.5 py-1.5">
+				<span className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-base-content/90" title={title}>
+					{title}
+				</span>
 				<button
 					type="button"
-					className="press-scale ml-auto min-h-[36px] shrink-0 rounded-xl bg-base-300/40 px-3 text-[13px] text-base-content active:bg-base-300"
+					aria-label="Session actions"
+					className="press-scale -mr-1 flex size-9 shrink-0 items-center justify-center rounded-full text-muted active:text-base-content"
 					onClick={() => setOverflow(true)}
 				>
 					<FaEllipsis size={18} />
@@ -1122,9 +1092,9 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 			{lightbox && <Lightbox src={lightbox} onClose={() => setLightbox(null)} />}
 
 			{/* The ⋯ command panel: drops top-to-bottom under the safe area
-			    and lists every tool on the bar — the strip items and the
-			    overflow actions alike — so the whole bar is reachable from
-			    one tap. Modern frosted top drawer with M3 emphasized deceleration. */}
+			    and lists every session tool, so everything is reachable
+			    from one tap. Modern frosted top drawer with M3 emphasized
+			    deceleration. */}
 			<div
 				aria-hidden={!overflow}
 				className={`fixed inset-0 z-40 bg-black/60 backdrop-blur-xs transition-opacity duration-250 ease-out ${
