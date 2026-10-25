@@ -23,7 +23,7 @@ sessions_dir = ""
 # Where uploaded attachments land. Keep it somewhere the pi agents can
 # read: the upload's path is pasted into the message you send.
 #   uploads_dir = "/tmp/pi-couch-uploads"
-uploads_dir = "/tmp/couch-pi-uploads"
+uploads_dir = "/tmp/pi-couch-uploads"
 
 # agentmemory health probe, behind the memory chip in the composer.
 # Defaults to localhost:3111. The AGENTMEMORY_URL environment variable

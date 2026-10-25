@@ -39,7 +39,7 @@ type Config struct {
 func Defaults() Config {
 	return Config{
 		Addr:       "127.0.0.1:8090",
-		UploadsDir: "/tmp/couch-pi-uploads",
+		UploadsDir: "/tmp/pi-couch-uploads",
 		MemoryURL:  "http://localhost:3111",
 	}
 }

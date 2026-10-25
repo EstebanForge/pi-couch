@@ -21,7 +21,7 @@ const maxUploadBytes = 10 << 20
 
 // defaultUploadsDir is /tmp so herdr's pi (same machine, no private-tmp in
 // the unit) can read it; the OS clears it like herdr's own clipboard dir.
-const defaultUploadsDir = "/tmp/couch-pi-uploads"
+const defaultUploadsDir = "/tmp/pi-couch-uploads"
 
 var sniffExts = map[string]string{
 	"image/png":  ".png",

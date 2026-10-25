@@ -54,7 +54,7 @@ Machine settings live in one commented file, `~/.config/pi-couch/config.toml`. C
 - `addr`: where the HTTP server listens. Keep it on loopback; the tunnel fronts TLS. Defaults to `127.0.0.1:8090`.
 - `origin`: the public URL your phone uses, e.g. `https://yourbox.your-tailnet.ts.net:8443`. The cross-site guard accepts exactly this host, so set it, or state-changing requests only work from loopback.
 - `sessions_dir`: where pi writes sessions. Defaults to `~/.pi/agent/sessions`, which is what you want.
-- `uploads_dir`: where attachments land before their paths get pasted into messages. Defaults to `/tmp/couch-pi-uploads`; the pi agents on the same machine read them from there.
+- `uploads_dir`: where attachments land before their paths get pasted into messages. Defaults to `/tmp/pi-couch-uploads`; the pi agents on the same machine read them from there.
 - `memory_url` and `memory_secret`: the agentmemory health probe behind the chip in the composer. Defaults to `localhost:3111`; set the URL if yours is elsewhere. Put the secret in the `AGENTMEMORY_SECRET` environment variable instead of the file, and keep the file 0600 either way.
 
 The environment variables `AGENTMEMORY_URL` and `AGENTMEMORY_SECRET` override the config values; that's how I wire the secret into the systemd unit without it touching the repo.
