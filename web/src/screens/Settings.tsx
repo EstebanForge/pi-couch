@@ -388,7 +388,7 @@ export default function SettingsScreen() {
 					<>
 						<DialogButton onClick={() => setConfirmIdx(null)}>Cancel</DialogButton>
 						<DialogButton
-							className="text-error"
+							className="!text-error"
 							onClick={() => {
 								const next = cmds.filter((_, i) => i !== confirmIdx);
 								setCmds(next);

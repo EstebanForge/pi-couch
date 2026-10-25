@@ -1206,7 +1206,7 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 				buttons={
 					<>
 						<DialogButton onClick={() => setConfirmClose(false)}>Cancel</DialogButton>
-						<DialogButton className="text-error" onClick={() => void runClose()}>
+						<DialogButton className="!text-error" onClick={() => void runClose()}>
 							Close session
 						</DialogButton>
 					</>
