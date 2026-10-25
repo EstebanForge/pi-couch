@@ -75,6 +75,7 @@ export const Composer = memo(function Composer(props: {
 	const [toast, setToast] = useState("");
 	const [sheet, setSheet] = useState<"none" | "model" | "thinking" | "commands" | "attach">("none");
 	const [qaStep, setQaStep] = useState<"menu" | "skills" | "commands" | "prompts">("menu");
+	const [qaFilter, setQaFilter] = useState("");
 	const [skills, setSkills] = useState<SkillInfo[] | null>(null);
 	const [prompts, setPrompts] = useState<PromptInfo[] | null>(null);
 	const [skillsError, setSkillsError] = useState(false);
@@ -82,6 +83,19 @@ export const Composer = memo(function Composer(props: {
 	const [runningCmd, setRunningCmd] = useState<string | null>(null);
 	const [execResult, setExecResult] = useState<{ cmd: string; output: string; code: number } | null>(null);
 	const quickCmds = useMemo(() => quickCommands(), []);
+	const qaQ = qaFilter.trim().toLowerCase();
+	const qaSkills =
+		qaQ === "" || !skills ? skills : skills.filter((s) => s.name.toLowerCase().includes(qaQ) || s.description.toLowerCase().includes(qaQ));
+	const qaCmdList = qaQ === "" ? quickCmds : quickCmds.filter((c) => c.toLowerCase().includes(qaQ));
+	const qaPrompts =
+		qaQ === "" || !prompts
+			? prompts
+			: prompts.filter(
+					(p) =>
+						p.name.toLowerCase().includes(qaQ) ||
+						p.description.toLowerCase().includes(qaQ) ||
+						p.hint?.toLowerCase().includes(qaQ),
+			  );
 	useSheetBack(sheet !== "none", () => setSheet("none"));
 	const [modelQuery, setModelQuery] = useState("");
 	const [modelRows, setModelRows] = useState<ModelRow[]>([]);
@@ -101,6 +115,7 @@ export const Composer = memo(function Composer(props: {
 	useEffect(() => {
 		if (sheet !== "commands") return;
 		setQaStep("menu");
+		setQaFilter("");
 	}, [sheet]);
 
 	useEffect(() => {
@@ -641,20 +656,33 @@ export const Composer = memo(function Composer(props: {
 						<>
 							<button
 								type="button"
-								onClick={() => setQaStep("menu")}
+								onClick={() => {
+									setQaStep("menu");
+									setQaFilter("");
+								}}
 								className="press-scale -mx-1 flex min-h-[40px] items-center gap-1.5 rounded-xl px-1 text-[13.5px] font-medium text-muted active:text-base-content"
 							>
 								<FaChevronLeft size={13} /> Quick actions
 							</button>
+							<input
+								type="text"
+								value={qaFilter}
+								onChange={(e) => setQaFilter(e.target.value)}
+								placeholder={`Filter ${qaStep}…`}
+								aria-label={`Filter ${qaStep}`}
+								autoComplete="off"
+								spellCheck={false}
+								className="h-10 shrink-0 rounded-2xl border border-base-content/10 bg-base-200/80 px-3.5 font-mono text-[13.5px] text-base-content placeholder:text-muted"
+							/>
 							{qaStep === "skills" &&
-								(skills === null ? (
+								(qaSkills === null ? (
 									<QaNote>Loading skills…</QaNote>
 								) : skillsError ? (
 									<QaNote>pi skills unavailable.</QaNote>
-								) : skills.length === 0 ? (
-									<QaNote>No pi skills installed.</QaNote>
+								) : qaSkills.length === 0 ? (
+									<QaNote>{qaQ ? "No matches." : "No pi skills installed."}</QaNote>
 								) : (
-									skills.map((s) => (
+									qaSkills.map((s) => (
 										<QaItem
 											key={s.name}
 											title={`/skill:${s.name}`}
@@ -664,10 +692,10 @@ export const Composer = memo(function Composer(props: {
 									))
 								))}
 							{qaStep === "commands" &&
-								(quickCmds.length === 0 ? (
-									<QaNote>No commands configured.</QaNote>
+								(qaCmdList.length === 0 ? (
+									<QaNote>{qaQ ? "No matches." : "No commands configured."}</QaNote>
 								) : (
-									quickCmds.map((c) => {
+									qaCmdList.map((c) => {
 										const isSlash = c.startsWith("/");
 										return (
 											<div key={c}>
@@ -696,14 +724,14 @@ export const Composer = memo(function Composer(props: {
 									})
 								))}
 							{qaStep === "prompts" &&
-								(prompts === null ? (
+								(qaPrompts === null ? (
 									<QaNote>Loading prompts…</QaNote>
 								) : promptsError ? (
 									<QaNote>pi prompts unavailable.</QaNote>
-								) : prompts.length === 0 ? (
-									<QaNote>No prompt templates installed.</QaNote>
+								) : qaPrompts.length === 0 ? (
+									<QaNote>{qaQ ? "No matches." : "No prompt templates installed."}</QaNote>
 								) : (
-									prompts.map((p) => (
+									qaPrompts.map((p) => (
 										<QaItem
 											key={p.name}
 											title={`/${p.name}`}
