@@ -161,6 +161,17 @@ export default function QuotasScreen() {
 	);
 }
 
+// Daily-ish windows read first: a card opens on the tightest limit,
+// with weekly and everything else below. Stable sort keeps the
+// provider's own order inside each rank.
+function windowRank(w: WindowQuota): number {
+	const l = w.label.toLowerCase();
+	if (l.includes("session") || l.includes("daily") || l.includes("interval") || l.includes("5h"))
+		return 0;
+	if (l.includes("weekly")) return 1;
+	return 2;
+}
+
 function ProviderCard({ provider }: { provider: ProviderQuota }) {
 	const hasWindows = provider.windows && provider.windows.length > 0;
 	const isError = Boolean(provider.error);
@@ -183,9 +194,11 @@ function ProviderCard({ provider }: { provider: ProviderQuota }) {
 
 			{hasWindows && (
 				<div className="flex flex-col gap-3 border-t border-base-content/6 pt-3">
-					{provider.windows?.map((w) => (
-						<WindowRow key={w.label} window={w} />
-					))}
+					{[...(provider.windows ?? [])]
+						.sort((a, b) => windowRank(a) - windowRank(b))
+						.map((w) => (
+							<WindowRow key={w.label} window={w} />
+						))}
 				</div>
 			)}
 		</div>
