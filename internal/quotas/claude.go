@@ -1,27 +1,16 @@
 package quotas
 
 import (
-	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 )
 
-const (
-	claudeClientID   = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
-	claudeRefreshURL = "https://platform.claude.com/v1/oauth/token"
-	claudeUsageURL   = "https://api.anthropic.com/api/oauth/usage"
-)
-
-var (
-	claudeMu    sync.Mutex
-	cachedToken string
-	tokenExpiry time.Time
-)
+const claudeUsageURL = "https://api.anthropic.com/api/oauth/usage"
 
 type claudeCredsFile struct {
 	ClaudeAIOAuth struct {
@@ -29,12 +18,6 @@ type claudeCredsFile struct {
 		RefreshToken string  `json:"refreshToken"`
 		ExpiresAt    float64 `json:"expiresAt"` // ms
 	} `json:"claudeAiOauth"`
-}
-
-type claudeTokenResp struct {
-	AccessToken  string  `json:"access_token"`
-	RefreshToken string  `json:"refresh_token"`
-	ExpiresIn    float64 `json:"expires_in"` // seconds
 }
 
 type claudeUsageResp struct {
@@ -56,7 +39,7 @@ func fetchClaudeQuota(client *http.Client) ProviderQuota {
 		UpdatedAt: time.Now(),
 	}
 
-	token, err := getClaudeToken(client)
+	token, err := getClaudeToken()
 	if err != nil {
 		q.Error = err.Error()
 		return q
@@ -110,18 +93,17 @@ func fetchClaudeQuota(client *http.Client) ProviderQuota {
 	return q
 }
 
-func getClaudeToken(client *http.Client) (string, error) {
-	claudeMu.Lock()
-	defer claudeMu.Unlock()
-
-	if cachedToken != "" && time.Now().Before(tokenExpiry) {
-		return cachedToken, nil
-	}
-
+// getClaudeToken is deliberately a read-only consumer of the CLI's
+// credential file. Refreshing here rotates Anthropic's refresh token
+// without a safe place to persist the replacement, which invalidates
+// the token Claude Code holds and logs the user out. When the access
+// token is expired the card degrades with an honest error instead.
+func getClaudeToken() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
+
 	credPath := filepath.Join(home, ".claude", ".credentials.json")
 	data, err := os.ReadFile(credPath)
 	if err != nil {
@@ -133,36 +115,13 @@ func getClaudeToken(client *http.Client) (string, error) {
 		return "", fmt.Errorf("parse claude creds: %w", err)
 	}
 
-	rf := creds.ClaudeAIOAuth.RefreshToken
-	if rf == "" {
-		if creds.ClaudeAIOAuth.AccessToken != "" {
-			return creds.ClaudeAIOAuth.AccessToken, nil
-		}
-		return "", fmt.Errorf("missing refresh token")
+	token := creds.ClaudeAIOAuth.AccessToken
+	if token == "" {
+		return "", errors.New("no claude access token - open claude once to log in")
 	}
-
-	// Refresh token via Anthropic platform
-	payload, _ := json.Marshal(map[string]string{
-		"grant_type":    "refresh_token",
-		"client_id":     claudeClientID,
-		"refresh_token": rf,
-	})
-	resp, err := client.Post(claudeRefreshURL, "application/json", bytes.NewReader(payload))
-	if err != nil {
-		return "", fmt.Errorf("refresh claude token: %w", err)
+	exp := time.UnixMilli(int64(creds.ClaudeAIOAuth.ExpiresAt))
+	if !time.Now().Before(exp.Add(-60 * time.Second)) {
+		return "", errors.New("claude token expired - open claude once to refresh it")
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("claude refresh HTTP %d", resp.StatusCode)
-	}
-
-	var tr claudeTokenResp
-	if err := json.NewDecoder(resp.Body).Decode(&tr); err != nil {
-		return "", fmt.Errorf("decode refresh: %w", err)
-	}
-
-	cachedToken = tr.AccessToken
-	tokenExpiry = time.Now().Add(time.Duration(tr.ExpiresIn-60) * time.Second)
-	return cachedToken, nil
+	return token, nil
 }
