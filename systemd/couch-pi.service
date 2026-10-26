@@ -9,7 +9,7 @@ Environment=PATH=%h/.local/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/us
 # (see pi-couch.example.toml in the repo). Flags override config.
 # Secrets (access token, memory secret) live in one optional env file,
 # one KEY=value per line, kept out of this unit and out of the repo.
-EnvironmentFile=-%h/.config/couch-pi/env
+EnvironmentFile=-%h/.config/pi-couch/env
 ExecStart=%h/.local/bin/couch-pi
 Restart=on-failure
 RestartSec=2

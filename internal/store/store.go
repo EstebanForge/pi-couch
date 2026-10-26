@@ -40,7 +40,7 @@ func New() (*Store, error) {
 		}
 		dir = filepath.Join(home, ".local", "state")
 	}
-	dir = filepath.Join(dir, "couch-pi")
+	dir = filepath.Join(dir, "pi-couch")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}

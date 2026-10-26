@@ -7,7 +7,7 @@ import (
 )
 
 // getAPIKey looks up an API key from environment variables,
-// falling back to ~/.config/couch-pi/keys.json.
+// falling back to ~/.config/pi-couch/keys.json.
 func getAPIKey(envVars ...string) string {
 	for _, env := range envVars {
 		if val := os.Getenv(env); val != "" {
@@ -20,7 +20,7 @@ func getAPIKey(envVars ...string) string {
 		return ""
 	}
 
-	keysPath := filepath.Join(home, ".config", "couch-pi", "keys.json")
+	keysPath := filepath.Join(home, ".config", "pi-couch", "keys.json")
 	data, err := os.ReadFile(keysPath)
 	if err != nil {
 		return ""

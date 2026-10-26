@@ -85,7 +85,7 @@ Mechanics worth stealing wholesale:
 - One notification tag per pane, so a newer push replaces the older one on the lock screen. TTL 12 h (a blocked agent is still blocked when the phone regains signal). Urgency `high` only for blocked.
 - Endpoint validation is an SSRF guard: https only, `p256dh` must decode to exactly 65 bytes (uncompressed P-256 point), `auth` to 16. Fetch with `redirect: "error"`: a push service never redirects, and following one would forward alerts to wherever the endpoint points, past the https check.
 - State files written atomically (tmp + rename, 0600, dir 0700). A malformed `vapid.json` is an error, never a rotation: regenerating the key silently orphans every subscribed device. 404/410 from the push service prunes the subscription.
-- Our push-subs file lives under `~/.local/state/couch-pi/` already; the write and validation patterns apply as-is.
+- Our push-subs file lives under `~/.local/state/pi-couch/` already; the write and validation patterns apply as-is.
 
 ## 5. Approval and question cards (candidate feature D8)
 

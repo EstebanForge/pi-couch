@@ -102,11 +102,11 @@ export PICOUCH_ACCESS_TOKEN=your-token
 bin/couch-pi
 ```
 
-Linux with the systemd unit: the service reads `~/.config/couch-pi/env`, one `KEY=value` per line. Put the token there and restart; the file is read at start, no reload needed.
+Linux with the systemd unit: the service reads `~/.config/pi-couch/env`, one `KEY=value` per line. Put the token there and restart; the file is read at start, no reload needed.
 
 ```sh
-echo 'PICOUCH_ACCESS_TOKEN=your-token' >> ~/.config/couch-pi/env
-chmod 600 ~/.config/couch-pi/env
+echo 'PICOUCH_ACCESS_TOKEN=your-token' >> ~/.config/pi-couch/env
+chmod 600 ~/.config/pi-couch/env
 systemctl --user restart couch-pi
 ```
 
@@ -134,7 +134,7 @@ Don't port-forward this to the public internet; that hands your machine to anyon
 
 Tested against pi 1.3.x and herdr 0.9.5. Dialog answering reads the pane paint, so a pi TUI reshuffle can break it. The rest of the client reads the session files, which move much slower.
 
-State lives in `~/.local/state/couch-pi` (models cache, push subscriptions). No database, no accounts, one user. It's my setup, extracted and released as-is.
+State lives in `~/.local/state/pi-couch` (models cache, push subscriptions). No database, no accounts, one user. It's my setup, extracted and released as-is.
 
 Built on [pi](https://earendil.com) and herdr.
 
