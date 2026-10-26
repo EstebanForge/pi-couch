@@ -101,6 +101,7 @@ export type TranscriptReset = {
 	awaiting?: boolean;
 	dialog?: BridgeDialog | null;
 	todos?: Todo[];
+	queue?: string[];
 	memory?: string;
 	meta?: {
 		name: string;
@@ -121,6 +122,7 @@ export type TranscriptStatus = {
 	awaiting?: boolean;
 	dialog?: BridgeDialog | null;
 	todos?: Todo[];
+	queue?: string[];
 	memory?: string;
 };
 

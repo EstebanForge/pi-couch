@@ -5,6 +5,7 @@ package config
 
 import (
 	"bytes"
+	"cmp"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -32,15 +33,22 @@ type Config struct {
 	// Bearer secret for the memory probe. Prefer the
 	// AGENTMEMORY_SECRET env var so the secret stays out of this file.
 	MemorySecret string `toml:"memory_secret"`
+	// Shared access token gating /api and /stream. The
+	// PICOUCH_ACCESS_TOKEN env var wins over this key.
+	AccessToken string `toml:"access_token"`
+	// Refuse to start when AccessToken is empty. True by default so a
+	// tokenless deployment is always a deliberate choice.
+	EnforceToken bool `toml:"enforce_token"`
 }
 
 // Defaults returns the config used when the file is absent or a key is
 // unset.
 func Defaults() Config {
 	return Config{
-		Addr:       "127.0.0.1:8090",
-		UploadsDir: "/tmp/pi-couch-uploads",
-		MemoryURL:  "http://localhost:3111",
+		Addr:         "127.0.0.1:8090",
+		UploadsDir:   "/tmp/pi-couch-uploads",
+		MemoryURL:    "http://localhost:3111",
+		EnforceToken: true,
 	}
 }
 
@@ -71,6 +79,7 @@ func Load() (Config, error) {
 		if cfg.SessionsDir == "" {
 			cfg.SessionsDir = defaultSessions()
 		}
+		cfg.AccessToken = cmp.Or(os.Getenv("PICOUCH_ACCESS_TOKEN"), cfg.AccessToken)
 		return cfg, nil
 	}
 	if err != nil {
@@ -82,6 +91,7 @@ func Load() (Config, error) {
 	if cfg.SessionsDir == "" {
 		cfg.SessionsDir = defaultSessions()
 	}
+	cfg.AccessToken = cmp.Or(os.Getenv("PICOUCH_ACCESS_TOKEN"), cfg.AccessToken)
 	return cfg, nil
 }
 

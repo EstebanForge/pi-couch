@@ -1117,6 +1117,8 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 				)}
 			</div>
 
+			{state.queue.length > 0 && <QueueCard queue={state.queue} />}
+
 			<Composer
 				sessionKey={sessionKey}
 				status={state.status}
@@ -1303,6 +1305,44 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 					</div>
 				</div>
 			</div>
+		</div>
+	);
+}
+
+// QueueCard mirrors TodosCard for pi's painted follow-up queue (it
+// exists only in the pane paint, never in the session file, so the
+// detector parses it and the wire carries it). Collapsed by default
+// like the todos card; sits above the composer, where queued work is
+// about to land.
+function QueueCard({ queue }: { queue: string[] }) {
+	const [open, setOpen] = useState(false);
+	return (
+		<div className="border-t border-base-300 px-3 py-2">
+			<button
+				type="button"
+				aria-expanded={open}
+				onClick={() => setOpen(!open)}
+				className="flex min-h-[36px] w-full items-center gap-2 text-left"
+			>
+				<span className="text-[11px] tracking-widest text-muted uppercase">Queued</span>
+				<span className="text-[11px] text-muted">· {queue.length} · after this run</span>
+				<span className="ml-auto text-muted">
+					{open ? <FaCaretDown size={12} /> : <FaCaretRight size={12} />}
+				</span>
+			</button>
+			{open && (
+				<ul className="max-h-40 space-y-1 overflow-y-auto pt-1">
+					{queue.map((q, i) => (
+						// The queue is a FIFO of stateless rows with no stable id;
+						// position is the identity, so the index key is honest.
+						// biome-ignore lint/suspicious/noArrayIndexKey: see above
+						<li key={i} className="flex gap-2 text-[13px] text-muted">
+							<FaCircle size={7} className="mt-1.5 shrink-0" />
+							<span className="min-w-0 [overflow-wrap:anywhere]">{q}</span>
+						</li>
+					))}
+				</ul>
+			)}
 		</div>
 	);
 }

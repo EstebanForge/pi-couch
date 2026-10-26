@@ -44,11 +44,15 @@ func (a *app) apiDialogAnswer(w http.ResponseWriter, r *http.Request) {
 		// id even after the entry expired; the dispatch re-reads and
 		// re-parses the pane before any key goes out.
 		if req.ID == "" || req.ID != a.paneDialogID(meta.Path) {
+			a.logger.Warn("dialog answer refused", "cause", "id gate",
+				"session", meta.Path, "req_id", req.ID, "bridge_id", dialog.ID, "has_bridge", has,
+				"pane_id_computed", a.paneDialogID(meta.Path), "pane_parsed", a.awaiting.parsed(meta.Path) != nil)
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
 			return
 		}
 	}
 	if !a.answered.Claim(req.ID) {
+		a.logger.Warn("dialog answer refused", "cause", "memo claimed", "session", meta.Path, "req_id", req.ID)
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
 		return
 	}
@@ -72,6 +76,7 @@ func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, tex
 	defer cancel()
 	paneID, err := a.herdr.TargetForPath(ctx, path)
 	if err != nil {
+		a.logger.Warn("dialog answer refused", "cause", "target unresolved", "session", path, "err", err.Error())
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
 		return false, false
 	}

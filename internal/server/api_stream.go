@@ -44,6 +44,8 @@ type transcriptReset struct {
 	// Todos is the extension todo checklist, latest state. Nil when the
 	// session never ran the todo extension.
 	Todos []pi.Todo `json:"todos,omitempty"`
+	// Queue is pi's painted follow-up queue at connect time.
+	Queue []string `json:"queue,omitempty"`
 	// Memory is the agent memory server's health class, probed against
 	// AGENTMEMORY_URL. Empty until the first probe lands.
 	Memory string `json:"memory,omitempty"`
@@ -88,6 +90,9 @@ type transcriptStatus struct {
 	// a checklist clear must reach the client as an empty array, not
 	// as an absent key that reads as keep-what-you-have.
 	Todos []pi.Todo `json:"todos"`
+	// Queue is pi's follow-up queue. Never omitempty, same rule as
+	// Todos: a drained queue must arrive as an empty array.
+	Queue []string `json:"queue"`
 	// Memory is the agent memory server's health class; rides frames
 	// whenever it changes.
 	Memory string `json:"memory,omitempty"`
@@ -263,6 +268,7 @@ func (a *app) apiStreamTranscript(w http.ResponseWriter, r *http.Request) {
 	status, model, thinking := "", "", ""
 	var lastAwaiting bool
 	var lastTodos []pi.Todo
+	var lastQueue []string
 	var lastCtx int64
 	var lastDialog *dialogWire
 	var lastSend time.Time
@@ -294,6 +300,7 @@ func (a *app) apiStreamTranscript(w http.ResponseWriter, r *http.Request) {
 		badges := a.herdr.Badges(r.Context())
 		st := badges[meta.Path]
 		awaiting := a.awaiting.isAwaiting(meta.Path)
+		queue := a.awaiting.queued(meta.Path)
 		dialog, hasDialog := a.dialogFor(meta.Path, st)
 		dw := a.dialogWireFor(meta.Path, dialog, hasDialog)
 		forceReset := placeholder
@@ -308,17 +315,19 @@ func (a *app) apiStreamTranscript(w http.ResponseWriter, r *http.Request) {
 				sent = true
 			}
 		} else {
-			if !send("reset", transcriptReset{Items: items, Status: st, Model: meta.Model, Thinking: meta.Thinking, Awaiting: awaiting, Dialog: dw, Todos: meta.Todos, Memory: mem, Meta: headerOf(meta)}) {
+			if !send("reset", transcriptReset{Items: items, Status: st, Model: meta.Model, Thinking: meta.Thinking, Awaiting: awaiting, Dialog: dw, Todos: meta.Todos, Queue: queue, Memory: mem, Meta: headerOf(meta)}) {
 				return
 			}
 			prev = cur
 			status, model, thinking = st, meta.Model, meta.Thinking
+			lastQueue = queue
 			sent = true
 		}
-		if st != status || meta.Model != model || meta.Thinking != thinking || awaiting != lastAwaiting || !slices.Equal(meta.Todos, lastTodos) || meta.CtxTokens != lastCtx || !dialogEqual(dw, lastDialog) {
+		if st != status || meta.Model != model || meta.Thinking != thinking || awaiting != lastAwaiting || !slices.Equal(meta.Todos, lastTodos) || meta.CtxTokens != lastCtx || !dialogEqual(dw, lastDialog) || !slices.Equal(queue, lastQueue) {
 			status, model, thinking, lastAwaiting, lastTodos, lastCtx = st, meta.Model, meta.Thinking, awaiting, meta.Todos, meta.CtxTokens
 			lastDialog = dw
-			if !send("status", transcriptStatus{Status: st, Model: meta.Model, Thinking: meta.Thinking, CtxTokens: meta.CtxTokens, Awaiting: awaiting, Todos: meta.Todos, Dialog: dw, Memory: mem}) {
+			lastQueue = queue
+			if !send("status", transcriptStatus{Status: st, Model: meta.Model, Thinking: meta.Thinking, CtxTokens: meta.CtxTokens, Awaiting: awaiting, Todos: meta.Todos, Queue: queue, Dialog: dw, Memory: mem}) {
 				return
 			}
 			sent = true

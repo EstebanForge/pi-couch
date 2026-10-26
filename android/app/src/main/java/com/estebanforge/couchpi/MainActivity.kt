@@ -27,15 +27,20 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.TextView
+import android.graphics.drawable.GradientDrawable
+import android.view.Gravity
+import android.view.ViewGroup
+import android.view.inputmethod.EditorInfo
 import org.json.JSONObject
 
 // ADR-0003: one Activity, one WebView, full-screen. An icon and a container,
 // nothing more: no IPC bridge, no bundled assets, no FCM. The URL is set on
-// first launch and persisted on device; the default is the tailscale serve
-// URL, which reaches the server both on the home LAN (peer-to-peer) and away
-// on mobile data (tailscale). The server binds loopback only, so there is no
-// second address to reach.
+// first launch and persisted on device; there is no default, so the first-run
+// card asks for it.
 class MainActivity : Activity() {
 
     private val prefs by lazy { getSharedPreferences("couch-pi", Context.MODE_PRIVATE) }
@@ -59,33 +64,177 @@ class MainActivity : Activity() {
     }
 
     // First-launch card: enter the server URL, then connect.
+    // Native because the WebView needs the URL before it can load anything;
+    // styled after the app's default cobalt scheme since it paints before
+    // any web theme could.
     private fun firstRunView(): View {
-        val box = LinearLayout(this).apply {
+        val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#0f1115"))
-            setPadding(dp(24), dp(96), dp(24), dp(24))
+            gravity = Gravity.CENTER
+            setPadding(dp(28), dp(24), dp(28), dp(24))
         }
+        content.addView(ImageView(this).apply {
+            setImageResource(R.drawable.ic_launcher_foreground)
+            layoutParams = LinearLayout.LayoutParams(dp(96), dp(96))
+        })
+        content.addView(TextView(this).apply {
+            text = "Pi Couch"
+            textSize = 26f
+            setTextColor(Color.parseColor("#d7deea"))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = dp(16) }
+        })
+        content.addView(TextView(this).apply {
+            text = "In your Tailscale app, open the machine running Pi Couch and copy its MagicDNS name. Paste it here."
+            textSize = 15f
+            setTextColor(Color.parseColor("#62747f"))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = dp(8) }
+        })
         val input = EditText(this).apply {
-            hint = DEFAULT_URL
-            setText(DEFAULT_URL)
+            hint = "box.example.ts.net"
             setSingleLine(true)
+            imeOptions = EditorInfo.IME_ACTION_GO
+            setTextColor(Color.parseColor("#d7deea"))
+            setHintTextColor(Color.parseColor("#62747f"))
+            textSize = 15f
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#11242e"))
+                cornerRadius = dp(12).toFloat()
+            }
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = dp(28) }
         }
-        val connect = Button(this).apply { text = getString(R.string.connect) }
-        box.addView(input)
-        box.addView(connect)
+        content.addView(input)
+        // The port has a project default (the README's serve example), so the
+        // main flow never asks for it; Advanced overrides it without leaving
+        // the screen.
+        val advanced = TextView(this).apply {
+            text = "Advanced"
+            textSize = 13f
+            setTextColor(Color.parseColor("#62747f"))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = dp(14) }
+        }
+        content.addView(advanced)
+        val portRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = dp(10) }
+        }
+        portRow.addView(TextView(this).apply {
+            text = "Port"
+            textSize = 14f
+            setTextColor(Color.parseColor("#62747f"))
+        })
+        val portInput = EditText(this).apply {
+            setText("48443")
+            setSingleLine(true)
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            setTextColor(Color.parseColor("#d7deea"))
+            textSize = 14f
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#11242e"))
+                cornerRadius = dp(10).toFloat()
+            }
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = dp(12)
+            }
+        }
+        portRow.addView(portInput)
+        content.addView(portRow)
+        val tokenInput = EditText(this).apply {
+            hint = "Access token (optional)"
+            setSingleLine(true)
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+            setTextColor(Color.parseColor("#d7deea"))
+            setHintTextColor(Color.parseColor("#62747f"))
+            textSize = 15f
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#11242e"))
+                cornerRadius = dp(12).toFloat()
+            }
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = dp(12) }
+        }
+        content.addView(tokenInput)
+        advanced.setOnClickListener {
+            portRow.visibility = if (portRow.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+        }
+        val connect = Button(this).apply {
+            text = getString(R.string.connect)
+            isAllCaps = false
+            textSize = 16f
+            setTextColor(Color.parseColor("#071219"))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#409dd4"))
+                cornerRadius = dp(12).toFloat()
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = dp(12) }
+        }
+        content.addView(connect)
         connect.setOnClickListener {
-            val url = input.text.toString().trim().trimEnd('/')
+            // The Tailscale app's copy button hands over a bare MagicDNS
+            // name; scheme and port are ours to compose.
+            val host = input.text.toString().trim().trimEnd('/')
+            val url = when {
+                host.isEmpty() -> ""
+                host.startsWith("https://") || host.startsWith("http://") -> host
+                host.contains(":") -> "https://" + host
+                else -> "https://" + host + ":" + portInput.text.toString().trim()
+            }
             if (url.startsWith("https://") || url.startsWith("http://")) {
                 prefs.edit().putString(PREF_URL, url).apply()
+                setTokenCookie(url, tokenInput.text.toString().trim())
                 attachWeb(url)
             } else {
                 input.error = getString(R.string.bad_url)
             }
         }
-        return box
+        input.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_GO) { connect.performClick(); true } else false
+        }
+        // fillViewport + centered column: the keyboard push-up lands on the
+        // ScrollView instead of burying the button.
+        return ScrollView(this).apply {
+            setBackgroundColor(Color.parseColor("#0b1c24"))
+            isFillViewport = true
+        }.also {
+            it.addView(content, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
+    // The SPA never handles the token itself: it rides as a cookie on every
+    // same-origin request (page, fetch, and EventSource alike), so the
+    // server's auth gate passes with zero web changes. A blank token clears
+    // any earlier cookie so reconnecting tokenless stays tokenless.
+    private fun setTokenCookie(url: String, token: String) {
+        val origin = android.net.Uri.parse(url).let { u ->
+            "${u.scheme}://${u.host}" + if (u.port != -1) ":${u.port}" else ""
+        }
+        val manager = android.webkit.CookieManager.getInstance()
+        if (token.isEmpty()) {
+            manager.setCookie(origin, "picouch_token=; Path=/; Max-Age=0")
+        } else {
+            manager.setCookie(origin, "picouch_token=$token; Path=/; Secure")
+        }
+        manager.flush()
+    }
+
     private fun attachWeb(url: String) {
         val view = WebView(this).apply {
             settings.javaScriptEnabled = true
@@ -406,8 +555,6 @@ class MainActivity : Activity() {
         // Tailscale serve fronts the loopback-only Go server; the tailnet is
         // the boundary (project P1). Same URL works on LAN and off-site.
         // :8443 — Wicket stacks publish 0.0.0.0:443 machine-wide.
-        // Blank asks on first launch; preset it here to skip the card.
-        const val DEFAULT_URL = ""
         const val PREF_URL = "url"
         const val speechReq = 7002
 

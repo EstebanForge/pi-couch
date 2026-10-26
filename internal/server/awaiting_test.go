@@ -64,6 +64,60 @@ func (f *fakePaneHerdr) PaneRead(ctx context.Context, paneID, source string, lin
 // detector must treat it as a working session with queued messages,
 // not as a parked dialog (field report 2026-10-25: the chat showed
 // "Waiting for input" while pi held three queued follow-ups).
+// The verbatim follow-ups queue paint from the field screenshot:
+// panel rule, ○ rows, the panel's own hint bar, then pi's footer.
+const followUpQueuePaint = "╭─ follow-ups (3) · after this run ──╮\n" +
+	"○ The about screen still is displaying the old logo: /tmp/herdr-clipboard-ima…\n" +
+	"○ In readme, on top of <h1 align=\"center\">QuotaGauge</h1>, add our new logo,\n" +
+	"○ The header window bar here /tmp/herdr-clipboard-images-1000/client-1715-cl…\n" +
+	"alt+enter add follow-up · enter send next · alt+up edit\n" +
+	"── : Working ──\n" +
+	"|\n" +
+	"~/Dev/EstebanForge/QuotaGauge (main) · QuotaGauge\n" +
+	"↑8.1M ↓382k R128.7M CH98.9%  $0.1407 20.9%/1.0M\n" +
+	"💻 ATTD-Zenless 🧠|\n"
+
+func TestParseFollowUpQueue(t *testing.T) {
+	rows := parseFollowUpQueue(followUpQueuePaint)
+	if len(rows) != 3 {
+		t.Fatalf("rows = %q, want 3", rows)
+	}
+	if rows[0] != "The about screen still is displaying the old logo: /tmp/herdr-clipboard-ima…" {
+		t.Fatalf("rows[0] = %q", rows[0])
+	}
+	if rows[2] != "The header window bar here /tmp/herdr-clipboard-images-1000/client-1715-cl…" {
+		t.Fatalf("rows[2] = %q", rows[2])
+	}
+	if parseFollowUpQueue("plain transcript output\nmore output\n") != nil {
+		t.Error("no panel must parse as no queue")
+	}
+}
+
+func TestAwaitingDetectorCarriesQueue(t *testing.T) {
+	f := &fakePaneHerdr{
+		agents: []herdr.Agent{
+			{Name: "a", AgentStatus: "working", PaneID: "p1", Session: &herdr.AgentSessionRef{Value: "/s/q.jsonl"}},
+		},
+		panes: map[string]string{"p1": followUpQueuePaint},
+	}
+	d := newAwaitingDetector(f, time.Hour)
+	d.tick(context.Background())
+
+	if rows := d.queued("/s/q.jsonl"); len(rows) != 3 {
+		t.Fatalf("queued = %q, want 3", rows)
+	}
+	if d.isAwaiting("/s/q.jsonl") {
+		t.Error("a queue is a working session, not a parked dialog")
+	}
+
+	// The queue drains: the panel leaves the paint.
+	f.panes["p1"] = "plain output"
+	d.tick(context.Background())
+	if rows := d.queued("/s/q.jsonl"); len(rows) != 0 {
+		t.Fatalf("queued after drain = %q, want none", rows)
+	}
+}
+
 func TestAwaitingDetectorIgnoresFollowUpQueue(t *testing.T) {
 	f := &fakePaneHerdr{
 		agents: []herdr.Agent{

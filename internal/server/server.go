@@ -48,6 +48,7 @@ type app struct {
 	pusher        *push.Sender
 	vapidPublic   string
 	allowedOrigin string // config origin; the public https origin served through tailscale
+	accessToken   string // shared secret gating /api and /stream; empty means open
 	uploadDir     string // config uploads_dir; where POST /api/upload lands
 	home          string // server home; the client tildifies paths against it
 	awaiting      *awaitingDetector
@@ -65,7 +66,7 @@ type app struct {
 
 func Run(ctx context.Context, logger *slog.Logger, cfg *config.Config, idx *pi.Index, hc *herdr.Client, w *pi.Watcher, st *store.Store, pusher *push.Sender) error {
 	home, _ := os.UserHomeDir()
-	a := &app{logger: logger, idx: idx, herdr: hc, watcher: w, st: st, pusher: pusher, allowedOrigin: cfg.Origin, uploadDir: cfg.UploadsDir, home: home, answered: newDialogMemos(), models: newModelsCache(filepath.Join(st.Dir(), "models.json")), memory: newMemoryProbe(cfg.MemoryURL, cfg.MemorySecret), dialogWake: make(chan struct{}, 1), dialogLatch: map[string]*dialogWire{}, observes: newObserveHub(hc.SocketPath()), quotas: quotas.NewService()}
+	a := &app{logger: logger, idx: idx, herdr: hc, watcher: w, st: st, pusher: pusher, allowedOrigin: cfg.Origin, accessToken: cfg.AccessToken, uploadDir: cfg.UploadsDir, home: home, answered: newDialogMemos(), models: newModelsCache(filepath.Join(st.Dir(), "models.json")), memory: newMemoryProbe(cfg.MemoryURL, cfg.MemorySecret), dialogWake: make(chan struct{}, 1), dialogLatch: map[string]*dialogWire{}, observes: newObserveHub(hc.SocketPath()), quotas: quotas.NewService()}
 	if pusher != nil {
 		a.vapidPublic = pusher.Public
 	}
@@ -76,7 +77,7 @@ func Run(ctx context.Context, logger *slog.Logger, cfg *config.Config, idx *pi.I
 	go a.awaiting.run(ctx)
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           a.guard(a.routes()),
+		Handler:           a.guard(a.auth(a.routes())),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	logger.Info("couch-pi listening", "addr", cfg.Addr)

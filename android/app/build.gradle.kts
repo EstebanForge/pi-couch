@@ -1,6 +1,18 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     alias(libs.plugins.androidApplication)
     alias(libs.plugins.kotlinAndroid)
+}
+
+// Release signing reads a properties file held OUTSIDE the repo (or via the
+// PI_COUCH_SIGNING_PROPS env var, how CI would pass it); no file, no signing
+// config, and release falls back to the debug key so any machine can build.
+val signingPropsFile = System.getenv("PI_COUCH_SIGNING_PROPS")?.let { rootProject.file(it) }
+    ?: rootProject.file("keystore.properties")
+val signingProps = Properties().apply {
+    if (signingPropsFile.exists()) FileInputStream(signingPropsFile).use { load(it) }
 }
 
 android {
@@ -11,15 +23,25 @@ android {
         applicationId = "com.estebanforge.couchpi"
         minSdk = 32
         targetSdk = 35
-        versionCode = 6
-        versionName = "0.1.0"
+        versionCode = 10
+        versionName = "0.1.35"
+    }
+
+    signingConfigs {
+        if (signingPropsFile.exists()) {
+            create("release") {
+                storeFile = file(signingProps["storeFile"] as String)
+                storePassword = signingProps["storePassword"] as String
+                keyAlias = signingProps["keyAlias"] as String
+                keyPassword = signingProps["keyPassword"] as String
+            }
+        }
     }
 
     buildTypes {
         release {
-            // Debug-signed for sideloading; a release key comes with a
-            // real distribution story, which does not exist yet.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (signingPropsFile.exists())
+                signingConfigs.getByName("release") else signingConfigs.getByName("debug")
         }
     }
 

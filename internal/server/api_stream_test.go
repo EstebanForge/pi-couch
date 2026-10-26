@@ -2,6 +2,7 @@ package server
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -176,6 +177,59 @@ func waitFrame(t *testing.T, ch <-chan frame, timeout time.Duration, name string
 	case <-time.After(timeout):
 		t.Fatalf("timed out waiting for %s", name)
 		return frame{}
+	}
+}
+
+// The queue rides the transcript stream: the reset carries the state
+// at connect, and a change (messages queued or drained) must fire a
+// status frame - which only happens if the field joins the change gate.
+func TestTranscriptStreamCarriesQueue(t *testing.T) {
+	a, sub, h := streamTestApp(t)
+	sessPath := filepath.Join(sub, "s1.jsonl")
+	fake := &fakePaneHerdr{
+		agents: []herdr.Agent{
+			{Name: "a", AgentStatus: "working", PaneID: "p1", Session: &herdr.AgentSessionRef{Value: sessPath}},
+		},
+		panes: map[string]string{"p1": followUpQueuePaint},
+	}
+	a.awaiting = newAwaitingDetector(fake, time.Hour)
+	a.awaiting.tick(context.Background())
+
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/api/stream/transcript/s1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	frames := readFrames(t, resp.Body)
+
+	f := waitFrame(t, frames, 5*time.Second, "reset")
+	var rs transcriptReset
+	if err := json.Unmarshal([]byte(f.data), &rs); err != nil {
+		t.Fatal(err)
+	}
+	if len(rs.Queue) != 3 {
+		t.Fatalf("reset queue = %q, want 3", rs.Queue)
+	}
+
+	// Drained: the next stream pass must carry a status frame whose
+	// queue is empty and PRESENT (an omitted key would never clear the
+	// client's list).
+	fake.panes["p1"] = "plain output"
+	a.awaiting.tick(context.Background())
+	writeLines(t, sessPath, userLine("b", "a", "second"))
+	f = waitFrame(t, frames, 8*time.Second, "status")
+	var st transcriptStatus
+	if err := json.Unmarshal([]byte(f.data), &st); err != nil {
+		t.Fatal(err)
+	}
+	if st.Queue == nil || len(st.Queue) != 0 {
+		t.Fatalf("status queue = %#v, want empty non-nil", st.Queue)
 	}
 }
 

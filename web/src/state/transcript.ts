@@ -34,6 +34,7 @@ export type DriverState = {
 	awaiting: boolean; // dialog chrome on the pane: pi waits on the human
 	dialog: BridgeDialog | null; // bridge-reported open pi dialog (kind + title)
 	todos: Todo[]; // extension todo checklist, latest state
+	queue: string[]; // pi's painted follow-up queue, latest state
 	header: {
 		name: string;
 		first_user: string;
@@ -55,6 +56,7 @@ export const emptyDriver: DriverState = {
 	awaiting: false,
 	dialog: null,
 	todos: [],
+	queue: [],
 	header: null,
 	pending: [],
 };
@@ -136,6 +138,7 @@ export function reduceReset(_s: DriverState, p: TranscriptReset): DriverState {
 		awaiting: p.awaiting ?? false,
 		dialog: p.dialog ?? null,
 		todos: p.todos ?? [],
+		queue: p.queue ?? [],
 		ctx: p.meta?.ctx_tokens ?? 0,
 		memory: p.memory ?? null,
 		header: p.meta ?? null,
@@ -199,6 +202,7 @@ export function reduceStatus(s: DriverState, p: TranscriptStatus): DriverState {
 		awaiting: p.awaiting ?? false,
 		dialog: p.dialog === undefined ? s.dialog : p.dialog,
 		todos: p.todos ?? s.todos,
+		queue: p.queue ?? s.queue,
 	};
 }
 

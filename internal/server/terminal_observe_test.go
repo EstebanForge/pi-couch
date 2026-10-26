@@ -20,7 +20,11 @@ import (
 func observeScript(t *testing.T, dir, body string) string {
 	t.Helper()
 	p := filepath.Join(dir, fmt.Sprintf("herdr-%d", time.Now().UnixNano()))
-	src := "#!/usr/bin/env bash\necho $$ > " + dir + "/lastpid\n" + body + "\nexec sleep 60\n"
+	// The hub's argv is [bin, terminal, session, observe, pane, --cols,
+	// C, --rows, R], so $4 is the pane id ($0 is this script): one pid
+	// file per pane, or two spawns race their $$ writes into one file
+	// and waitGone checks whichever pane lost.
+	src := "#!/usr/bin/env bash\necho $$ > " + dir + "/lastpid-$4\n" + body + "\nexec sleep 60\n"
 	if err := os.WriteFile(p, []byte(src), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -41,6 +45,15 @@ func waitGone(t *testing.T, pidFile string) {
 		}
 		if _, err := os.Stat(fmt.Sprintf("/proc/%s", pid)); os.IsNotExist(err) {
 			return
+		}
+		// A killed process lingers under /proc as a zombie until its
+		// parent reaps it, and reap scheduling under -race can outlast
+		// this deadline. State Z means the exit landed, which is what
+		// this check verifies.
+		if sb, err := os.ReadFile(fmt.Sprintf("/proc/%s/stat", pid)); err == nil {
+			if i := strings.LastIndex(string(sb), ")"); i >= 0 && i+2 < len(sb) && sb[i+2] == 'Z' {
+				return
+			}
 		}
 		time.Sleep(30 * time.Millisecond)
 	}
@@ -125,9 +138,9 @@ func TestObserveHubOneSpawnPerPane(t *testing.T) {
 	}
 	unsub1()
 	unsub2()
-	waitGone(t, filepath.Join(dir, "lastpid"))
+	waitGone(t, filepath.Join(dir, "lastpid-p1"))
 	unsub3()
-	waitGone(t, filepath.Join(dir, "lastpid"))
+	waitGone(t, filepath.Join(dir, "lastpid-p2"))
 }
 
 func mustRead(t *testing.T, p string) string {

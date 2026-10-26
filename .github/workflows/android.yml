@@ -7,6 +7,8 @@ on:
 jobs:
   apk:
     runs-on: ubuntu-latest
+    env:
+      HAS_KEY: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -16,19 +18,33 @@ jobs:
           java-version: 17
           cache: gradle
 
-      # Debug builds sign themselves with the runner's auto-generated
-      # debug keystore. That is a test key, not a release key; swap in a
-      # real keystore via secrets before distributing signed builds.
-      - name: Build debug APK
+      # With the secrets present the build signs itself with the real
+      # upload key (the build falls back to the debug keystore without
+      # them, so the workflow still proves the APK compiles). The
+      # properties file stays out of the repo; the build.gradle.kts
+      # looks for exactly this path.
+      - name: Restore signing key
+        if: env.HAS_KEY == 'true'
+        working-directory: android
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > app/keystore.jks
+          cat > keystore.properties <<EOF
+          storeFile=keystore.jks
+          storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
+          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
+          EOF
+
+      - name: Build release APK
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew assembleRelease --no-daemon
 
       # Short retention: private-repo artifacts eat the account storage
       # quota, and the quota refill takes hours.
       - uses: actions/upload-artifact@v4
         with:
-          name: pi-couch-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: pi-couch-release-apk
+          path: android/app/build/outputs/apk/release/app-release.apk
           retention-days: 7

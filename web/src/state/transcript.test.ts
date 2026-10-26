@@ -178,6 +178,26 @@ describe("reduceAppend", () => {
 describe("reduceStatus", () => {
 	// ctx rides the newest turn's usage: absent keeps, present sets,
 	// and a reset seeds it from the header.
+	it("tracks the follow-up queue from resets and statuses", () => {
+		const s: DriverState = reduceReset(emptyDriver, {
+			items: [],
+			status: "working",
+			model: "a/b",
+			thinking: "low",
+			meta: { name: "n", first_user: "f", cwd: "/p" },
+			queue: ["first queued", "second queued"],
+		});
+		expect(s.queue).toEqual(["first queued", "second queued"]);
+		// A drained queue arrives as an explicit empty array.
+		expect(
+			reduceStatus(s, { status: "working", model: "a/b", thinking: "low", queue: [] }).queue,
+		).toEqual([]);
+		// A status without the field keeps what the client holds.
+		expect(
+			reduceStatus(s, { status: "working", model: "a/b", thinking: "low" }).queue,
+		).toEqual(["first queued", "second queued"]);
+	});
+
 	it("tracks ctx from resets and statuses", () => {
 		const s: DriverState = reduceReset(emptyDriver, {
 			items: [],

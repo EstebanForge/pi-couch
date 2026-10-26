@@ -68,3 +68,53 @@ func TestLoadMalformedFailsLoud(t *testing.T) {
 		t.Fatal("want error for malformed config")
 	}
 }
+
+func TestTokenDefaultsEnforced(t *testing.T) {
+	cfg := Defaults()
+	if !cfg.EnforceToken {
+		t.Fatal("enforce_token must default true")
+	}
+}
+
+func TestLoadParsesToken(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "pi-couch")
+	if err := os.MkdirAll(sub, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(sub, "config.toml")
+	body := "access_token = \"from-file\"\nenforce_token = false\n"
+	if err := os.WriteFile(file, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("PICOUCH_ACCESS_TOKEN", "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AccessToken != "from-file" || cfg.EnforceToken {
+		t.Fatalf("cfg token=%q enforce=%v", cfg.AccessToken, cfg.EnforceToken)
+	}
+}
+
+func TestLoadEnvTokenWins(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "pi-couch")
+	if err := os.MkdirAll(sub, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(sub, "config.toml")
+	if err := os.WriteFile(file, []byte("access_token = \"from-file\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("PICOUCH_ACCESS_TOKEN", "from-env")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AccessToken != "from-env" {
+		t.Fatalf("env must win, got %q", cfg.AccessToken)
+	}
+}

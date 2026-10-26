@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -113,10 +114,12 @@ func dialogOpen(text string) bool {
 		selectCounterRe.MatchString(plain)
 }
 
-// paneState is one agent's dialog awareness: the pill cue and, when
-// the chrome parses as a pi dialog, its rows, cursor and title.
+// paneState is one agent's dialog awareness: the pill cue, the
+// follow-up queue pi paints while working, and, when the chrome parses
+// as a pi dialog, its rows, cursor and title.
 type paneState struct {
 	awaiting bool
+	queue    []string
 	dialog   *piDialog
 }
 
@@ -203,6 +206,7 @@ func (d *awaitingDetector) tick(ctx context.Context) {
 			// forked copy here already regressed once (the detector read a
 			// queued session as waiting for input).
 			st.awaiting = dialogOpen(plain)
+			st.queue = parseFollowUpQueue(plain)
 			st.dialog = parsePiDialog(pr.Text)
 			if st.dialog != nil {
 				delete(d.emptySeen, a.Session.Value)
@@ -219,12 +223,12 @@ func (d *awaitingDetector) tick(ctx context.Context) {
 				delete(d.emptySeen, a.Session.Value)
 			}
 		}
-		if st.awaiting || st.dialog != nil {
+		if st.awaiting || st.dialog != nil || len(st.queue) > 0 {
 			next[a.Session.Value] = st
 			nextIDs[a.Session.Value] = a.PaneID
 		}
 		prev, ok := d.pane[a.Session.Value]
-		if !ok || prev.awaiting != st.awaiting || !piDialogEqual(prev.dialog, st.dialog) {
+		if !ok || prev.awaiting != st.awaiting || !piDialogEqual(prev.dialog, st.dialog) || !slices.Equal(prev.queue, st.queue) {
 			changed = true
 		}
 	}
@@ -244,6 +248,51 @@ func (d *awaitingDetector) isAwaiting(path string) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return d.pane[path].awaiting
+}
+
+// queued returns the session's painted follow-up queue, never nil so
+// the wire's non-omitempty queue field always marshals a real array.
+func (d *awaitingDetector) queued(path string) []string {
+	if d == nil {
+		return []string{}
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if st, ok := d.pane[path]; ok && st.queue != nil {
+		return st.queue
+	}
+	return []string{}
+}
+
+// parseFollowUpQueue reads pi's follow-ups panel out of the pane
+// paint: a "follow-ups (N) · after this run" header, then ○/● rows
+// until the panel's own hint bar or the footer. The queue exists only
+// in the paint, never in the session file.
+func parseFollowUpQueue(plain string) []string {
+	lines := strings.Split(plain, "\n")
+	start := -1
+	for i, l := range lines {
+		if strings.Contains(l, "follow-ups (") && strings.Contains(l, "after this run") {
+			start = i
+			break
+		}
+	}
+	if start < 0 {
+		return nil
+	}
+	var rows []string
+	for _, l := range lines[start+1:] {
+		t := strings.TrimSpace(l)
+		if t == "" {
+			continue
+		}
+		if strings.HasPrefix(t, "○") || strings.HasPrefix(t, "●") {
+			rows = append(rows, strings.TrimSpace(strings.TrimLeft(t, "○● \t")))
+			continue
+		}
+		break
+	}
+	return rows
 }
 
 // parsed returns the parsed pi dialog for a session path, or nil.

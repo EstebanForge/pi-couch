@@ -35,6 +35,11 @@ func main() {
 	cfg.Origin = cmp.Or(*origin, cfg.Origin)
 	cfg.SessionsDir = cmp.Or(*sessions, cfg.SessionsDir)
 
+	if cfg.EnforceToken && cfg.AccessToken == "" {
+		slog.Error("access token required: set PICOUCH_ACCESS_TOKEN (or access_token in the config), or set enforce_token = false to run without one")
+		os.Exit(1)
+	}
+
 	root := cfg.SessionsDir
 	if root == "" {
 		home, err := os.UserHomeDir()
