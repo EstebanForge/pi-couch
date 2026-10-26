@@ -8,7 +8,8 @@ import (
 	"time"
 )
 
-const zaiQuotaURL = "https://api.z.ai/api/monitor/usage/quota/limit"
+// Package var so tests can pin the fetcher against a canned server.
+var zaiQuotaURL = "https://api.z.ai/api/monitor/usage/quota/limit"
 
 type zaiQuotaResp struct {
 	Code int    `json:"code"`
@@ -68,21 +69,34 @@ func fetchZaiQuota(client *http.Client) ProviderQuota {
 		q.Plan = strings.ToUpper(u.Data.Level[:1]) + u.Data.Level[1:]
 	}
 
-	for _, l := range u.Data.Limits {
-		var resets time.Time
-		if l.NextResetTime > 0 {
-			resets = time.UnixMilli(l.NextResetTime)
+	// The tokens limit is the 5-hour session allowance, the one that
+	// runs out mid-session, so it reads first; the web-search
+	// allowance sits below it.
+	for _, tokensPass := range []bool{true, false} {
+		for _, l := range u.Data.Limits {
+			isTokens := l.Type == "TOKENS_LIMIT"
+			if isTokens != tokensPass {
+				continue
+			}
+			var resets time.Time
+			if l.NextResetTime > 0 {
+				resets = time.UnixMilli(l.NextResetTime)
+			}
+			label := "Web searches remaining"
+			remaining := ""
+			if isTokens {
+				label = "Session remaining (5h)"
+			} else if l.Remaining > 0 {
+				remaining = fmt.Sprintf("%d left", l.Remaining)
+			}
+			q.Windows = append(q.Windows, WindowQuota{
+				Label:     label,
+				Percent:   float64(l.Percentage),
+				Unit:      "%",
+				ResetsAt:  resets,
+				Remaining: remaining,
+			})
 		}
-		label := "Requests remaining"
-		if l.Type == "TOKENS_LIMIT" {
-			label = "Tokens remaining"
-		}
-		q.Windows = append(q.Windows, WindowQuota{
-			Label:    label,
-			Percent:  float64(l.Percentage),
-			Unit:     "%",
-			ResetsAt: resets,
-		})
 	}
 
 	return q
