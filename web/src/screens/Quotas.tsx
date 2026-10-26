@@ -166,9 +166,9 @@ export default function QuotasScreen() {
 // provider's own order inside each rank.
 function windowRank(w: WindowQuota): number {
 	const l = w.label.toLowerCase();
-	if (l.includes("session") || l.includes("daily") || l.includes("interval") || l.includes("5h"))
+	if (l.includes("session") || l.includes("day") || l.includes("hour") || l.includes("interval"))
 		return 0;
-	if (l.includes("weekly")) return 1;
+	if (l.includes("week")) return 1;
 	return 2;
 }
 
@@ -215,7 +215,10 @@ function WindowRow({ window }: { window: WindowQuota }) {
 	const isCritical = used >= 95;
 
 	const barColor = isCritical ? "bg-error" : isHigh ? "bg-warning" : "bg-primary";
-	const resetFormatted = window.resets_at ? relTime(window.resets_at) : "";
+	const resetFormatted =
+		window.resets_at && new Date(window.resets_at).getFullYear() > 2000
+			? relTime(window.resets_at)
+			: "";
 
 	return (
 		<div className="flex flex-col gap-1.5">
