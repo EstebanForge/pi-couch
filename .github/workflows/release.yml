@@ -1,0 +1,67 @@
+name: release
+
+# Tag push publishes the release: four static server binaries. The
+# Android APK is a separate lifecycle and stays manual (android.yml).
+on:
+  push:
+    tags: ['*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # Tags are unprefixed semver and must name the version the
+      # tagged commit actually carries.
+      - name: Check the tag names the version
+        run: |
+          set -euo pipefail
+          case "${GITHUB_REF_NAME}" in
+            v*) echo "::error::tags are unprefixed semver (0.1.49), not ${GITHUB_REF_NAME}"; exit 1 ;;
+          esac
+          want="$(sed -n 's/^const Version = "\(.*\)"$/\1/p' internal/server/version.go)"
+          if [ "${GITHUB_REF_NAME}" != "$want" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match version.go (${want})"
+            exit 1
+          fi
+
+      # The binary embeds the SPA (vite emits straight into
+      # internal/web/app), so the web build comes first and once.
+      - name: Build the SPA
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Cross-build
+        run: |
+          set -euo pipefail
+          mkdir dist
+          for pair in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            os=${pair%/*}
+            arch=${pair#*/}
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -o "dist/pi-couch-$os-$arch" ./cmd/couch-pi
+          done
+          ls -la dist/
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/pi-couch-* \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes
