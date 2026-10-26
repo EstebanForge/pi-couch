@@ -73,9 +73,9 @@ func fetchZaiQuota(client *http.Client) ProviderQuota {
 		if l.NextResetTime > 0 {
 			resets = time.UnixMilli(l.NextResetTime)
 		}
-		label := "Requests"
+		label := "Requests remaining"
 		if l.Type == "TOKENS_LIMIT" {
-			label = "Tokens"
+			label = "Tokens remaining"
 		}
 		q.Windows = append(q.Windows, WindowQuota{
 			Label:    label,

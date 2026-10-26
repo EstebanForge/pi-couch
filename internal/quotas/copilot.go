@@ -110,7 +110,7 @@ func fetchCopilotQuota(client *http.Client) ProviderQuota {
 		used := prem.Entitlement - prem.Remaining
 		pct := 100.0 - prem.PercentRemaining
 		q.Windows = append(q.Windows, WindowQuota{
-			Label:     "Premium Requests",
+			Label:     "Premium requests remaining",
 			Percent:   pct,
 			Used:      used,
 			Limit:     prem.Entitlement,
