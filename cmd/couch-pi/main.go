@@ -34,6 +34,14 @@ func main() {
 		return
 	}
 
+	// Rollback decision before anything else: the previous binary may
+	// have failed exactly here, in config load.
+	if dir, err := store.Dir(); err == nil {
+		if exe, err := os.Executable(); err == nil {
+			update.RecoverBoot(dir, exe, update.HealthyBoot, slog.Default(), server.Version)
+		}
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		slog.Error("config", "err", err)
@@ -64,8 +72,11 @@ func main() {
 	defer stop()
 
 	if cfg.AutoUpdate {
-		upd := update.New(logger, server.Version, os.Getenv("GITHUB_TOKEN"))
-		go upd.Run(ctx)
+		dir, err := store.Dir()
+		if err == nil {
+			upd := update.New(logger, server.Version, os.Getenv("GITHUB_TOKEN"), dir)
+			go upd.Run(ctx)
+		}
 	}
 
 	idx := pi.NewIndex(root)

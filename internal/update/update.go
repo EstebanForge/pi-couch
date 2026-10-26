@@ -48,7 +48,9 @@ var (
 
 	// probeBin is the seam the tests drive for probe failures.
 	probeBin = func(path string) ([]byte, error) {
-		cmd := exec.Command(path, "-version")
+		ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, path, "-version")
 		cmd.Env = []string{} // empty env: the probe runs before any trust is granted
 		return cmd.Output()
 	}
@@ -58,7 +60,14 @@ const (
 	httpTimeout   = 60 * time.Second
 	probeTimeout  = 10 * time.Second
 	maxBinarySize = 256 << 20
+	// 12 hours: cadence the operator picked; releases are never urgent.
+	updateInterval = 12 * time.Hour
 )
+
+// HealthyBoot is how long a boot must stay up before the update marker
+// clears and the swap counts as good; a boot that still finds the marker
+// armed rolls back instead.
+const HealthyBoot = time.Minute
 
 type Updater struct {
 	logger  *slog.Logger
@@ -67,31 +76,28 @@ type Updater struct {
 	// path is resolved once at construction, before any swap, so a
 	// replaced or unlinked executable never sends the restart to a
 	// "(deleted)" proc path.
-	path   string
-	client *http.Client
+	path     string
+	stateDir string
+	client   *http.Client
 }
 
-func New(logger *slog.Logger, current, token string) *Updater {
+func New(logger *slog.Logger, current, token, stateDir string) *Updater {
 	return &Updater{
-		logger:  logger,
-		current: current,
-		token:   token,
-		path:    binaryPath(),
-		client:  &http.Client{Timeout: httpTimeout},
+		logger:   logger,
+		current:  current,
+		token:    token,
+		path:     binaryPath(),
+		stateDir: stateDir,
+		client:   &http.Client{Timeout: httpTimeout},
 	}
 }
 
-// Run settles briefly after start (the binary is fresh at boot), then
-// checks once a day until the context closes.
+// Run checks every 12 hours, the first look 12 hours after start:
+// a fresh binary has nothing to update, so boot checks are skipped
+// entirely. Stops when the context closes.
 func (u *Updater) Run(ctx context.Context) {
-	select {
-	case <-time.After(2 * time.Minute):
-	case <-ctx.Done():
-		return
-	}
-	t := time.NewTicker(24 * time.Hour)
+	t := time.NewTicker(updateInterval)
 	defer t.Stop()
-	u.checkAndMaybeRestart()
 	for {
 		select {
 		case <-ctx.Done():
@@ -112,6 +118,11 @@ func (u *Updater) checkAndMaybeRestart() {
 		return
 	}
 	u.logger.Info("updated binary, restarting", "from", u.current, "to", tag)
+	// Arm the rollback marker before the exec: if the new binary cannot
+	// stay up, the next boot restores the backup.
+	if err := armPending(u.stateDir, tag); err != nil {
+		u.logger.Warn("rollback marker not written", "err", err)
+	}
 	if err := restart(u.path); err != nil {
 		u.logger.Error("restart into new binary", "err", err)
 	}
@@ -294,6 +305,80 @@ func copyFile(src, dst string) error {
 	defer out.Close()
 	_, err = io.Copy(out, in)
 	return err
+}
+
+// The pending marker records an update that was swapped in but not yet
+// proven healthy. First boot arms it; a boot that still finds it armed
+// means the new binary could not stay up, so RecoverBoot restores the
+// backup.
+type pending struct {
+	Tag      string `json:"tag"`
+	Attempts int    `json:"attempts"`
+}
+
+func pendingPath(stateDir string) string {
+	return filepath.Join(stateDir, "update-pending.json")
+}
+
+func armPending(stateDir, tag string) error {
+	return writePending(stateDir, pending{Tag: tag})
+}
+
+func writePending(stateDir string, p pending) error {
+	if stateDir == "" {
+		return errors.New("no state dir")
+	}
+	raw, err := json.Marshal(p)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(pendingPath(stateDir), raw, 0o600)
+}
+
+func readPending(stateDir string) (pending, bool) {
+	raw, err := os.ReadFile(pendingPath(stateDir))
+	if err != nil {
+		return pending{}, false
+	}
+	var p pending
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return pending{}, false
+	}
+	return p, true
+}
+
+// RecoverBoot runs at every boot, before any config load: a crash could
+// be the new binary refusing the config, so the check must precede it.
+// It never returns when a rollback fires - the process execs into the
+// restored backup.
+func RecoverBoot(stateDir, binPath string, healthy time.Duration, log *slog.Logger, current string) {
+	p, ok := readPending(stateDir)
+	if !ok {
+		return
+	}
+	if p.Tag != current {
+		// The running binary is not the one the marker armed for; a
+		// manual install superseded the update.
+		os.Remove(pendingPath(stateDir))
+		return
+	}
+	if p.Attempts == 0 {
+		_ = writePending(stateDir, pending{Tag: p.Tag, Attempts: 1})
+		time.AfterFunc(healthy, func() { os.Remove(pendingPath(stateDir)) })
+		log.Info("update boot, arming rollback", "tag", p.Tag)
+		return
+	}
+	bak := binPath + ".bak"
+	if err := os.Rename(bak, binPath); err != nil {
+		log.Error("rollback failed", "err", err)
+		os.Remove(pendingPath(stateDir))
+		return
+	}
+	os.Remove(pendingPath(stateDir))
+	log.Info("update rolled back, restarting into the backup", "tag", p.Tag)
+	if err := restart(binPath); err != nil {
+		log.Error("rollback restart", "err", err)
+	}
 }
 
 // cmpVersion compares dotted numeric versions; unparsable input sorts

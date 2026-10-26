@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 const fakeBinaryNew = "#!/bin/sh\necho 9.9.9\n"
@@ -40,6 +41,7 @@ type stageOut struct {
 	restarted *[]string
 	dlHits    *atomic.Int32
 	dlPath    *atomic.Value
+	stateDir  string
 }
 
 // stage wires an Updater against fake servers with a temp "binary".
@@ -73,9 +75,10 @@ func stage(t *testing.T, tag, token, serveBody string) stageOut {
 		latestAPI, latestDownload, binaryPath, restart = prevAPI, prevDL, prevBin, prevRestart
 	})
 
-	u := New(testLogger(), "0.1.45", token)
+	stateDir := t.TempDir()
+	u := New(testLogger(), "0.1.45", token, stateDir)
 	u.checkAndMaybeRestart()
-	return stageOut{bin: bin, restarted: restarted, dlHits: &dlHits, dlPath: &dlPath}
+	return stageOut{bin: bin, restarted: restarted, dlHits: &dlHits, dlPath: &dlPath, stateDir: stateDir}
 }
 
 func TestCheckSwapsAndRestarts(t *testing.T) {
@@ -101,6 +104,14 @@ func TestCheckSwapsAndRestarts(t *testing.T) {
 	// The tag and the asset must come from the same release.
 	if p, _ := out.dlPath.Load().(string); !strings.Contains(p, "/9.9.9/") {
 		t.Fatalf("download path %q not pinned to the tag", p)
+	}
+	// The swap arms the rollback marker for the new tag.
+	raw, err := os.ReadFile(filepath.Join(out.stateDir, "update-pending.json"))
+	if err != nil {
+		t.Fatalf("marker: %v", err)
+	}
+	if !strings.Contains(string(raw), `"tag":"9.9.9"`) || !strings.Contains(string(raw), `"attempts":0`) {
+		t.Fatalf("marker = %s", raw)
 	}
 	// Leftover temp files mean a leak on some path.
 	leftovers, _ := filepath.Glob(filepath.Dir(out.bin) + "/.couch-pi-new-*")
@@ -144,7 +155,7 @@ func TestCheckAbortsWhenProbeFails(t *testing.T) {
 func TestRestartPathResolvedOnce(t *testing.T) {
 	out := stage(t, "9.9.9", "", fakeBinaryNew)
 	binaryPath = func() string { return out.bin }
-	u := New(testLogger(), "0.1.45", "")
+	u := New(testLogger(), "0.1.45", "", t.TempDir())
 	binaryPath = func() string { return "/gone/couch-pi (deleted)" }
 	prevRestart := restart
 	rec := &[]string{}
@@ -184,7 +195,7 @@ func TestCheckAbortsWhenBackupFails(t *testing.T) {
 		latestAPI, latestDownload, binaryPath, restart = prevAPI, prevDL, prevBin, prevRestart
 	})
 
-	u := New(testLogger(), "0.1.45", "")
+	u := New(testLogger(), "0.1.45", "", t.TempDir())
 	if _, err := u.check(); err == nil {
 		t.Fatal("check succeeded despite backup failure")
 	}
@@ -254,7 +265,7 @@ func TestLatestTagRetriesWithoutToken(t *testing.T) {
 	latestAPI = srv.URL
 	t.Cleanup(func() { latestAPI = prevAPI })
 
-	u := New(testLogger(), "0.1.45", "tok")
+	u := New(testLogger(), "0.1.45", "tok", t.TempDir())
 	tag, err := u.latestTag()
 	if err != nil {
 		t.Fatal(err)
@@ -286,6 +297,79 @@ func TestCmpVersion(t *testing.T) {
 type mockBusy struct{}
 
 func (*mockBusy) Error() string { return "fork/exec: text file busy" }
+
+func TestRecoverBootArmsThenClears(t *testing.T) {
+	dir := t.TempDir()
+	if err := armPending(dir, "0.1.48"); err != nil {
+		t.Fatal(err)
+	}
+
+	RecoverBoot(dir, "/bin/true", 30*time.Millisecond, testLogger(), "0.1.48")
+
+	p, ok := readPending(dir)
+	if !ok || p.Attempts != 1 || p.Tag != "0.1.48" {
+		t.Fatalf("marker after arm = %+v ok=%v", p, ok)
+	}
+	time.Sleep(60 * time.Millisecond)
+	if _, ok := readPending(dir); ok {
+		t.Fatal("marker not cleared after a healthy boot window")
+	}
+}
+
+func TestRecoverBootRollsBackSecondBoot(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "couch-pi")
+	if err := os.WriteFile(bin, []byte("bad"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bin+".bak", []byte("good"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := armPending(dir, "0.1.48"); err != nil {
+		t.Fatal(err)
+	}
+	if err := writePending(dir, pending{Tag: "0.1.48", Attempts: 1}); err != nil {
+		t.Fatal(err)
+	}
+
+	prevRestart := restart
+	rec := &[]string{}
+	restart = func(path string) error { *rec = append(*rec, path); return nil }
+	t.Cleanup(func() { restart = prevRestart })
+
+	RecoverBoot(dir, bin, time.Hour, testLogger(), "0.1.48")
+
+	got, err := os.ReadFile(bin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "good" {
+		t.Fatalf("binary = %q, want the restored backup", string(got))
+	}
+	if _, ok := readPending(dir); ok {
+		t.Fatal("marker survived the rollback")
+	}
+	if len(*rec) != 1 || (*rec)[0] != bin {
+		t.Fatalf("restart = %v, want exec into %s", *rec, bin)
+	}
+}
+
+func TestRecoverBootIgnoresSupersededTag(t *testing.T) {
+	dir := t.TempDir()
+	if err := armPending(dir, "9.9.9"); err != nil {
+		t.Fatal(err)
+	}
+
+	RecoverBoot(dir, "/bin/true", time.Hour, testLogger(), "0.1.48")
+
+	if _, ok := readPending(dir); ok {
+		t.Fatal("marker for a different tag should have been cleared")
+	}
+}
+
+func TestRecoverBootNoMarkerNoop(t *testing.T) {
+	RecoverBoot(t.TempDir(), "/bin/true", time.Hour, testLogger(), "0.1.48")
+}
 
 func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))

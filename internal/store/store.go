@@ -30,17 +30,27 @@ type Store struct {
 	mu  sync.Mutex
 }
 
-// New returns a store rooted at the XDG state dir.
-func New() (*Store, error) {
-	dir := os.Getenv("XDG_STATE_HOME")
-	if dir == "" {
+// Dir returns the state dir path (XDG_STATE_HOME or ~/.local/state,
+// then pi-couch) without creating it - for callers that must read state
+// before the store is constructed.
+func Dir() (string, error) {
+	base := os.Getenv("XDG_STATE_HOME")
+	if base == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return nil, err
+			return "", err
 		}
-		dir = filepath.Join(home, ".local", "state")
+		base = filepath.Join(home, ".local", "state")
 	}
-	dir = filepath.Join(dir, "pi-couch")
+	return filepath.Join(base, "pi-couch"), nil
+}
+
+// New returns a store rooted at the XDG state dir.
+func New() (*Store, error) {
+	dir, err := Dir()
+	if err != nil {
+		return nil, err
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
