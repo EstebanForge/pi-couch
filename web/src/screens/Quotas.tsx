@@ -193,9 +193,13 @@ function ProviderCard({ provider }: { provider: ProviderQuota }) {
 }
 
 function WindowRow({ window }: { window: WindowQuota }) {
-	const pct = Math.min(Math.max(window.percent, 0), 100);
-	const isHigh = pct >= 80;
-	const isCritical = pct >= 95;
+	const used = Math.min(Math.max(window.percent, 0), 100);
+	// The whole row speaks "remaining": bar and number both start at
+	// 100 and drain as the window is consumed; color thresholds still
+	// key on usage.
+	const left = 100 - used;
+	const isHigh = used >= 80;
+	const isCritical = used >= 95;
 
 	const barColor = isCritical ? "bg-error" : isHigh ? "bg-warning" : "bg-primary";
 	const resetFormatted = window.resets_at ? relTime(window.resets_at) : "";
@@ -211,7 +215,7 @@ function WindowRow({ window }: { window: WindowQuota }) {
 					<span
 						className={`font-semibold tabular-nums ${isCritical ? "text-error" : isHigh ? "text-warning" : "text-base-content"}`}
 					>
-						{pct.toFixed(0)}%
+						{left.toFixed(0)}%
 					</span>
 				</div>
 			</div>
@@ -221,7 +225,7 @@ function WindowRow({ window }: { window: WindowQuota }) {
 			<div className="h-2 w-full overflow-hidden rounded-full bg-base-300">
 				<div
 					className={`h-full rounded-full transition-all duration-500 ${barColor}`}
-					style={{ width: `${100 - pct}%` }}
+					style={{ width: `${left}%` }}
 				/>
 			</div>
 
