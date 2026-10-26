@@ -24,8 +24,10 @@ import (
 )
 
 var (
+	// The download is pinned to the tag read from the API so the tag
+	// and the asset come from the same release, not two moments.
 	latestAPI      = "https://api.github.com/repos/EstebanForge/pi-couch/releases/latest"
-	latestDownload = "https://github.com/EstebanForge/pi-couch/releases/latest/download/"
+	latestDownload = "https://github.com/EstebanForge/pi-couch/releases/download/"
 
 	// binaryPath is the seam tests point at a temp file; the real one
 	// is the running executable.
@@ -43,16 +45,40 @@ var (
 	restart = func(path string) error {
 		return syscall.Exec(path, os.Args, os.Environ())
 	}
+
+	// probeBin is the seam the tests drive for probe failures.
+	probeBin = func(path string) ([]byte, error) {
+		cmd := exec.Command(path, "-version")
+		cmd.Env = []string{} // empty env: the probe runs before any trust is granted
+		return cmd.Output()
+	}
+)
+
+const (
+	httpTimeout   = 60 * time.Second
+	probeTimeout  = 10 * time.Second
+	maxBinarySize = 256 << 20
 )
 
 type Updater struct {
 	logger  *slog.Logger
 	current string
 	token   string
+	// path is resolved once at construction, before any swap, so a
+	// replaced or unlinked executable never sends the restart to a
+	// "(deleted)" proc path.
+	path   string
+	client *http.Client
 }
 
 func New(logger *slog.Logger, current, token string) *Updater {
-	return &Updater{logger: logger, current: current, token: token}
+	return &Updater{
+		logger:  logger,
+		current: current,
+		token:   token,
+		path:    binaryPath(),
+		client:  &http.Client{Timeout: httpTimeout},
+	}
 }
 
 // Run settles briefly after start (the binary is fresh at boot), then
@@ -86,7 +112,7 @@ func (u *Updater) checkAndMaybeRestart() {
 		return
 	}
 	u.logger.Info("updated binary, restarting", "from", u.current, "to", tag)
-	if err := restart(binaryPath()); err != nil {
+	if err := restart(u.path); err != nil {
 		u.logger.Error("restart into new binary", "err", err)
 	}
 }
@@ -107,39 +133,66 @@ func (u *Updater) check() (string, error) {
 		return "", err
 	}
 
-	cur := binaryPath()
-	if cur == "" {
-		return "", errors.New("cannot resolve the running binary path")
-	}
-	bak := cur + ".bak"
-	if err := copyFile(cur, bak); err != nil {
+	bak, err := atomicBackup(u.path)
+	if err != nil {
+		os.Remove(tmp)
 		return "", fmt.Errorf("backup: %w", err)
 	}
+	_ = bak
 	// One atomic rename: the running process keeps the old inode and
 	// the next exec picks the new file.
-	if err := os.Rename(tmp, cur); err != nil {
+	if err := os.Rename(tmp, u.path); err != nil {
+		os.Remove(tmp)
 		return "", fmt.Errorf("swap: %w", err)
 	}
 	return tag, nil
 }
 
+// atomicBackup copies the current binary to <path>.bak via a temp file
+// so a partial copy never destroys the previous good backup.
+func atomicBackup(cur string) (string, error) {
+	if cur == "" {
+		return "", errors.New("cannot resolve the running binary path")
+	}
+	bak := cur + ".bak"
+	tmpbak := bak + ".tmp"
+	if err := copyFile(cur, tmpbak); err != nil {
+		os.Remove(tmpbak)
+		return "", err
+	}
+	if err := os.Rename(tmpbak, bak); err != nil {
+		os.Remove(tmpbak)
+		return "", err
+	}
+	return bak, nil
+}
+
 func (u *Updater) latestTag() (string, error) {
+	tag, err := u.fetchTag(true)
+	// A stale or wrongly-scoped token must not break a public lookup.
+	if err != nil && u.token != "" && strings.Contains(err.Error(), "HTTP 401") {
+		return u.fetchTag(false)
+	}
+	return tag, err
+}
+
+func (u *Updater) fetchTag(auth bool) (string, error) {
 	req, err := http.NewRequest("GET", latestAPI, nil)
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	if u.token != "" {
+	if auth && u.token != "" {
 		req.Header.Set("Authorization", "Bearer "+u.token)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := u.client.Do(req)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		if resp.StatusCode == http.StatusNotFound && u.token == "" {
-			return "", errors.New("release lookup needs a token while the repo is private (set GITHUB_TOKEN)")
+		if resp.StatusCode == http.StatusNotFound {
+			return "", errors.New("no release found - publish one (a private repo also needs GITHUB_TOKEN)")
 		}
 		return "", fmt.Errorf("release lookup HTTP %d", resp.StatusCode)
 	}
@@ -152,11 +205,11 @@ func (u *Updater) latestTag() (string, error) {
 	return strings.TrimPrefix(out.TagName, "v"), nil
 }
 
-// download fetches the platform asset, marks it executable and
+// download fetches the tag's platform asset, marks it executable and
 // verifies it by running -version; the printed version must match the
 // release tag, which proves executability and architecture in one go.
 func (u *Updater) download(tag string) (string, error) {
-	url := latestDownload + "pi-couch-" + runtime.GOOS + "-" + runtime.GOARCH
+	url := latestDownload + tag + "/pi-couch-" + runtime.GOOS + "-" + runtime.GOARCH
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return "", err
@@ -164,7 +217,7 @@ func (u *Updater) download(tag string) (string, error) {
 	if u.token != "" {
 		req.Header.Set("Authorization", "Bearer "+u.token)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := u.client.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -173,8 +226,7 @@ func (u *Updater) download(tag string) (string, error) {
 		return "", fmt.Errorf("download HTTP %d", resp.StatusCode)
 	}
 
-	cur := binaryPath()
-	tmp, err := os.CreateTemp(filepath.Dir(cur), ".couch-pi-new-*")
+	tmp, err := os.CreateTemp(filepath.Dir(u.path), ".couch-pi-new-*")
 	if err != nil {
 		return "", err
 	}
@@ -183,7 +235,10 @@ func (u *Updater) download(tag string) (string, error) {
 		os.Remove(tmp.Name())
 		return "", err
 	}
-	if _, err := io.Copy(tmp, resp.Body); err != nil {
+	if _, err := io.Copy(tmp, io.LimitReader(resp.Body, maxBinarySize)); err != nil {
+		return fail(err)
+	}
+	if err := tmp.Sync(); err != nil {
 		return fail(err)
 	}
 	if err := tmp.Close(); err != nil {
@@ -193,14 +248,37 @@ func (u *Updater) download(tag string) (string, error) {
 		return fail(err)
 	}
 
-	out, err := exec.Command(tmp.Name(), "-version").Output()
-	if err != nil {
-		return fail(fmt.Errorf("probe new binary: %w", err))
-	}
-	if got := strings.TrimSpace(string(out)); got != tag {
-		return fail(fmt.Errorf("probe printed %q, want %q", got, tag))
+	if err := probeWithRetries(tmp.Name(), tag); err != nil {
+		return fail(err)
 	}
 	return tmp.Name(), nil
+}
+
+// probeWithRetries verifies the new binary and rides out ETXTBSY, the
+// classic race where this server's own forks still hold the just-written
+// file open for execution.
+func probeWithRetries(path, tag string) error {
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			time.Sleep(100 * time.Millisecond)
+		}
+		out, err := probeBin(path)
+		if err == nil {
+			if got := strings.TrimSpace(string(out)); got != tag {
+				return fmt.Errorf("probe printed %q, want %q", got, tag)
+			}
+			return nil
+		}
+		lastErr = err
+		if !strings.Contains(err.Error(), "text file busy") {
+			break
+		}
+	}
+	if lastErr != nil {
+		return fmt.Errorf("probe new binary: %w", lastErr)
+	}
+	return nil
 }
 
 func copyFile(src, dst string) error {
