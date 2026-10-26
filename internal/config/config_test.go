@@ -76,6 +76,28 @@ func TestTokenDefaultsEnforced(t *testing.T) {
 	}
 }
 
+func TestAutoUpdateDefaultsOn(t *testing.T) {
+	if !Defaults().AutoUpdate {
+		t.Fatal("auto_update must default true")
+	}
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	if err := os.MkdirAll(filepath.Join(dir, "pi-couch"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(dir, "pi-couch", "config.toml")
+	if err := os.WriteFile(file, []byte("auto_update = false\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AutoUpdate {
+		t.Fatal("auto_update = false must be parsed")
+	}
+}
+
 func TestLoadParsesToken(t *testing.T) {
 	dir := t.TempDir()
 	sub := filepath.Join(dir, "pi-couch")

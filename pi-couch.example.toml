@@ -45,3 +45,9 @@ access_token = ""
 # Refuse to start when no token is set. True by default, so a tokenless
 # deployment is always a deliberate choice.
 enforce_token = true
+
+# Check GitHub for a newer release once a day and swap the running
+# binary in place (keeping the previous one as *.bak). True by default;
+# set false to pin a version and update by hand. While this repo is
+# private the check needs a GITHUB_TOKEN in the environment.
+auto_update = true

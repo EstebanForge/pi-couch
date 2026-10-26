@@ -26,6 +26,10 @@ type zaiQuotaResp struct {
 }
 
 func fetchZaiQuota(client *http.Client) ProviderQuota {
+	return fetchZaiQuotaAt(client, zaiQuotaURL)
+}
+
+func fetchZaiQuotaAt(client *http.Client, url string) ProviderQuota {
 	q := ProviderQuota{
 		ID:        "zai",
 		Name:      "Zai GLM",
@@ -39,7 +43,7 @@ func fetchZaiQuota(client *http.Client) ProviderQuota {
 		return q
 	}
 
-	req, err := http.NewRequest("GET", zaiQuotaURL, nil)
+	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		q.Error = err.Error()
 		return q

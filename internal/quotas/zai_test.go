@@ -18,12 +18,9 @@ func TestFetchZaiQuotaOrdersTokensFirst(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	prev := zaiQuotaURL
-	zaiQuotaURL = srv.URL
-	defer func() { zaiQuotaURL = prev }()
 	t.Setenv("ZAI_API_KEY", "test-key")
 
-	q := fetchZaiQuota(srv.Client())
+	q := fetchZaiQuotaAt(srv.Client(), srv.URL)
 	if q.Error != "" {
 		t.Fatalf("error: %s", q.Error)
 	}

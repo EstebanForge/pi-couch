@@ -90,6 +90,7 @@ Machine settings live in one commented file, `~/.config/pi-couch/config.toml`. C
 - `memory_url` and `memory_secret`: the agentmemory health probe behind the chip in the composer. Defaults to `localhost:3111`; set the URL if yours is elsewhere. Put the secret in the `AGENTMEMORY_SECRET` environment variable instead of the file, and keep the file 0600 either way.
 - `access_token`: the shared secret gating the API and streams. Leave it empty and export `PICOUCH_ACCESS_TOKEN` instead so the secret never sits in a file; the env var wins.
 - `enforce_token`: refuse to start when no token is set. Defaults to true; set false only if you understand the tunnel is then the only lock.
+- `auto_update`: check GitHub for a newer release once a day and swap the running binary in place, keeping the previous one as `*.bak`. Defaults to true; set false to pin a version. While this repo is private the check needs a `GITHUB_TOKEN` in the environment.
 
 The environment variables `AGENTMEMORY_URL` and `AGENTMEMORY_SECRET` override the config values; that's how I wire the secret into the systemd unit without it touching the repo.
 

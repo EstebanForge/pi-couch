@@ -39,6 +39,9 @@ type Config struct {
 	// Refuse to start when AccessToken is empty. True by default so a
 	// tokenless deployment is always a deliberate choice.
 	EnforceToken bool `toml:"enforce_token"`
+	// Check GitHub for a newer release once a day and self-update the
+	// running binary. True by default; set false to pin a version.
+	AutoUpdate bool `toml:"auto_update"`
 }
 
 // Defaults returns the config used when the file is absent or a key is
@@ -49,6 +52,7 @@ func Defaults() Config {
 		UploadsDir:   "/tmp/pi-couch-uploads",
 		MemoryURL:    "http://localhost:3111",
 		EnforceToken: true,
+		AutoUpdate:   true,
 	}
 }
 

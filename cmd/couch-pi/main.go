@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"flag"
+	"fmt"
 	"log/slog"
 	"net/url"
 	"os"
@@ -18,13 +19,20 @@ import (
 	"github.com/EstebanForge/couch-pi/internal/push"
 	"github.com/EstebanForge/couch-pi/internal/server"
 	"github.com/EstebanForge/couch-pi/internal/store"
+	"github.com/EstebanForge/couch-pi/internal/update"
 )
 
 func main() {
+	showVersion := flag.Bool("version", false, "print version and exit")
 	addr := flag.String("addr", "", "listen address override (config: addr)")
 	sessions := flag.String("sessions", "", "pi sessions root override (config: sessions_dir)")
 	origin := flag.String("origin", "", "public https origin override (config: origin)")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println(server.Version)
+		return
+	}
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -54,6 +62,11 @@ func main() {
 	// SIGTERM is what systemd sends on stop; without it the process just dies.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	if cfg.AutoUpdate {
+		upd := update.New(logger, server.Version, os.Getenv("GITHUB_TOKEN"))
+		go upd.Run(ctx)
+	}
 
 	idx := pi.NewIndex(root)
 	watcher, err := pi.StartWatcher(ctx, root)
