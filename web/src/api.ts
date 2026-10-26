@@ -365,6 +365,9 @@ export const sendPrompt = (key: string, text: string, whenBusy?: "followUp") =>
 		whenBusy ? { text, whenBusy } : { text },
 	);
 
+export const resumeSession = (key: string, text: string) =>
+	postJSONBody(`/api/sessions/${encodeURIComponent(key)}/resume`, { text });
+
 /** Answer an open pi confirm dialog: yes presses enter, no presses
  * down+enter. ok:false carries the in-band refusal (changed, notfound,
  * send failed) and the caller hides its buttons. */
@@ -452,16 +455,12 @@ export type ProviderQuota = {
 export type QuotasSnapshot = {
 	providers: ProviderQuota[];
 	updated_at: string;
+	/** The server is revalidating a stale snapshot in the background. */
+	refreshing?: boolean;
 };
 
 export async function getQuotas(): Promise<QuotasSnapshot> {
 	const res = await fetch("/api/quotas");
 	if (!res.ok) throw new Error(`quotas ${res.status}`);
-	return (await res.json()) as QuotasSnapshot;
-}
-
-export async function refreshQuotas(): Promise<QuotasSnapshot> {
-	const res = await fetch("/api/quotas/refresh", { method: "POST" });
-	if (!res.ok) throw new Error(`refresh quotas ${res.status}`);
 	return (await res.json()) as QuotasSnapshot;
 }

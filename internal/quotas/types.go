@@ -23,8 +23,10 @@ type WindowQuota struct {
 	Remaining string    `json:"remaining"` // Human readable remaining or balance
 }
 
-// QuotasSnapshot is served by GET /api/quotas.
+// QuotasSnapshot is served by GET /api/quotas. Refreshing marks a
+// stale-serve whose background revalidate is still running.
 type QuotasSnapshot struct {
-	Providers []ProviderQuota `json:"providers"`
-	UpdatedAt time.Time       `json:"updated_at"`
+	Providers  []ProviderQuota `json:"providers"`
+	UpdatedAt  time.Time       `json:"updated_at"`
+	Refreshing bool            `json:"refreshing,omitempty"`
 }

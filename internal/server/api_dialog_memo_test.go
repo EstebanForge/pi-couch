@@ -96,6 +96,10 @@ func herdrFake(t *testing.T, o fakeHerdrOpts) string {
 						atomic.AddInt32(o.paneCloses, 1)
 					}
 					resp = `{"id":"x","result":{"type":"ok"}}`
+				case "workspace.create":
+					// Fresh-workspace creates: the root pane is p1 so the
+					// canned agent's readiness resolves against it.
+					resp = `{"id":"x","result":{"type":"workspace_created","workspace":{"workspace_id":"wN","label":"probe","number":9},"root_pane":{"pane_id":"p1"}}}`
 				case "workspace.close":
 					if o.wsCloses != nil {
 						atomic.AddInt32(o.wsCloses, 1)

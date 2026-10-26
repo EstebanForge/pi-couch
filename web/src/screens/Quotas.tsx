@@ -1,43 +1,92 @@
-import { useCallback, useEffect, useState } from "react";
-import { getQuotas, type ProviderQuota, refreshQuotas, type WindowQuota } from "../api";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { getQuotas, type ProviderQuota, type QuotasSnapshot, type WindowQuota } from "../api";
 import { FaChevronLeft, FaGaugeHigh } from "../components/fa";
 import { Spinner } from "../components/Spinner";
 import { relTime } from "../fmt";
+import { prefKey, readPref, writePref } from "../prefs";
+
+const QUOTAS_STORE = prefKey("quotas");
+
+type Stored = { providers: ProviderQuota[]; updated_at: string };
+
+function loadStored(): Stored | null {
+	try {
+		const raw = readPref(QUOTAS_STORE);
+		return raw ? (JSON.parse(raw) as Stored) : null;
+	} catch {
+		return null;
+	}
+}
 
 export default function QuotasScreen() {
-	const [quotas, setQuotas] = useState<ProviderQuota[]>([]);
-	const [loading, setLoading] = useState(true);
+	const stored = useRef(loadStored());
+	const [quotas, setQuotas] = useState<ProviderQuota[]>(stored.current?.providers ?? []);
+	const [loading, setLoading] = useState(!stored.current);
 	const [refreshing, setRefreshing] = useState(false);
-	const [updatedAt, setUpdatedAt] = useState<string>("");
+	const [updatedAt, setUpdatedAt] = useState<string>(stored.current?.updated_at ?? "");
 	const [error, setError] = useState("");
+	const syncRef = useRef<() => void>(() => {});
 
-	const load = useCallback(() => {
-		setLoading(true);
-		setError("");
-		getQuotas()
-			.then((snap) => {
-				setQuotas(snap.providers);
-				setUpdatedAt(snap.updated_at);
-			})
-			.catch((e: Error) => setError(e.message))
-			.finally(() => setLoading(false));
+	const apply = useCallback((snap: QuotasSnapshot) => {
+		setQuotas(snap.providers);
+		setUpdatedAt(snap.updated_at);
+		setLoading(false);
+		writePref(
+			QUOTAS_STORE,
+			JSON.stringify({ providers: snap.providers, updated_at: snap.updated_at }),
+		);
 	}, []);
 
-	const refresh = () => {
-		if (refreshing) return;
-		setRefreshing(true);
-		refreshQuotas()
-			.then((snap) => {
-				setQuotas(snap.providers);
-				setUpdatedAt(snap.updated_at);
-			})
-			.catch((e: Error) => setError(e.message))
-			.finally(() => setRefreshing(false));
-	};
-
+	// One fetch round per visit: the server answers the cache instantly
+	// when fresh and serves a stale snapshot with refreshing set while
+	// it revalidates, so the poll only continues while an update is
+	// truly in flight. Providers are capped at one round per 5 minutes
+	// server-side; this screen just shows that happening.
 	useEffect(() => {
-		load();
-	}, [load]);
+		let dead = false;
+		let timer: ReturnType<typeof setInterval> | null = null;
+		const stop = () => {
+			if (timer) clearInterval(timer);
+			timer = null;
+			setRefreshing(false);
+		};
+		const round = (first: boolean) => {
+			if (first) setRefreshing(true);
+			getQuotas()
+				.then((snap) => {
+					if (dead) return;
+					apply(snap);
+					if (snap.refreshing && !timer) {
+						const started = Date.now();
+						timer = setInterval(() => {
+							if (Date.now() - started > 45_000) {
+								stop();
+								return;
+							}
+							void getQuotas()
+								.then((next) => {
+									if (dead) return;
+									apply(next);
+									if (!next.refreshing) stop();
+								})
+								.catch(() => {});
+						}, 3000);
+					}
+				})
+				.catch((e: Error) => {
+					if (!dead) setError(e.message);
+					stop();
+				});
+		};
+		syncRef.current = () => {
+			if (!timer) round(true);
+		};
+		round(true);
+		return () => {
+			dead = true;
+			stop();
+		};
+	}, [apply]);
 
 	return (
 		<div
@@ -65,7 +114,7 @@ export default function QuotasScreen() {
 					</div>
 					<button
 						type="button"
-						onClick={refresh}
+						onClick={() => syncRef.current()}
 						disabled={refreshing || loading}
 						className="press-scale ml-auto flex min-h-[38px] items-center gap-1.5 rounded-xl border border-base-content/10 bg-base-300/60 px-3.5 text-[13px] font-medium text-base-content shadow-surface-sm active:bg-base-300 disabled:opacity-40"
 					>
@@ -77,7 +126,14 @@ export default function QuotasScreen() {
 			<main className="flex-1 px-4 pt-[74px] pb-12">
 				{updatedAt && (
 					<div className="mb-4 flex items-center justify-between px-1 text-[12px] text-muted">
-						<span>Synced from local environment & credentials</span>
+						{refreshing && quotas.length > 0 ? (
+							<span className="flex items-center gap-1.5">
+								<Spinner size={11} className="text-primary" />
+								Updating from providers…
+							</span>
+						) : (
+							<span>Synced from local environment & credentials</span>
+						)}
 						<span>{relTime(updatedAt)}</span>
 					</div>
 				)}

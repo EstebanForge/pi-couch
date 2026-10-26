@@ -325,6 +325,74 @@ func (a *app) createInWorkspace(ctx context.Context, workspaceID, prompt string,
 	return key, name, err
 }
 
+// resumeSession starts pi again over a closed session's jsonl via
+// --session, which loads that exact file and keeps appending to it,
+// so the phone's session key never changes. text (may be empty) is
+// submitted as the first prompt once the TUI is ready.
+func (a *app) resumeSession(ctx context.Context, label, cwd, path, text string) (string, error) {
+	name := agentName(label)
+	workspaceID, paneID, err := a.herdr.WorkspaceCreate(ctx, label, cwd)
+	if err != nil {
+		label = fmt.Sprintf("%s-%04x", label, time.Now().UnixNano()&0xffff)
+		name = agentName(label)
+		if workspaceID, paneID, err = a.herdr.WorkspaceCreate(ctx, label, cwd); err != nil {
+			return "", fmt.Errorf("workspace create: %w", err)
+		}
+	}
+	undo := func() { _ = a.herdr.WorkspaceClose(context.Background(), workspaceID) }
+	if err := a.runAgent(ctx, paneID, name, text, []string{"--session", path}, undo); err != nil {
+		return "", err
+	}
+	return name, nil
+}
+
+// apiSessionResume restarts a closed session: a fresh workspace at
+// the session's cwd runs pi --session <jsonl>, and the optional text
+// rides along as the first prompt. The jsonl already exists, so the
+// answer needs no session discovery — the requested key is the key.
+func (a *app) apiSessionResume(w http.ResponseWriter, r *http.Request) {
+	key := r.PathValue("key")
+	var req struct {
+		Text string `json:"text"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
+		return
+	}
+	meta, ok := a.idx.Meta(key)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "notfound"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), agentCreateTimeout)
+	defer cancel()
+	if _, err := a.herdr.TargetForPath(ctx, meta.Path); err == nil {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "running"})
+		return
+	}
+	cwd, err := a.homeDir(meta.Cwd)
+	if err != nil {
+		// The session's project may be gone; pi --session takes an
+		// absolute path, so the workspace cwd only needs to be legal.
+		cwd, err = os.UserHomeDir()
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "resume failed"})
+			return
+		}
+	}
+	label := meta.Name
+	if label == "" {
+		label = filepath.Base(cwd)
+	}
+	name, err := a.resumeSession(ctx, label, cwd, meta.Path, strings.TrimSpace(req.Text))
+	if err != nil {
+		a.logger.Error("resume failed", slog.String("key", key), slog.String("error", err.Error()))
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "resume failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"key": key, "agent": name})
+}
+
 // runAgent starts pi in the pane and submits the first prompt; undo
 // tears the pane (or fresh workspace) down on any failure. agent.start
 // retries while herdr reports the pane shell not yet available — a
@@ -366,19 +434,21 @@ func (a *app) runAgent(ctx context.Context, paneID, name, prompt string, piArgs 
 		return errors.New("pi never became ready")
 	}
 	a.logger.Info("pane ready", slog.Float64("waited_s", time.Since(start).Seconds()))
-	if err := herdrRetryErr(func() error { return a.herdr.Prompt(ctx, name, prompt) }); err != nil {
-		undo()
-		return fmt.Errorf("prompt: %w", err)
-	}
-	// A prompt can fail soft: herdr accepts it while the agent is
-	// still settling and the keys go nowhere, and recovery can also
-	// outlive this request's 20s budget — the request ctx must not
-	// cut it. Verify briefly; on no turn, hand the recovery to a
-	// background goroutine (the request deadline must not apply) and
-	// let the create answer with the bind-time session key.
-	if !a.sessionAppeared(ctx, paneID, sessionVerifyWait) {
-		a.logger.Warn("prompt unverified, recovering in background", slog.String("agent", name))
-		go a.ensureTurnStarted(context.WithoutCancel(ctx), paneID, name, prompt)
+	if prompt != "" {
+		if err := herdrRetryErr(func() error { return a.herdr.Prompt(ctx, name, prompt) }); err != nil {
+			undo()
+			return fmt.Errorf("prompt: %w", err)
+		}
+		// A prompt can fail soft: herdr accepts it while the agent is
+		// still settling and the keys go nowhere, and recovery can also
+		// outlive this request's 20s budget — the request ctx must not
+		// cut it. Verify briefly; on no turn, hand the recovery to a
+		// background goroutine (the request deadline must not apply) and
+		// let the create answer with the bind-time session key.
+		if !a.sessionAppeared(ctx, paneID, sessionVerifyWait) {
+			a.logger.Warn("prompt unverified, recovering in background", slog.String("agent", name))
+			go a.ensureTurnStarted(context.WithoutCancel(ctx), paneID, name, prompt)
+		}
 	}
 	return nil
 }

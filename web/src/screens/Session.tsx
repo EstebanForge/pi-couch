@@ -5,6 +5,7 @@ import {
 	closeSession,
 	getItemText,
 	getTranscriptPage,
+	resumeSession,
 	type SessionsPatch,
 	type StreamItem,
 	sendPrompt,
@@ -808,6 +809,8 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 	}, [applySessions]);
 
 	const meta = useSessions((s) => s.sessions.find((x) => x.key === sessionKey));
+	const drivenInfo = useSessions((s) => (meta ? s.driven[meta.path] : undefined));
+	const undriven = !!meta && !drivenInfo;
 	// meta.name refreshes on every watcher tick via the sessions stream;
 	// the transcript reset's header only refreshes on reconnect, so the
 	// store wins — a /name rename must flip the title without one.
@@ -855,6 +858,7 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 		virtuoso.current?.autoscrollToBottom();
 		return id;
 	}, []);
+	const resumeCb = useCallback((body: string) => resumeSession(sessionKey, body), [sessionKey]);
 	const markPendingCb = useCallback(
 		(id: number, mark: Exclude<PendingMsg["state"], "sending">) =>
 			dispatch({ t: "mark-pending", id, state: mark }),
@@ -1119,6 +1123,22 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 
 			{state.queue.length > 0 && <QueueCard queue={state.queue} />}
 
+			{undriven && (
+				<div className="flex items-center gap-2 border-t border-base-300 bg-warning/10 px-3 py-1.5 text-[12px] text-warning">
+					<span className="min-w-0 flex-1">Session ended. Sending resumes it.</span>
+					<button
+						type="button"
+						onClick={async () => {
+							const r = await resumeSession(sessionKey, "");
+							if (!r.ok) setNotice(r.error === "running" ? "Already running." : "Resume failed.");
+						}}
+						className="shrink-0 rounded-lg border border-warning/40 px-2.5 py-1 text-[12px] active:opacity-60"
+					>
+						Resume
+					</button>
+				</div>
+			)}
+
 			<Composer
 				sessionKey={sessionKey}
 				status={state.status}
@@ -1131,6 +1151,7 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 				addPending={addPendingCb}
 				markPending={markPendingCb}
 				removePending={removePendingCb}
+				resume={undriven ? resumeCb : undefined}
 			/>
 
 			{/* The answering sheet: slides over the composer bottom-to-top

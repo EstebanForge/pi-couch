@@ -52,16 +52,14 @@ func TestServiceCaching(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	svc := NewService()
-	snap1 := svc.Get(false)
-	snap2 := svc.Get(false)
+	svc := newTestService()
+	snap1 := svc.Get()
+	snap2 := svc.Get()
 
 	if snap1.UpdatedAt != snap2.UpdatedAt {
 		t.Errorf("expected cached snapshot timestamp to match")
 	}
-
-	snap3 := svc.Get(true)
-	if snap3.UpdatedAt == snap1.UpdatedAt {
-		t.Errorf("expected refreshed snapshot timestamp to differ")
+	if callCount != 0 {
+		t.Errorf("provider endpoints hit %d times inside the TTL window", callCount)
 	}
 }

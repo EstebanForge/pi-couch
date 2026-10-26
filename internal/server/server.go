@@ -198,6 +198,7 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("POST /api/sessions/{key}/stop", a.apiStop)
 	mux.HandleFunc("POST /api/sessions/{key}/close", a.apiClose)
 	mux.HandleFunc("POST /api/sessions/{key}/prompt", a.apiPrompt)
+	mux.HandleFunc("POST /api/sessions/{key}/resume", a.apiSessionResume)
 	mux.HandleFunc("POST /api/sessions/{key}/dialog/answer", a.apiDialogAnswer)
 	mux.HandleFunc("POST /api/sessions/{key}/model", a.apiModel)
 	mux.HandleFunc("POST /api/sessions/{key}/thinking", a.apiThinking)
@@ -218,7 +219,6 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("POST /api/push/subscribe", a.pushSubscribe)
 	mux.HandleFunc("POST /api/push/unsubscribe", a.pushUnsubscribe)
 	mux.HandleFunc("GET /api/quotas", a.apiQuotas)
-	mux.HandleFunc("POST /api/quotas/refresh", a.apiQuotasRefresh)
 	return mux
 }
 

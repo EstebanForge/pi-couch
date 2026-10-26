@@ -4,8 +4,8 @@
 // window, and an unknown outcome never restores or retries.
 
 import { Sheet, Toast } from "konsta/react";
-import { flushSync } from "react-dom";
 import { memo, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import {
 	getModels,
 	getPrompts,
@@ -13,11 +13,11 @@ import {
 	type ModelRow,
 	type PromptInfo,
 	runCommand,
+	type SkillInfo,
 	sendKeys,
 	sendPrompt,
 	setModel,
 	setThinking,
-	type SkillInfo,
 	uploadImage,
 } from "../api";
 import { dispositionFor } from "../chat/disposition";
@@ -67,6 +67,8 @@ export const Composer = memo(function Composer(props: {
 	addPending: (text: string, queued: boolean) => number;
 	markPending: (id: number, state: "sent" | "queued" | "unconfirmed") => void;
 	removePending: (id: number) => void;
+	/** Set while no driver runs the session: sends resume it instead of steering. */
+	resume?: (body: string) => Promise<{ ok: boolean; error?: string }>;
 }) {
 	const { sessionKey, status } = props;
 	const draftStoreKey = prefKey(`draft.${sessionKey}`);
@@ -82,11 +84,19 @@ export const Composer = memo(function Composer(props: {
 	const [skillsError, setSkillsError] = useState(false);
 	const [promptsError, setPromptsError] = useState(false);
 	const [runningCmd, setRunningCmd] = useState<string | null>(null);
-	const [execResult, setExecResult] = useState<{ cmd: string; output: string; code: number } | null>(null);
+	const [execResult, setExecResult] = useState<{
+		cmd: string;
+		output: string;
+		code: number;
+	} | null>(null);
 	const quickCmds = useMemo(() => quickCommands(), []);
 	const qaQ = qaFilter.trim().toLowerCase();
 	const qaSkills =
-		qaQ === "" || !skills ? skills : skills.filter((s) => s.name.toLowerCase().includes(qaQ) || s.description.toLowerCase().includes(qaQ));
+		qaQ === "" || !skills
+			? skills
+			: skills.filter(
+					(s) => s.name.toLowerCase().includes(qaQ) || s.description.toLowerCase().includes(qaQ),
+				);
 	const qaCmdList = qaQ === "" ? quickCmds : quickCmds.filter((c) => c.toLowerCase().includes(qaQ));
 	const qaPrompts =
 		qaQ === "" || !prompts
@@ -96,7 +106,7 @@ export const Composer = memo(function Composer(props: {
 						p.name.toLowerCase().includes(qaQ) ||
 						p.description.toLowerCase().includes(qaQ) ||
 						p.hint?.toLowerCase().includes(qaQ),
-			  );
+				);
 	// Step switches morph instead of snapping: the content wrapper
 	// carries view-transition-name qa-content, and the swap runs inside
 	// startViewTransition so the browser cross-fades old and new.
@@ -233,10 +243,18 @@ export const Composer = memo(function Composer(props: {
 		}
 		let outcome: "ok" | "fail" | "unknown" = "unknown";
 		try {
-			const r = await sendPrompt(sessionKey, body, queued ? "followUp" : undefined);
+			const r = props.resume
+				? await props.resume(body)
+				: await sendPrompt(sessionKey, body, queued ? "followUp" : undefined);
 			outcome = r.ok ? "ok" : "fail";
 			if (!r.ok)
-				setNotice(r.error === "notdriven" ? "No driver runs this session." : "Send failed.");
+				setNotice(
+					r.error === "notdriven"
+						? "No driver runs this session."
+						: r.error === "resume failed"
+							? "Resume failed. Try again."
+							: "Send failed.",
+				);
 		} catch {
 			outcome = "unknown";
 		}
@@ -723,7 +741,11 @@ export const Composer = memo(function Composer(props: {
 											<div key={c}>
 												<QaItem
 													title={c}
-													sub={isSlash ? "pi command - add arguments after it" : "bash - runs in this session's folder"}
+													sub={
+														isSlash
+															? "pi command - add arguments after it"
+															: "bash - runs in this session's folder"
+													}
 													onClick={() => (isSlash ? fillQuick(`${c} `) : void runBash(c))}
 												/>
 												{runningCmd === c && (
@@ -733,7 +755,9 @@ export const Composer = memo(function Composer(props: {
 												)}
 												{execResult?.cmd === c && runningCmd !== c && (
 													<div className="mx-1 rounded-2xl border border-base-content/8 bg-base-100/80 p-3">
-														<div className={`pb-1 text-[11px] font-semibold ${execResult.code === 0 ? "text-success" : "text-error"}`}>
+														<div
+															className={`pb-1 text-[11px] font-semibold ${execResult.code === 0 ? "text-success" : "text-error"}`}
+														>
 															exit {execResult.code}
 														</div>
 														<pre className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words font-mono text-[11.5px] text-base-content/85">
