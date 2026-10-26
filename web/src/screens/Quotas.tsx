@@ -216,11 +216,12 @@ function WindowRow({ window }: { window: WindowQuota }) {
 				</div>
 			</div>
 
-			{/* Progress track */}
+			{/* Progress track: the bar shows what is LEFT, starting full
+				and depleting as usage climbs; color still tracks usage. */}
 			<div className="h-2 w-full overflow-hidden rounded-full bg-base-300">
 				<div
 					className={`h-full rounded-full transition-all duration-500 ${barColor}`}
-					style={{ width: `${pct}%` }}
+					style={{ width: `${100 - pct}%` }}
 				/>
 			</div>
 
