@@ -609,9 +609,7 @@ func (ix *Index) branchItems(key string, textLimit int) ([]ViewItem, error) {
 		case e.Message != nil:
 			bump(messageItems(e, textLimit))
 		case e.Type == "custom":
-			if vs := nativeEventItems(e); len(vs) > 0 {
-				bump(vs)
-			}
+			bump(nativeEventItems(e))
 		case e.Type == "compaction":
 			bump([]ViewItem{{Kind: "marker", Text: fmt.Sprintf("Context compacted (%d tokens before)", e.TokensBefore)}})
 		case e.Type == "model_change":
@@ -746,9 +744,6 @@ func entryTime(e Entry) int64 {
 	return 0
 }
 
-// agyEvent is one Antigravity bridge native ACP tool event (customType
-// agy-native-event). The bridge appends these display-only: they never
-// re-execute and carry no model-context tool results.
 // thoughtAnsiRe strips the SGR escapes the ACP stream bakes into
 // thinking text and the bridge's own "Thinking:" label, which the
 // chat's ThinkingGroup header already states.
@@ -785,31 +780,48 @@ func nativeEventItems(e Entry) []ViewItem {
 	}
 	if e.CustomType == "agy-poll-run" {
 		var run struct {
-			Target string `json:"target"`
-			Count  int    `json:"count"`
-			State  string `json:"state"`
+			Target  string `json:"target"`
+			Count   int    `json:"count"`
+			State   string `json:"state"`
+			FirstAt string `json:"firstAt"`
+			LastAt  string `json:"lastAt"`
 		}
 		if err := json.Unmarshal(e.Data, &run); err != nil {
-			return nil
+			return []ViewItem{{Kind: "tool_call", ToolName: "bridge_poll_result", Time: entryTime(e)}}
 		}
 		label := fmt.Sprintf("Poll %s (x%d", run.Target, run.Count)
 		if run.State == "failed" {
 			label += ", failed"
 		}
 		label += ")"
+		clock := func(iso string) string {
+			t, err := time.Parse(time.RFC3339Nano, iso)
+			if err != nil {
+				return "?"
+			}
+			return t.Format("15:04:05")
+		}
+		body := fmt.Sprintf("%d %s, %s → %s", run.Count,
+			map[bool]string{true: "poll", false: "polls"}[run.Count == 1], clock(run.FirstAt), clock(run.LastAt))
 		return []ViewItem{{Kind: "tool_call", ToolName: "bridge_poll_result",
-			Text: label, Time: entryTime(e)}}
+			Text: label, Body: body, Time: entryTime(e)}}
 	}
 	if e.CustomType != "agy-native-event" {
 		return nil
 	}
 	var ev agyEvent
 	if err := json.Unmarshal(e.Data, &ev); err != nil {
-		return nil
+		// A malformed event still shows as a bare named row - a vanished
+		// entry reads as the tool never having run.
+		var loose struct {
+			Name string `json:"name"`
+		}
+		_ = json.Unmarshal(e.Data, &loose)
+		return []ViewItem{{Kind: "tool_call", ToolName: loose.Name, Time: entryTime(e)}}
 	}
 	firstLine := func(s string) string {
 		line := strings.TrimSpace(strings.SplitN(s, "\n", 2)[0])
-		if line == "" || line == "\\r" {
+		if line == "" {
 			return ""
 		}
 		return line
@@ -822,13 +834,12 @@ func nativeEventItems(e Entry) []ViewItem {
 		detail = firstLine(ev.Command)
 	case firstLine(ev.Output) != "":
 		detail = firstLine(ev.Output)
-	}
-	// ACP outputs often restate the tool name ("AskClaude AskClaude
-	// peer review"); the verb row already carries the name. Exact-case
-	// only: "read" + "Read first clipboard image" is prose, not a
-	// restatement.
-	if detail != "" && len(ev.Name) > 0 && len(detail) > len(ev.Name)+1 {
-		if detail[:len(ev.Name)] == ev.Name && detail[len(ev.Name)] == ' ' {
+		// ACP outputs often restate the tool name ("AskClaude AskClaude
+		// peer review"); the verb row already carries the name. Exact-case
+		// only, output branch only: "read" + "Read first clipboard
+		// image" is prose, and commands like "execute build.sh" are real.
+		if len(ev.Name) > 0 && len(detail) > len(ev.Name)+1 &&
+			detail[:len(ev.Name)] == ev.Name && detail[len(ev.Name)] == ' ' {
 			detail = strings.TrimSpace(detail[len(ev.Name)+1:])
 		}
 	}
@@ -848,7 +859,7 @@ func nativeEventItems(e Entry) []ViewItem {
 		body.WriteString(ev.Output + "\n")
 	}
 	return []ViewItem{{Kind: "tool_call", ToolName: ev.Name,
-		Text: truncate(detail, 160), Body: capRunes(strings.TrimRight(body.String(), "\n"), 4000),
+		Text: truncate(detail, 160), Body: capRunes(strings.TrimRight(body.String(), "\n"), 12000),
 		Time: entryTime(e)}}
 }
 

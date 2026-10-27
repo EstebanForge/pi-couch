@@ -645,7 +645,10 @@ const Block = memo(function Block({
 	// output nested underneath — the code-client look.
 	const pairs = pairTools(block.items);
 	const trailing = pairs[pairs.length - 1];
-	const live = !!trailing?.call && trailing.outs.length === 0;
+	// A body marks a synthesized native call as complete by
+	// construction - without this check a finished session's native
+	// rows would count as live and tick forever.
+	const live = !!trailing?.call && !trailing.call.body && trailing.outs.length === 0;
 	// Steps stay collapsed unless the reader opens them - except a
 	// running tool, which stays visible with its live clock until the
 	// result lands, then the group folds back.

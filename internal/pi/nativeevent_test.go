@@ -87,10 +87,13 @@ func TestNativeEventItems(t *testing.T) {
 		t.Fatalf("text=%q", it.Text)
 	}
 
-	// Poll runs ride the same collapsed-row path.
+	// Poll runs ride the same collapsed-row path; the body carries the
+	// renderer's expanded line (and marks the call complete for the
+	// chat's live-row logic).
 	raw, err := json.Marshal(map[string]any{
 		"type": "custom", "customType": "agy-poll-run",
-		"data":      map[string]any{"target": "AskClaude", "count": 2, "state": "done"},
+		"data": map[string]any{"target": "AskClaude", "count": 2, "state": "done",
+			"firstAt": "2026-10-27T11:39:59.198Z", "lastAt": "2026-10-27T11:40:10.198Z"},
 		"timestamp": "2026-10-27T11:39:59.198Z",
 	})
 	if err != nil {
@@ -99,6 +102,42 @@ func TestNativeEventItems(t *testing.T) {
 	it = nativeEventItems(parseEntry(t, raw))[0]
 	if it.ToolName != "bridge_poll_result" || it.Text != "Poll AskClaude (x2)" {
 		t.Fatalf("poll tool=%s text=%q", it.ToolName, it.Text)
+	}
+	if !strings.Contains(it.Body, "2 polls") {
+		t.Fatalf("poll body=%q", it.Body)
+	}
+
+	// A malformed data field degrades to a bare named row, never a
+	// vanished entry.
+	raw, err = json.Marshal(map[string]any{
+		"type": "custom", "customType": "agy-native-event",
+		"data": map[string]any{"name": "read", "output": map[string]any{"nested": true}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	it = nativeEventItems(parseEntry(t, raw))[0]
+	if it.Kind != "tool_call" || it.ToolName != "read" {
+		t.Fatalf("malformed kind=%s tool=%s", it.Kind, it.ToolName)
+	}
+
+	// A failed event shows its output beside the diff.
+	e = parseEntry(t, nativeLine(t, map[string]any{
+		"name": "edit_file", "status": "failed", "path": "/x/c.ts",
+		"diff": "-old", "output": "permission denied",
+	}))
+	it = nativeEventItems(e)[0]
+	if !strings.Contains(it.Body, "permission denied") {
+		t.Fatalf("failed body=%q", it.Body)
+	}
+
+	// A command that starts with its own name keeps it: only the output
+	// branch dedupes.
+	e = parseEntry(t, nativeLine(t, map[string]any{
+		"name": "execute", "status": "completed", "command": "execute build.sh",
+	}))
+	if it = nativeEventItems(e)[0]; it.Text != "execute build.sh" {
+		t.Fatalf("text=%q", it.Text)
 	}
 }
 
