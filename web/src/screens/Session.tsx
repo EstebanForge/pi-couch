@@ -811,6 +811,12 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 	const meta = useSessions((s) => s.sessions.find((x) => x.key === sessionKey));
 	const drivenInfo = useSessions((s) => (meta ? s.driven[meta.path] : undefined));
 	const undriven = !!meta && !drivenInfo;
+	// A resume is in flight: the composer greys out and the bar spins
+	// until the session turns driven again.
+	const [resuming, setResuming] = useState(false);
+	useEffect(() => {
+		if (!undriven) setResuming(false);
+	}, [undriven]);
 	// meta.name refreshes on every watcher tick via the sessions stream;
 	// the transcript reset's header only refreshes on reconnect, so the
 	// store wins — a /name rename must flip the title without one.
@@ -858,7 +864,19 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 		virtuoso.current?.autoscrollToBottom();
 		return id;
 	}, []);
-	const resumeCb = useCallback((body: string) => resumeSession(sessionKey, body), [sessionKey]);
+	const startResume = useCallback(
+		(body: string) => {
+			if (resuming) return Promise.resolve({ ok: false, error: "busy" });
+			setResuming(true);
+			return resumeSession(sessionKey, body).then((r) => {
+				// The spinner holds until the session turns driven; only a
+				// failed resume hands control back right away.
+				if (!r.ok) setResuming(false);
+				return r;
+			});
+		},
+		[resuming, sessionKey],
+	);
 	const markPendingCb = useCallback(
 		(id: number, mark: Exclude<PendingMsg["state"], "sending">) =>
 			dispatch({ t: "mark-pending", id, state: mark }),
@@ -1125,17 +1143,23 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 
 			{undriven && (
 				<div className="flex items-center gap-2 border-t border-base-300 bg-warning/10 px-3 py-1.5 text-[12px] text-warning">
-					<span className="min-w-0 flex-1">Session ended. Sending resumes it.</span>
-					<button
-						type="button"
-						onClick={async () => {
-							const r = await resumeSession(sessionKey, "");
-							if (!r.ok) setNotice(r.error === "running" ? "Already running." : "Resume failed.");
-						}}
-						className="shrink-0 rounded-lg border border-warning/40 px-2.5 py-1 text-[12px] active:opacity-60"
-					>
-						Resume
-					</button>
+					{resuming ? (
+						<>
+							<Spinner className="size-3.5" />
+							<span className="min-w-0 flex-1">Resuming the session…</span>
+						</>
+					) : (
+						<>
+							<span className="min-w-0 flex-1">Session ended. Sending resumes it.</span>
+							<button
+								type="button"
+								onClick={() => void startResume("")}
+								className="shrink-0 rounded-lg border border-warning/40 px-2.5 py-1 text-[12px] active:opacity-60"
+							>
+								Resume
+							</button>
+						</>
+					)}
 				</div>
 			)}
 
@@ -1151,7 +1175,8 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 				addPending={addPendingCb}
 				markPending={markPendingCb}
 				removePending={removePendingCb}
-				resume={undriven ? resumeCb : undefined}
+				resume={undriven ? startResume : undefined}
+				disabled={resuming}
 			/>
 
 			{/* The answering sheet: slides over the composer bottom-to-top

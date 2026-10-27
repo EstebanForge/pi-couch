@@ -69,6 +69,8 @@ export const Composer = memo(function Composer(props: {
 	removePending: (id: number) => void;
 	/** Set while no driver runs the session: sends resume it instead of steering. */
 	resume?: (body: string) => Promise<{ ok: boolean; error?: string }>;
+	/** Greys and kills every control: a resume is in flight. */
+	disabled?: boolean;
 }) {
 	const { sessionKey, status } = props;
 	const draftStoreKey = prefKey(`draft.${sessionKey}`);
@@ -229,6 +231,7 @@ export const Composer = memo(function Composer(props: {
 	const canSend = hasText && !uploading;
 
 	const sendText = async (body: string, queued: boolean, draft?: string) => {
+		if (props.disabled) return;
 		if (sending.current) return;
 		sending.current = true;
 		hapticConfirm();
@@ -478,7 +481,10 @@ export const Composer = memo(function Composer(props: {
 	);
 
 	return (
-		<>
+		<div
+			aria-disabled={props.disabled || undefined}
+			className={props.disabled ? "pointer-events-none select-none opacity-50" : undefined}
+		>
 			{/* quick keys strip */}
 			{quickKeys.enabled && (
 				<div className="relative">
@@ -558,6 +564,7 @@ export const Composer = memo(function Composer(props: {
 						}}
 						rows={1}
 						placeholder="Steer the agent…"
+						disabled={props.disabled}
 						autoCorrect="off"
 						autoCapitalize="off"
 						spellCheck={false}
@@ -990,7 +997,7 @@ export const Composer = memo(function Composer(props: {
 			</Sheet>
 
 			<Toast opened={toast !== ""}>{toast}</Toast>
-		</>
+		</div>
 	);
 });
 
