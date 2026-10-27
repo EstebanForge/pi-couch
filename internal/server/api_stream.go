@@ -265,6 +265,7 @@ func (a *app) apiStreamTranscript(w http.ResponseWriter, r *http.Request) {
 	send := func(event string, v any) bool { return writeEventJSON(w, event, v) == nil }
 
 	prev := []uint32{}
+	prevFirstSeq := 0
 	status, model, thinking := "", "", ""
 	var lastAwaiting bool
 	var lastTodos []pi.Todo
@@ -306,12 +307,13 @@ func (a *app) apiStreamTranscript(w http.ResponseWriter, r *http.Request) {
 		forceReset := placeholder
 		placeholder = false
 		sent := false
-		if delta, ok := chatAppend(prev, items, cur); ok && !forceReset {
+		if delta, ok := chatAppend(prev, items, cur, prevFirstSeq); ok && !forceReset {
 			if len(delta) > 0 {
 				if !send("append", transcriptAppend{Items: delta}) {
 					return
 				}
 				prev = cur
+				prevFirstSeq = items[0].Seq
 				sent = true
 			}
 		} else {
@@ -319,6 +321,7 @@ func (a *app) apiStreamTranscript(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			prev = cur
+			prevFirstSeq = items[0].Seq
 			status, model, thinking = st, meta.Model, meta.Thinking
 			lastQueue = queue
 			sent = true

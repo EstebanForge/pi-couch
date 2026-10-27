@@ -90,6 +90,39 @@ describe("pending survives resets", () => {
 		expect(after.pending).toEqual([]);
 	});
 
+	it("retires a queued bubble when its user item rides an append", () => {
+		// Long sessions stream appends, so the FIFO receipt must also
+		// advance from landed user items, not only from reset meta.
+		let s = reduceReset(emptyDriver, {
+			items: [],
+			status: "working",
+			model: "",
+			thinking: "",
+			meta: { name: "x", first_user: "", cwd: "" },
+		});
+		s = addPending(s, 1, "queued while busy", true);
+		const at = s.pending[0].at;
+		const landed = item(5, "user", "the landed answer");
+		landed.time = at + 500;
+		const after = reduceAppend(s, { items: [landed] });
+		expect(after.pending).toEqual([]);
+		expect(after.header?.last_user_at).toBe(at + 500);
+	});
+
+	it("keeps a queued bubble when an append carries no user item", () => {
+		let s = reduceReset(emptyDriver, {
+			items: [],
+			status: "working",
+			model: "",
+			thinking: "",
+		});
+		s = addPending(s, 1, "queued while busy", true);
+		const tool = item(5, "tool_result", "step output");
+		tool.time = s.pending[0].at + 500;
+		const after = reduceAppend(s, { items: [tool] });
+		expect(after.pending).toHaveLength(1);
+	});
+
 	it("keeps queued bubbles while the newest user entry predates them", () => {
 		let s = reduceReset(emptyDriver, {
 			items: [item(0, "user", "old")],
@@ -193,9 +226,10 @@ describe("reduceStatus", () => {
 			reduceStatus(s, { status: "working", model: "a/b", thinking: "low", queue: [] }).queue,
 		).toEqual([]);
 		// A status without the field keeps what the client holds.
-		expect(
-			reduceStatus(s, { status: "working", model: "a/b", thinking: "low" }).queue,
-		).toEqual(["first queued", "second queued"]);
+		expect(reduceStatus(s, { status: "working", model: "a/b", thinking: "low" }).queue).toEqual([
+			"first queued",
+			"second queued",
+		]);
 	});
 
 	it("tracks ctx from resets and statuses", () => {
@@ -314,9 +348,7 @@ describe("parseSkillExpansion", () => {
 	});
 
 	it("keeps interior blank lines of the skill body", () => {
-		const p = parseSkillExpansion(
-			'<skill name="x">\nline one\n\nline two\n</skill>\ndone',
-		);
+		const p = parseSkillExpansion('<skill name="x">\nline one\n\nline two\n</skill>\ndone');
 		expect(p?.body).toBe("line one\n\nline two");
 		expect(p?.rest).toBe("done");
 	});

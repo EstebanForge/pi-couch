@@ -155,12 +155,23 @@ export function reduceAppend(s: DriverState, p: TranscriptAppend): DriverState {
 	for (let i = 1; ascending && i < p.items.length; i++) {
 		if (p.items[i].seq <= p.items[i - 1].seq) ascending = false;
 	}
+	// Long sessions ride appends, not resets, so the FIFO receipt that
+	// retires queued bubbles must advance from landed user items too —
+	// waiting for the next reset can stall a bubble for its whole TTL.
+	let landedUserAt = s.header?.last_user_at ?? 0;
+	for (const it of p.items) {
+		if (it.kind === "user" && (it.time ?? 0) > landedUserAt) landedUserAt = it.time as number;
+	}
+	const header =
+		s.header && landedUserAt > (s.header.last_user_at ?? 0)
+			? { ...s.header, last_user_at: landedUserAt }
+			: s.header;
 	if (ascending) {
-		return reconcile({ ...s, items: s.items.concat(p.items) });
+		return reconcile({ ...s, header, items: s.items.concat(p.items) });
 	}
 	const fresh = p.items.filter((it) => !s.items.some((cur) => cur.seq === it.seq));
 	if (fresh.length === 0) return s;
-	return reconcile({ ...s, items: [...s.items, ...fresh].sort((a, b) => a.seq - b.seq) });
+	return reconcile({ ...s, header, items: [...s.items, ...fresh].sort((a, b) => a.seq - b.seq) });
 }
 
 /** Prepend one fetched history page: dedupe by seq (an SSE append can

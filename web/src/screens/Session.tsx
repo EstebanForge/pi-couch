@@ -56,7 +56,7 @@ import {
 import { isWaiting, STATUS_DOT } from "../status";
 import { connectStream, type StreamStatus } from "../stream";
 
-const LIMIT = 2000; // client-side tail cap; the server re-resets past it
+const LIMIT = 2000; // render tail cap; history pages backfill below it
 // History page: conversation items per scroll-to-top — the server
 // widens the raw fetch past tool rows until this many real messages
 // ride along, so one load always shows the conversation advancing.
@@ -699,11 +699,13 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 	const taBlur = useRef<HTMLTextAreaElement | null>(null);
 
 	const [streamRetry, setStreamRetry] = useState(0);
+	const [resuming, setResuming] = useState(false);
 	// Bumped when a resume completes so the transcript stream reopens
 	// fresh instead of trusting a connection that predates the new driver.
 	const [streamGen, setStreamGen] = useState(0);
 	const retried = useRef(false);
-	// biome-ignore lint/correctness/useExhaustiveDependencies: streamRetry is intentionally tracked to trigger reconnections.
+	const resumeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: streamRetry and streamGen are intentionally tracked to trigger reconnections.
 	useEffect(() => {
 		const stream = connectStream(`/api/stream/transcript/${encodeURIComponent(sessionKey)}`, {
 			onStatus: setConn,
@@ -732,6 +734,9 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 	// biome-ignore lint/correctness/useExhaustiveDependencies: sessionKey resets retried flag on screen change.
 	useEffect(() => {
 		retried.current = false;
+		if (resumeTimer.current) clearTimeout(resumeTimer.current);
+		resumeTimer.current = null;
+		setResuming(false);
 	}, [sessionKey]);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: sessionKey resets the timeout per session.
 	useEffect(() => {
@@ -816,15 +821,24 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 	const undriven = !!meta && !drivenInfo;
 	// A resume is in flight: the composer greys out and the bar spins
 	// until the session turns driven again.
-	const [resuming, setResuming] = useState(false);
 	// A resume swaps the driver under the session: the spinner holds
-	// until the session turns driven, then the stream reopens.
+	// until the session turns driven, then the stream reopens. The
+	// backstop timer dies with the release so a second resume inside
+	// its window cannot be ungreyed early.
 	useEffect(() => {
 		if (!undriven && resuming) {
+			if (resumeTimer.current) clearTimeout(resumeTimer.current);
+			resumeTimer.current = null;
 			setResuming(false);
 			setStreamGen((g) => g + 1);
 		}
 	}, [undriven, resuming]);
+	useEffect(
+		() => () => {
+			if (resumeTimer.current) clearTimeout(resumeTimer.current);
+		},
+		[],
+	);
 	// meta.name refreshes on every watcher tick via the sessions stream;
 	// the transcript reset's header only refreshes on reconnect, so the
 	// store wins — a /name rename must flip the title without one.
@@ -882,7 +896,8 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 				} else {
 					// Backstop: the driven flip normally releases the lock;
 					// never leave the composer greyed if it never comes.
-					setTimeout(() => setResuming(false), 60_000);
+					if (resumeTimer.current) clearTimeout(resumeTimer.current);
+					resumeTimer.current = setTimeout(() => setResuming(false), 60_000);
 				}
 				return r;
 			});

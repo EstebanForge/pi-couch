@@ -358,21 +358,26 @@ func itemFps(items []pi.ViewItem) []uint32 {
 	}
 	return out
 }
-func chatAppend(prev []uint32, items []pi.ViewItem, cur []uint32) (delta []pi.ViewItem, ok bool) {
-	if len(prev) == 0 || len(items) < len(prev) || len(cur) != len(items) {
+
+// chatAppend decides whether the freshly read window grew out of the
+// previous one. The window is a fixed-size tail, so growth also drops
+// the oldest items; Seq gives the exact slide, and the fingerprint
+// compare over the overlap catches in-place edits that a pure seq
+// count would bless. Content-only alignment is not enough: repetitive
+// windows (polling agents repeating one tool pair) alias at the wrong
+// drop and silently lose items as an empty delta.
+func chatAppend(prev []uint32, items []pi.ViewItem, cur []uint32, prevFirstSeq int) (delta []pi.ViewItem, ok bool) {
+	if len(prev) == 0 || len(items) < len(prev) || len(cur) != len(items) || len(items) == 0 {
 		return nil, false
 	}
-	// The window is a fixed-size tail, so growth also drops the oldest
-	// items: prev aligns against cur's head with its own head dropped.
-	// A strict prefix compare can never append once the window is full,
-	// which pinned every update on full resets.
-	for drop := 0; drop < len(prev); drop++ {
-		tail := prev[drop:]
-		if slices.Equal(tail, cur[:len(tail)]) {
-			return items[len(tail):], true
-		}
+	drop := items[0].Seq - prevFirstSeq
+	if drop < 0 || drop >= len(prev) {
+		return nil, false
 	}
-	return nil, false
+	if !slices.Equal(prev[drop:], cur[:len(prev)-drop]) {
+		return nil, false
+	}
+	return items[len(prev)-drop:], true
 }
 
 // subscribeTicks registers one fan-out slot; nil watcher degrades to
