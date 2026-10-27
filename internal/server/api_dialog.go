@@ -21,6 +21,18 @@ import (
 // before any key goes out. Every refusal answers 409 changed in-band,
 // and the client drops its buttons - the stream brings whatever is on
 // screen now.
+// statusWriter records the outcome status for the wide event; the
+// JSON helpers write through untouched.
+type statusWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (s *statusWriter) WriteHeader(code int) {
+	s.status = code
+	s.ResponseWriter.WriteHeader(code)
+}
+
 func (a *app) apiDialogAnswer(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
 	var req struct {
@@ -28,6 +40,18 @@ func (a *app) apiDialogAnswer(w http.ResponseWriter, r *http.Request) {
 		Answer string `json:"answer"`
 		Text   string `json:"text"`
 	}
+	start := time.Now()
+	sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
+	w = sw
+	defer func() {
+		// The refusal gates log causes, but this wide event is the one
+		// line that proves a request was received at all and what came
+		// of it - without it an empty journal cannot separate a silent
+		// refusal from a request that never arrived.
+		a.logger.Info("dialog answer", "status", sw.status,
+			"dur_ms", time.Since(start).Milliseconds(),
+			"req_id", req.ID, "answer", req.Answer, "session", key)
+	}()
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&req); err != nil || req.Answer == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
 		return
@@ -89,6 +113,7 @@ func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, tex
 			// live confirm.
 			select {
 			case <-ctx.Done():
+				a.logger.Warn("dialog answer refused", "cause", "confirm ctx done", "pane", paneID)
 				writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
 				return false, true
 			case <-time.After(300 * time.Millisecond):
@@ -201,6 +226,7 @@ func (a *app) settleWalk(w http.ResponseWriter, r *http.Request, ctx context.Con
 			// Ride out a herdr stall like any other blind read.
 			select {
 			case <-ctx.Done():
+				a.logger.Warn("dialog answer refused", "cause", "settle ctx done", "pane", paneID)
 				writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
 				return false
 			case <-time.After(250 * time.Millisecond):
@@ -452,7 +478,8 @@ func (a *app) editEditorSubmit(w http.ResponseWriter, r *http.Request, ctx conte
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
 		return false
 	}
-	refuse := func() bool {
+	refuse := func(cause string) bool {
+		a.logger.Warn("dialog answer refused", "cause", cause, "session", sessionPath)
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
 		return false
 	}
@@ -493,7 +520,7 @@ func (a *app) editEditorSubmit(w http.ResponseWriter, r *http.Request, ctx conte
 	for time.Now().Before(gateDeadline) {
 		select {
 		case <-ctx.Done():
-			return refuse()
+			return refuse("gate ctx done")
 		case <-time.After(200 * time.Millisecond):
 		}
 		pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 30)
@@ -503,7 +530,7 @@ func (a *app) editEditorSubmit(w http.ResponseWriter, r *http.Request, ctx conte
 			blind++
 			if blind >= 3 {
 				a.logger.Warn("dialog answer refused", "cause", "gate blind", "session", sessionPath)
-				return refuse()
+				return refuse("gate blind")
 			}
 			continue
 		}
@@ -517,7 +544,7 @@ func (a *app) editEditorSubmit(w http.ResponseWriter, r *http.Request, ctx conte
 			// that stays unparseable means pi left the dialog.
 			blind++
 			if blind >= 3 {
-				return refuse()
+				return refuse("verify blind")
 			}
 			continue
 		}
@@ -531,7 +558,7 @@ func (a *app) editEditorSubmit(w http.ResponseWriter, r *http.Request, ctx conte
 			stale++
 			if stale >= 2 {
 				a.logger.Warn("dialog answer refused", "cause", "gate plateau", "session", sessionPath)
-				return refuse()
+				return refuse("gate plateau")
 			}
 		} else {
 			stale, prevLen = 0, n
@@ -539,7 +566,7 @@ func (a *app) editEditorSubmit(w http.ResponseWriter, r *http.Request, ctx conte
 	}
 	if !emptied {
 		a.logger.Warn("dialog answer refused", "cause", "gate deadline", "session", sessionPath)
-		return refuse()
+		return refuse("gate deadline")
 	}
 	for _, chunk := range editorChunks(want) {
 		if !a.paneSend(w, ctx, paneID, chunk, nil) {
@@ -554,7 +581,7 @@ func (a *app) editEditorSubmit(w http.ResponseWriter, r *http.Request, ctx conte
 	for poll := 0; poll < 6; poll++ {
 		select {
 		case <-ctx.Done():
-			return refuse()
+			return refuse("verify ctx done")
 		case <-time.After(150 * time.Millisecond):
 		}
 		pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 30)
@@ -562,7 +589,7 @@ func (a *app) editEditorSubmit(w http.ResponseWriter, r *http.Request, ctx conte
 			blind++
 			if blind >= 3 {
 				a.logger.Warn("dialog answer refused", "cause", "verify blind", "session", sessionPath)
-				return refuse()
+				return refuse("verify blind")
 			}
 			continue
 		}
@@ -570,7 +597,7 @@ func (a *app) editEditorSubmit(w http.ResponseWriter, r *http.Request, ctx conte
 		if m == nil || m.Kind != "editor" {
 			blind++
 			if blind >= 3 {
-				return refuse()
+				return refuse("verify blind")
 			}
 			continue
 		}
@@ -580,7 +607,7 @@ func (a *app) editEditorSubmit(w http.ResponseWriter, r *http.Request, ctx conte
 		}
 	}
 	a.logger.Warn("dialog answer refused", "cause", "verify mismatch", "session", sessionPath)
-	return refuse()
+	return refuse("verify mismatch")
 }
 
 // editorBufferOf normalizes a commit-message buffer for comparison:

@@ -3,10 +3,12 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -776,4 +778,51 @@ func TestDialogAnswerEntryAllBlindRefuses(t *testing.T) {
 	if n := atomic.LoadInt32(&sends); n != 0 {
 		t.Fatalf("sends=%d, want none", n)
 	}
+}
+
+// Every dialog answer POST must leave exactly one wide event carrying
+// the outcome status - the refusal gates stay silent by design, so
+// this line is the only journal evidence of reach-versus-never.
+func TestDialogAnswerLogsWideEvent(t *testing.T) {
+	var buf syncBuffer
+	a, _, _ := streamTestApp(t)
+	a.logger = slog.New(&buf)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/s1/dialog/answer",
+		strings.NewReader(`{"id":"whatever","answer":"yes"}`))
+	req.Host = "127.0.0.1:8090"
+	rec := httptest.NewRecorder()
+	a.guard(a.routes()).ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("code=%d", rec.Code)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "dialog answer") || !strings.Contains(out, "status=409") {
+		t.Fatalf("wide event missing for a 409: %q", out)
+	}
+}
+
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf strings.Builder
+}
+
+func (s *syncBuffer) Handle(_ context.Context, r slog.Record) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.buf.WriteString(r.Message)
+	r.Attrs(func(a slog.Attr) bool {
+		s.buf.WriteString(" " + a.Key + "=" + a.Value.String())
+		return true
+	})
+	return nil
+}
+func (s *syncBuffer) Enabled(_ context.Context, _ slog.Level) bool { return true }
+func (s *syncBuffer) WithAttrs(_ []slog.Attr) slog.Handler         { return s }
+func (s *syncBuffer) WithGroup(_ string) slog.Handler              { return s }
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.String()
 }

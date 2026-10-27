@@ -11,15 +11,16 @@ const piOwnAnswerRe = /^type something/i;
  * free-text row turns into a real input - pi's "Type something." and
  * native input widgets both answer from here. An in-band refusal
  * (409 changed, send failed) reads as pi refusing; a network throw
- * reads as unreachable - the request never reached the server, so
- * blaming pi would send the user hunting the wrong layer. Both keep
- * the card for a retry. The tapped control keeps its spinner until
+ * reads as unreachable; a timeout reads as unknown - the server may
+ * still land the keys, so check the terminal before retrying. All
+ * three keep the card. The tapped control keeps its spinner until
  * the keys land, so the seconds before pi's end event never read as a
  * dead tap. */
 export function DialogActions({ k, dialog }: { k: string; dialog: BridgeDialog }) {
 	const [busy, setBusy] = useState(false);
 	const [active, setActive] = useState<string>("");
-	const [failed, setFailed] = useState<"refused" | "network" | null>(null);
+	const [failed, setFailed] = useState<"refused" | "network" | "timeout" | null>(null);
+	const [detail, setDetail] = useState("");
 	const [draft, setDraft] = useState("");
 	// The editor dialog's buffer is one message, exactly as pi paints
 	// it: title, blank line, description. One textarea edits it all at
@@ -74,14 +75,16 @@ export function DialogActions({ k, dialog }: { k: string; dialog: BridgeDialog }
 			.then((r) => {
 				if (!r.ok) {
 					setFailed("refused");
+					setDetail(r.error ?? "");
 					setBusy(false);
 					setActive("");
 				}
 				// On success the keys are on their way; the stream clears
 				// the card when pi's end event lands.
 			})
-			.catch(() => {
-				setFailed("network");
+			.catch((e: unknown) => {
+				const name = (e as { name?: string } | null)?.name;
+				setFailed(name === "TimeoutError" || name === "AbortError" ? "timeout" : "network");
 				setBusy(false);
 				setActive("");
 			});
@@ -185,7 +188,14 @@ export function DialogActions({ k, dialog }: { k: string; dialog: BridgeDialog }
 			)}
 			{failed === "refused" && (
 				<p className="mt-2 text-[12px] text-accent">
-					pi refused that answer - it may have moved on. Try again or cancel.
+					pi refused that answer{detail ? ` (${detail})` : ""} - it may have moved on. Try again or
+					cancel.
+				</p>
+			)}
+			{failed === "timeout" && (
+				<p className="mt-2 text-[12px] text-accent">
+					the server didn't answer in time - the keys may still land. Check the terminal before
+					retrying.
 				</p>
 			)}
 			{failed === "network" && (
