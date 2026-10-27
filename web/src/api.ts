@@ -57,6 +57,9 @@ export type StreamItem = {
 		| "error";
 	text: string;
 	tool_name?: string;
+	/** Synthesized native-event rows: the expanded view (path, diff,
+	 * output) behind the one-line text detail. */
+	body?: string;
 	is_error?: boolean;
 	redacted?: boolean;
 	duration_ms?: number;

@@ -166,6 +166,12 @@ function toolVerb(name: string): string {
 	if (n.startsWith("todo")) return "Planned";
 	if (n.startsWith("memory")) return "Remembered";
 	if (n === "git_commit" || n === "commit") return "Committed";
+	// Antigravity bridge native events (agy-native-event).
+	if (n === "execute") return "Executed";
+	if (n === "search_directory" || n === "find_file") return "Searched";
+	if (n === "edit_file") return "Edited";
+	if (n === "typecheck") return "Checked";
+	if (n === "packages") return "Packages";
 	return name;
 }
 
@@ -245,6 +251,13 @@ function ToolStep({
 						// prompt head is what the terminal shows too.
 						<div className="py-0.5 text-[12px]">
 							<FullText k={sessionKey} it={pair.call} />
+						</div>
+					)}
+					{pair.call?.body && (
+						// Synthesized native events keep their expansion on
+						// the call item itself.
+						<div className="py-0.5 text-[12px]">
+							<DiffText text={pair.call.body} />
 						</div>
 					)}
 					{pair.outs.map((o) => (

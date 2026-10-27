@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -358,6 +360,9 @@ type ViewItem struct {
 	Redacted   bool   `json:"redacted,omitempty"`
 	DurationMs int64  `json:"duration_ms,omitempty"`
 	Images     int    `json:"images,omitempty"`
+	// Body is the expanded view of a synthesized native-event row (path,
+	// diff, output); text stays the one-line collapsed detail.
+	Body string `json:"body,omitempty"`
 	// Truncated marks items whose text the render path shortened (tool
 	// output and bash); the full text stays fetchable via FullItem.
 	Truncated bool `json:"truncated,omitempty"`
@@ -456,6 +461,8 @@ func (ix *Index) ItemImage(key string, seq int) ([]byte, string, error) {
 		switch {
 		case e.Message != nil:
 			vs = messageItems(e, 0)
+		case e.Type == "custom":
+			vs = nativeEventItems(e)
 		case e.Type == "compaction", e.Type == "model_change", e.Type == "branch_summary", e.Type == "custom_message":
 			vs = []ViewItem{{Kind: "marker"}}
 		}
@@ -601,6 +608,10 @@ func (ix *Index) branchItems(key string, textLimit int) ([]ViewItem, error) {
 		switch {
 		case e.Message != nil:
 			bump(messageItems(e, textLimit))
+		case e.Type == "custom":
+			if vs := nativeEventItems(e); len(vs) > 0 {
+				bump(vs)
+			}
 		case e.Type == "compaction":
 			bump([]ViewItem{{Kind: "marker", Text: fmt.Sprintf("Context compacted (%d tokens before)", e.TokensBefore)}})
 		case e.Type == "model_change":
@@ -726,13 +737,135 @@ func (ix *Index) tailEntries(key, path string, st os.FileInfo) ([]Entry, error) 
 	return entries, nil
 }
 
+// entryTime parses an entry's RFC3339 timestamp to epoch ms; 0 when
+// absent or unparsable.
+func entryTime(e Entry) int64 {
+	if t, err := time.Parse(time.RFC3339Nano, e.Timestamp); err == nil {
+		return t.UnixMilli()
+	}
+	return 0
+}
+
+// agyEvent is one Antigravity bridge native ACP tool event (customType
+// agy-native-event). The bridge appends these display-only: they never
+// re-execute and carry no model-context tool results.
+// thoughtAnsiRe strips the SGR escapes the ACP stream bakes into
+// thinking text and the bridge's own "Thinking:" label, which the
+// chat's ThinkingGroup header already states.
+var thoughtAnsiRe = regexp.MustCompile("\x1b\\[[0-9;]*m")
+
+func stripThoughtLabel(s string) string {
+	s = thoughtAnsiRe.ReplaceAllString(s, "")
+	s = strings.TrimPrefix(strings.TrimSpace(s), "Thinking:")
+	return strings.TrimSpace(s)
+}
+
+// agyEvent is one Antigravity bridge native ACP tool event (customType
+// agy-native-event). The bridge appends these display-only: they never
+// re-execute and carry no model-context tool results.
+type agyEvent struct {
+	Name    string `json:"name"`
+	Status  string `json:"status"`
+	Command string `json:"command"`
+	Output  string `json:"output"`
+	Path    string `json:"path"`
+	Diff    string `json:"diff"`
+}
+
+// nativeEventItems renders agy-native-event entries as plain tool_call
+// rows so they ride the existing collapsed step groups. Collapsed text
+// mirrors the bridge's renderer: most-specific signal wins (path
+// basename, then command's first line, then output's), never the name
+// (the name is the verb row already). Body carries the expansion -
+// path, diff, output - which the chat renders through the diff
+// colorizer. Non-agy customs produce no items, as before.
+func nativeEventItems(e Entry) []ViewItem {
+	if len(e.Data) == 0 {
+		return nil
+	}
+	if e.CustomType == "agy-poll-run" {
+		var run struct {
+			Target string `json:"target"`
+			Count  int    `json:"count"`
+			State  string `json:"state"`
+		}
+		if err := json.Unmarshal(e.Data, &run); err != nil {
+			return nil
+		}
+		label := fmt.Sprintf("Poll %s (x%d", run.Target, run.Count)
+		if run.State == "failed" {
+			label += ", failed"
+		}
+		label += ")"
+		return []ViewItem{{Kind: "tool_call", ToolName: "bridge_poll_result",
+			Text: label, Time: entryTime(e)}}
+	}
+	if e.CustomType != "agy-native-event" {
+		return nil
+	}
+	var ev agyEvent
+	if err := json.Unmarshal(e.Data, &ev); err != nil {
+		return nil
+	}
+	firstLine := func(s string) string {
+		line := strings.TrimSpace(strings.SplitN(s, "\n", 2)[0])
+		if line == "" || line == "\\r" {
+			return ""
+		}
+		return line
+	}
+	detail := ""
+	switch {
+	case ev.Path != "":
+		detail = path.Base(ev.Path)
+	case firstLine(ev.Command) != "":
+		detail = firstLine(ev.Command)
+	case firstLine(ev.Output) != "":
+		detail = firstLine(ev.Output)
+	}
+	// ACP outputs often restate the tool name ("AskClaude AskClaude
+	// peer review"); the verb row already carries the name. Exact-case
+	// only: "read" + "Read first clipboard image" is prose, not a
+	// restatement.
+	if detail != "" && len(ev.Name) > 0 && len(detail) > len(ev.Name)+1 {
+		if detail[:len(ev.Name)] == ev.Name && detail[len(ev.Name)] == ' ' {
+			detail = strings.TrimSpace(detail[len(ev.Name)+1:])
+		}
+	}
+	var body strings.Builder
+	if ev.Path != "" {
+		body.WriteString(ev.Path + "\n")
+	}
+	// The collapsed row shows only the command's first line; the full
+	// command belongs in the expansion (pi's own renderer drops it).
+	if ev.Command != "" {
+		body.WriteString(ev.Command + "\n")
+	}
+	if ev.Diff != "" {
+		body.WriteString(ev.Diff + "\n")
+	}
+	if ev.Output != "" && (ev.Diff == "" || ev.Status == "failed") {
+		body.WriteString(ev.Output + "\n")
+	}
+	return []ViewItem{{Kind: "tool_call", ToolName: ev.Name,
+		Text: truncate(detail, 160), Body: capRunes(strings.TrimRight(body.String(), "\n"), 4000),
+		Time: entryTime(e)}}
+}
+
+// capRunes bounds s to n runes without touching newlines - truncate()
+// flattens them, which would destroy diff line structure.
+func capRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
+}
+
 func messageItems(e Entry, textLimit int) []ViewItem {
 	m := e.Message
 	var out []ViewItem
-	var at int64
-	if t, err := time.Parse(time.RFC3339Nano, e.Timestamp); err == nil {
-		at = t.UnixMilli()
-	}
+	at := entryTime(e)
 	limit := func(s string) (string, bool) {
 		if textLimit <= 0 {
 			return s, false
@@ -764,7 +897,7 @@ func messageItems(e Entry, textLimit int) []ViewItem {
 					out = append(out, ViewItem{Kind: "thinking", Redacted: true, Time: at})
 					continue
 				}
-				out = append(out, ViewItem{Kind: "thinking", Text: b.Thinking, Time: at})
+				out = append(out, ViewItem{Kind: "thinking", Text: stripThoughtLabel(b.Thinking), Time: at})
 			case "text":
 				if b.Text != "" {
 					out = append(out, ViewItem{Kind: "text", Text: b.Text, Time: at})
