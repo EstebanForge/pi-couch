@@ -14,10 +14,31 @@ const quotaTTL = 5 * time.Minute
 // Service coordinates cached fetches across all quota providers.
 type Service struct {
 	client   *http.Client
+	fetchers []struct {
+		idx int
+		fn  func(*http.Client) ProviderQuota
+	}
 	mu       sync.Mutex
 	cached   *QuotasSnapshot
 	cachedAt time.Time
 	pending  bool // one background revalidate at a time
+}
+
+func defaultFetchers() []struct {
+	idx int
+	fn  func(*http.Client) ProviderQuota
+} {
+	return []struct {
+		idx int
+		fn  func(*http.Client) ProviderQuota
+	}{
+		{0, fetchClaudeQuota},
+		{1, fetchCodexQuota},
+		{2, fetchCopilotQuota},
+		{3, fetchAntigravityQuota},
+		{4, fetchZaiQuota},
+		{5, fetchMinimaxQuota},
+	}
 }
 
 func NewService() *Service {
@@ -25,6 +46,7 @@ func NewService() *Service {
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
+		fetchers: defaultFetchers(),
 	}
 }
 
@@ -74,16 +96,9 @@ func (s *Service) fetch() QuotasSnapshot {
 	var wg sync.WaitGroup
 	providers := make([]ProviderQuota, 6)
 
-	fetchers := []struct {
-		idx int
-		fn  func(*http.Client) ProviderQuota
-	}{
-		{0, fetchClaudeQuota},
-		{1, fetchCodexQuota},
-		{2, fetchCopilotQuota},
-		{3, fetchAntigravityQuota},
-		{4, fetchZaiQuota},
-		{5, fetchMinimaxQuota},
+	fetchers := s.fetchers
+	if fetchers == nil {
+		fetchers = defaultFetchers()
 	}
 
 	wg.Add(len(fetchers))

@@ -18,6 +18,17 @@ func (offlineRT) RoundTrip(*http.Request) (*http.Response, error) {
 func newTestService() *Service {
 	svc := NewService()
 	svc.client = &http.Client{Transport: offlineRT{}}
+	// The Antigravity fetcher shells out to the agy CLI, which works
+	// on this box — stub it so tests stay offline and instant.
+	stub := svc.fetchers
+	for i := range stub {
+		if stub[i].idx == 3 {
+			stub[i].fn = func(*http.Client) ProviderQuota {
+				return ProviderQuota{ID: "antigravity", Name: "Antigravity"}
+			}
+		}
+	}
+	svc.fetchers = stub
 	return svc
 }
 
