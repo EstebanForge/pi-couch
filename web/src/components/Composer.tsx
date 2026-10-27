@@ -22,7 +22,6 @@ import {
 } from "../api";
 import { dispositionFor } from "../chat/disposition";
 import { ESC_SETTLE_MS, orderKeys, type QuickKey } from "../chat/quick-keys";
-import { money } from "../fmt";
 import { hapticConfirm, hapticTick } from "../haptics";
 import { useSheetBack } from "../nav";
 import {
@@ -62,7 +61,6 @@ export const Composer = memo(function Composer(props: {
 	thinking: string;
 	ctxTokens: number;
 	memory: string | null;
-	cost: number;
 	cwd: string;
 	addPending: (text: string, queued: boolean) => number;
 	markPending: (id: number, state: "sent" | "queued" | "unconfirmed") => void;
@@ -644,7 +642,7 @@ export const Composer = memo(function Composer(props: {
 						</button>
 					</div>
 				</div>
-				{(ctxPct !== null || props.cost > 0 || props.memory) && (
+				{(ctxPct !== null || props.memory) && (
 					<div className="flex items-center justify-center gap-3 px-3 py-1 font-mono text-[11px] text-muted tabular-nums">
 						{ctxPct !== null && (
 							<span className="flex items-center gap-1.5 font-sans">
@@ -660,8 +658,7 @@ export const Composer = memo(function Composer(props: {
 								</span>
 							</span>
 						)}
-						{props.cost > 0 && <span className="tabular-nums font-mono">${money(props.cost)}</span>}
-						{props.memory && (
+							{props.memory && (
 							<span role="img" aria-label={`memory ${props.memory}`}>
 								<FaBrain size={13} />
 							</span>

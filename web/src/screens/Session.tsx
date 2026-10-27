@@ -1216,7 +1216,6 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 				thinking={state.thinking}
 				ctxTokens={state.ctx}
 				memory={state.memory}
-				cost={state.header?.total_cost ?? 0}
 				cwd={state.header?.cwd ?? ""}
 				addPending={addPendingCb}
 				markPending={markPendingCb}

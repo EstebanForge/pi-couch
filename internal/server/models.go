@@ -183,5 +183,5 @@ func (a *app) apiModels(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "model catalog unavailable"})
 		return
 	}
-	writeJSON(w, http.StatusOK, filterModels(rows, r.URL.Query().Get("q"), 25))
+	writeJSON(w, http.StatusOK, filterModels(rows, r.URL.Query().Get("q"), 500))
 }

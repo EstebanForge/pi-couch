@@ -27,15 +27,6 @@ export function tildify(path: string, home = ""): string {
 
 // Chilean number format: dot as the thousand separator, comma decimals.
 const clInt = new Intl.NumberFormat("es-CL");
-const clMoney = new Intl.NumberFormat("es-CL", {
-	minimumFractionDigits: 2,
-	maximumFractionDigits: 2,
-});
-
 export function thousand(n: number): string {
 	return clInt.format(n);
-}
-
-export function money(n: number): string {
-	return clMoney.format(n);
 }
