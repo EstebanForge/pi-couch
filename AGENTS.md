@@ -69,6 +69,13 @@ Boundaries:
 - Ephemeral sessions (`--no-session`) are invisible by design.
 - No backward-compat layers or fallback paths; remove obsolete code instead (project rule, ADR consequences included).
 
+## Versions
+
+- `const Version` in internal/server/version.go is the single source of truth. Releases are date-based since the 0.1.x ladder ended at 0.1.58: `YYYYMMDD` for the first release of a day, `YYYYMMDD.1`, `.2`, ... for same-day re-releases. The first date release of a day is bare regardless of how many 0.1.x releases shipped earlier that day.
+- Tags are unprefixed and must equal version.go exactly (release.yml enforces both and rejects `v`-prefixed tags). Release flow: bump version.go, commit, tag the bare number, push the tag; release.yml builds and publishes the four cross-built binaries. The APK attaches to the release separately, only when an APK round actually happens.
+- The binary self-updater compares versions dotted-numerically and deliberately treats unparsable tags as the oldest possible (a junk tag can never trigger a downgrade). This is why the same-day suffix is `.1` and never `.A`: a letter suffix parses as garbage, so the updater would refuse to take the second release of a day forever.
+- APK versions are a separate axis: versionCode is a strictly increasing int (the only number in-place upgrades and Play care about; bump on every APK build) while versionName mirrors version.go cosmetically.
+
 ## Commits
 
 History uses Conventional Commits, lowercase, imperative, no scope: `docs: lock Go and Datastar stack in ADR-0002`. Single branch (main). No CONTRIBUTING.md, CI, or PR templates yet.

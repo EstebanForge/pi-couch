@@ -8,7 +8,7 @@ Started 2026-10-09 as a plan and a domain glossary. It grew into the phone I dri
 - Session resume from the phone: closed sessions come back with one tap. The terminal went properly live (herdr observe deltas instead of snapshot slides) with a Wide mode you can actually read.
 - The quick-actions panel: pi skills, slash commands, prompt templates and bash one-liners, filterable, filled or run right there. Sessions rename from the chat, queued follow-ups show as a strip, thinking and skill expansions fold.
 - Antigravity bridge tool activity renders in the chat: native ACP rows with diffs, thinking stripped of terminal colors. Quotas got honest, cached behind a five-minute cap and read from the agy CLI's own report because the summary endpoint hides the Gemini pools, and the Claude fetcher stopped rotating Claude Code's tokens.
-- Under the hood: the transcript stream sends appends instead of full resets on long threads, every dialog answer outcome lands in the journal, and the model catalog stopped truncating rows past an old cap.
+- Under the hood: the transcript stream sends appends instead of full resets on long threads, every dialog answer outcome lands in the journal, and the model catalog stopped truncating rows past an old cap. Versions moved to dates too: YYYYMMDD, with .1, .2 for same-day re-releases, a shape the self-updater's dotted compare already understands.
 
 ## 2026-10-24
 
