@@ -897,7 +897,10 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 					// Backstop: the driven flip normally releases the lock;
 					// never leave the composer greyed if it never comes.
 					if (resumeTimer.current) clearTimeout(resumeTimer.current);
-					resumeTimer.current = setTimeout(() => setResuming(false), 60_000);
+					resumeTimer.current = setTimeout(() => {
+						resumeTimer.current = null;
+						setResuming(false);
+					}, 60_000);
 				}
 				return r;
 			});

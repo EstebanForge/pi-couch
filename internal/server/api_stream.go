@@ -321,7 +321,10 @@ func (a *app) apiStreamTranscript(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			prev = cur
-			prevFirstSeq = items[0].Seq
+			prevFirstSeq = 0
+			if len(items) > 0 {
+				prevFirstSeq = items[0].Seq
+			}
 			status, model, thinking = st, meta.Model, meta.Thinking
 			lastQueue = queue
 			sent = true

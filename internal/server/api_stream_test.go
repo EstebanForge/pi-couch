@@ -263,6 +263,7 @@ func TestJSONTranscriptStream(t *testing.T) {
 	// Growth arrives as append with continuing seqs.
 	writeLines(t, path, userLine("b", "a", "second"))
 	f = waitFrame(t, frames, 8*time.Second, "append")
+
 	var ap transcriptAppend
 	if err := json.Unmarshal([]byte(f.data), &ap); err != nil {
 		t.Fatal(err)
@@ -297,6 +298,33 @@ func TestJSONTranscriptStream(t *testing.T) {
 	if len(rs2.Items) != 2 || rs2.Items[1].Text != "branched" {
 		t.Fatalf("reset after branch items=%+v", rs2.Items)
 	}
+
+	// A header-only jsonl (meta but zero items) must keep the stream
+	// alive across ticks: the reset branch used to index items[0] on
+	// the empty window and panic every pass.
+	emptyPath := filepath.Join(sub, "empty.jsonl")
+	writeLines(t, emptyPath, sessHeader)
+	req2, err := http.NewRequest(http.MethodGet, srv.URL+"/api/stream/transcript/empty", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp2, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp2.Body.Close()
+	frames2 := readFrames(t, resp2.Body)
+	f = waitFrame(t, frames2, 5*time.Second, "reset")
+	if err := json.Unmarshal([]byte(f.data), &rs); err != nil {
+		t.Fatal(err)
+	}
+	if len(rs.Items) != 0 {
+		t.Fatalf("empty window reset items=%d", len(rs.Items))
+	}
+	// A same-shape second pass (a junk line ticks the watcher; the
+	// tolerant parser still sees zero items) must not kill the stream.
+	writeLines(t, emptyPath, "not json")
+	waitFrame(t, frames2, 8*time.Second, "reset")
 }
 
 func TestJSONStopClose(t *testing.T) {
