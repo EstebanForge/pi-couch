@@ -2,6 +2,14 @@
 
 Started 2026-10-09 as a plan and a domain glossary. It grew into the phone I drive my work through. Dates below are approximate; the git log holds the precise trail.
 
+## 2026-10-25 → 2026-10-27
+
+- Went public and stayed that way: tag a version and CI builds and publishes the binaries, and the server updates itself from GitHub releases on a 12-hour check (atomic swap, rolls back if a boot fails). A shared token gates the API by default; the first-run screen asks for it.
+- Session resume from the phone: closed sessions come back with one tap. The terminal went properly live (herdr observe deltas instead of snapshot slides) with a Wide mode you can actually read.
+- The quick-actions panel: pi skills, slash commands, prompt templates and bash one-liners, filterable, filled or run right there. Sessions rename from the chat, queued follow-ups show as a strip, thinking and skill expansions fold.
+- Antigravity bridge tool activity renders in the chat: native ACP rows with diffs, thinking stripped of terminal colors. Quotas got honest, cached behind a five-minute cap and read from the agy CLI's own report because the summary endpoint hides the Gemini pools, and the Claude fetcher stopped rotating Claude Code's tokens.
+- Under the hood: the transcript stream sends appends instead of full resets on long threads, every dialog answer outcome lands in the journal, and the model catalog stopped truncating rows past an old cap.
+
 ## 2026-10-24
 
 - Machine settings moved into `~/.config/pi-couch/config.toml` (TOML, commented, optional). The repo carries none of my server's identity anymore, and the history got scrubbed to match. README rewrite, MIT license, this changelog: the first pass at making this something other people can run.
