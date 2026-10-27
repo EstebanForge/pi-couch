@@ -343,11 +343,16 @@ export const stopSession = (key: string) =>
 export const closeSession = (key: string) =>
 	postJSON(`/api/sessions/${encodeURIComponent(key)}/close`);
 
-async function postJSONBody(path: string, body: unknown): Promise<{ ok: boolean; error?: string }> {
+async function postJSONBody(
+	path: string,
+	body: unknown,
+	timeoutMs?: number,
+): Promise<{ ok: boolean; error?: string }> {
 	const res = await fetch(path, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify(body),
+		...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
 	});
 	let parsed: { ok?: boolean; error?: string } = {};
 	try {
@@ -372,11 +377,17 @@ export const resumeSession = (key: string, text: string) =>
  * down+enter. ok:false carries the in-band refusal (changed, notfound,
  * send failed) and the caller hides its buttons. */
 export const answerDialog = (key: string, id: string, answer: string, text?: string) =>
-	postJSONBody(`/api/sessions/${encodeURIComponent(key)}/dialog/answer`, {
-		id,
-		answer,
-		...(text !== undefined ? { text } : {}),
-	});
+	// Bounded just past the server's 20s answer ctx: an unanswered
+	// request must resolve as unreachable, not hang the busy spinner.
+	postJSONBody(
+		`/api/sessions/${encodeURIComponent(key)}/dialog/answer`,
+		{
+			id,
+			answer,
+			...(text !== undefined ? { text } : {}),
+		},
+		25_000,
+	);
 export const setModel = (key: string, pattern: string) =>
 	postJSONBody(`/api/sessions/${encodeURIComponent(key)}/model`, { pattern });
 export const setThinking = (key: string, level: string) =>

@@ -9,15 +9,17 @@ const piOwnAnswerRe = /^type something/i;
  * Option rows tap into the verify-then-fire walk (the cursor highlight
  * is the pane's), an editor draft shows its text with Submit, and a
  * free-text row turns into a real input - pi's "Type something." and
- * native input widgets both answer from here. Any in-band refusal
- * (409 changed, send failed) hides the card - the stream brings
- * whatever pi shows now - and only a network throw re-enables it for a
- * retry. The tapped control keeps its spinner until the keys land, so
- * the seconds before pi's end event never read as a dead tap. */
+ * native input widgets both answer from here. An in-band refusal
+ * (409 changed, send failed) reads as pi refusing; a network throw
+ * reads as unreachable - the request never reached the server, so
+ * blaming pi would send the user hunting the wrong layer. Both keep
+ * the card for a retry. The tapped control keeps its spinner until
+ * the keys land, so the seconds before pi's end event never read as a
+ * dead tap. */
 export function DialogActions({ k, dialog }: { k: string; dialog: BridgeDialog }) {
 	const [busy, setBusy] = useState(false);
 	const [active, setActive] = useState<string>("");
-	const [failed, setFailed] = useState(false);
+	const [failed, setFailed] = useState<"refused" | "network" | null>(null);
 	const [draft, setDraft] = useState("");
 	// The editor dialog's buffer is one message, exactly as pi paints
 	// it: title, blank line, description. One textarea edits it all at
@@ -38,7 +40,7 @@ export function DialogActions({ k, dialog }: { k: string; dialog: BridgeDialog }
 		if (servedSig.current !== "" && sig !== servedSig.current) {
 			setBusy(false);
 			setActive("");
-			setFailed(false);
+			setFailed(null);
 		}
 		servedSig.current = sig;
 	}, [dialog.title, dialog.options]);
@@ -67,11 +69,11 @@ export function DialogActions({ k, dialog }: { k: string; dialog: BridgeDialog }
 		if (busy) return;
 		setBusy(true);
 		setActive(label);
-		setFailed(false);
+		setFailed(null);
 		answerDialog(k, id, a, text)
 			.then((r) => {
 				if (!r.ok) {
-					setFailed(true);
+					setFailed("refused");
 					setBusy(false);
 					setActive("");
 				}
@@ -79,7 +81,7 @@ export function DialogActions({ k, dialog }: { k: string; dialog: BridgeDialog }
 				// the card when pi's end event lands.
 			})
 			.catch(() => {
-				setFailed(true);
+				setFailed("network");
 				setBusy(false);
 				setActive("");
 			});
@@ -181,9 +183,14 @@ export function DialogActions({ k, dialog }: { k: string; dialog: BridgeDialog }
 					/>
 				</>
 			)}
-			{failed && (
+			{failed === "refused" && (
 				<p className="mt-2 text-[12px] text-accent">
 					pi refused that answer - it may have moved on. Try again or cancel.
+				</p>
+			)}
+			{failed === "network" && (
+				<p className="mt-2 text-[12px] text-accent">
+					couldn't reach the server - the request never landed. Try again.
 				</p>
 			)}
 			<div className="mt-3 flex items-center gap-2">
