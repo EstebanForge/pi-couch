@@ -39,6 +39,29 @@ func TestChatAppendNoChange(t *testing.T) {
 	}
 }
 
+// A full tail window slides: growth drops the oldest item, so prev
+// aligns one-in from cur's head. Strict prefix compares can never
+// append once the window is full — the post-resume freeze bug.
+func TestChatAppendSlidingWindow(t *testing.T) {
+	prev := itemFps(vitems("a", "b", "c"))
+	items := vitems("b", "c", "d")
+	delta, ok := chatAppend(prev, items, itemFps(items))
+	if !ok {
+		t.Fatal("sliding-window growth flagged as full render")
+	}
+	if len(delta) != 1 || delta[0].Text != "d" {
+		t.Fatalf("delta = %v, want [d]", delta)
+	}
+}
+
+func TestChatAppendRewriteIsFullRender(t *testing.T) {
+	prev := itemFps(vitems("a", "b", "c"))
+	items := vitems("x", "y", "z")
+	if _, ok := chatAppend(prev, items, itemFps(items)); ok {
+		t.Fatal("a rewritten window passed as an append")
+	}
+}
+
 func TestChatAppendEditedItemForcesFull(t *testing.T) {
 	prev := itemFps(vitems("a", "b"))
 	items := vitems("a", "EDITED")
@@ -55,13 +78,17 @@ func TestChatAppendShrinkForcesFull(t *testing.T) {
 	}
 }
 
-func TestChatAppendSlidingHeadForcesFull(t *testing.T) {
-	// Window at the cap: the oldest item fell off, so the client's list is
-	// no longer a prefix - full render territory.
+func TestChatAppendSlidingHeadAppends(t *testing.T) {
+	// Window at the cap: the oldest item fell off, but the client
+	// accumulates by seq and never drops, so the slide is still a delta.
 	prev := itemFps(vitems("a", "b", "c"))
 	items := vitems("b", "c", "d")
-	if _, ok := chatAppend(prev, items, itemFps(items)); ok {
-		t.Fatal("slid window flagged as append")
+	delta, ok := chatAppend(prev, items, itemFps(items))
+	if !ok {
+		t.Fatal("slid window flagged as full render")
+	}
+	if len(delta) != 1 || delta[0].Text != "d" {
+		t.Fatalf("delta = %v, want [d]", delta)
 	}
 }
 

@@ -699,6 +699,9 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 	const taBlur = useRef<HTMLTextAreaElement | null>(null);
 
 	const [streamRetry, setStreamRetry] = useState(0);
+	// Bumped when a resume completes so the transcript stream reopens
+	// fresh instead of trusting a connection that predates the new driver.
+	const [streamGen, setStreamGen] = useState(0);
 	const retried = useRef(false);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: streamRetry is intentionally tracked to trigger reconnections.
 	useEffect(() => {
@@ -721,7 +724,7 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 			},
 		});
 		return () => stream.close();
-	}, [sessionKey, streamRetry]);
+	}, [sessionKey, streamRetry, streamGen]);
 
 	// A radio blip during connect can leave the SSE silently dead — no
 	// error event, no frames, an eternal spinner. If nothing has ever
@@ -814,9 +817,14 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 	// A resume is in flight: the composer greys out and the bar spins
 	// until the session turns driven again.
 	const [resuming, setResuming] = useState(false);
+	// A resume swaps the driver under the session: the spinner holds
+	// until the session turns driven, then the stream reopens.
 	useEffect(() => {
-		if (!undriven) setResuming(false);
-	}, [undriven]);
+		if (!undriven && resuming) {
+			setResuming(false);
+			setStreamGen((g) => g + 1);
+		}
+	}, [undriven, resuming]);
 	// meta.name refreshes on every watcher tick via the sessions stream;
 	// the transcript reset's header only refreshes on reconnect, so the
 	// store wins — a /name rename must flip the title without one.
@@ -869,9 +877,13 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 			if (resuming) return Promise.resolve({ ok: false, error: "busy" });
 			setResuming(true);
 			return resumeSession(sessionKey, body).then((r) => {
-				// The spinner holds until the session turns driven; only a
-				// failed resume hands control back right away.
-				if (!r.ok) setResuming(false);
+				if (!r.ok) {
+					setResuming(false);
+				} else {
+					// Backstop: the driven flip normally releases the lock;
+					// never leave the composer greyed if it never comes.
+					setTimeout(() => setResuming(false), 60_000);
+				}
 				return r;
 			});
 		},

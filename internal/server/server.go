@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -361,12 +362,17 @@ func chatAppend(prev []uint32, items []pi.ViewItem, cur []uint32) (delta []pi.Vi
 	if len(prev) == 0 || len(items) < len(prev) || len(cur) != len(items) {
 		return nil, false
 	}
-	for i, f := range prev {
-		if cur[i] != f {
-			return nil, false
+	// The window is a fixed-size tail, so growth also drops the oldest
+	// items: prev aligns against cur's head with its own head dropped.
+	// A strict prefix compare can never append once the window is full,
+	// which pinned every update on full resets.
+	for drop := 0; drop < len(prev); drop++ {
+		tail := prev[drop:]
+		if slices.Equal(tail, cur[:len(tail)]) {
+			return items[len(tail):], true
 		}
 	}
-	return items[len(prev):], true
+	return nil, false
 }
 
 // subscribeTicks registers one fan-out slot; nil watcher degrades to
