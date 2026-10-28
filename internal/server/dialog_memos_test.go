@@ -1,6 +1,9 @@
 package server
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestDialogMemosFirstWriterWins(t *testing.T) {
 	m := newDialogMemos()
@@ -44,5 +47,45 @@ func TestDialogMemosRollOver(t *testing.T) {
 	}
 	if m.Claim("d") {
 		t.Fatal("d must survive one rollover")
+	}
+}
+
+// A claim older than the TTL must be claimable again: pi re-presents
+// identical dialog content (same pane id) minutes later, and the memo
+// only guards the in-flight double-tap race.
+func TestDialogMemosClaimExpiresAfterTTL(t *testing.T) {
+	now := time.Unix(0, 0)
+	m := newDialogMemos()
+	m.now = func() time.Time { return now }
+	if !m.Claim("d1") {
+		t.Fatal("first claim must win")
+	}
+	if m.Claim("d1") {
+		t.Fatal("claim inside the TTL must lose")
+	}
+	now = now.Add(dialogClaimTTL - time.Second)
+	if m.Claim("d1") {
+		t.Fatal("claim one tick inside the TTL must lose")
+	}
+	now = now.Add(2 * time.Second)
+	if !m.Claim("d1") {
+		t.Fatal("expired claim must be claimable again")
+	}
+	if m.Claim("d1") {
+		t.Fatal("re-claimed id must lose again inside the fresh TTL")
+	}
+}
+
+// Release must reach the prev generation: a claim that rotated can
+// never otherwise be released, a second stuck-forever path.
+func TestDialogMemosReleaseReachesPrev(t *testing.T) {
+	m := newDialogMemos()
+	m.cap = 1
+	if !m.Claim("a") || !m.Claim("b") {
+		t.Fatal("setup claims must win")
+	}
+	m.Release("a")
+	if !m.Claim("a") {
+		t.Fatal("release must drop rotated claims too")
 	}
 }

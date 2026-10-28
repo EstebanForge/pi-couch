@@ -30,9 +30,9 @@ func TestVersionEndpoint(t *testing.T) {
 		t.Fatal("home missing from /api/version")
 	}
 	// The phone confirms deploys by eye: the shape is the contract.
-	// Build metadata is optional now that the version is a plain release.
-	re := regexp.MustCompile(`^\d+\.\d+\.\d+(\+[0-9A-Za-z.+-]+)?$`)
+	// Date-based releases: YYYYMMDD, same-day re-releases .1, .2, ...
+	re := regexp.MustCompile(`^\d{8}(\.\d+)?$`)
 	if !re.MatchString(out.Version) {
-		t.Fatalf("version %q is not semver", out.Version)
+		t.Fatalf("version %q is not a date version", out.Version)
 	}
 }

@@ -321,3 +321,37 @@ func TestDialogAnswerMemoReleasesOnSendFailure(t *testing.T) {
 		t.Fatalf("sends=%d, want 2", n)
 	}
 }
+
+// pi re-presents identical dialog content later (same pane id, the
+// 2026-10-28 stuck-commit incident): the claim must expire so the new
+// instance answers instead of 409ing forever.
+func TestDialogAnswerMemoAllowsRePresentedDialog(t *testing.T) {
+	var sends int32
+	var sessPath string
+	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath, sends: &sends})
+	a, sub, h := streamTestAppWithHerdr(t, sock)
+	sessPath = filepath.Join(sub, "s1.jsonl")
+	bridgeReal(t, a, sessPath)
+
+	answer := func() int {
+		req := httptest.NewRequest(http.MethodPost, "/api/sessions/s1/dialog/answer",
+			strings.NewReader(`{"id":"real","answer":"yes"}`))
+		req.Host = "127.0.0.1:8090"
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	if code := answer(); code != http.StatusOK {
+		t.Fatalf("first answer: code=%d, want 200", code)
+	}
+	if code := answer(); code != http.StatusConflict {
+		t.Fatalf("double tap: code=%d, want 409", code)
+	}
+	a.answered.now = func() time.Time { return time.Now().Add(2 * dialogClaimTTL) }
+	if code := answer(); code != http.StatusOK {
+		t.Fatalf("re-presented dialog after TTL: code=%d, want 200", code)
+	}
+	if n := atomic.LoadInt32(&sends); n != 2 {
+		t.Fatalf("sends=%d, want 2", n)
+	}
+}
