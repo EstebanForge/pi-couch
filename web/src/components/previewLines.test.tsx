@@ -1,6 +1,6 @@
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { PreviewChip, PreviewLines } from "./previewLines";
+import { canRename, PreviewChip, PreviewLines } from "./previewLines";
 
 describe("PreviewLines", () => {
 	it("renders the tail with speaker labels, newest last", () => {
@@ -33,5 +33,14 @@ describe("PreviewChip", () => {
 	});
 	it("shows the plain status otherwise", () => {
 		expect(renderToString(<PreviewChip status="done" awaiting={false} />)).toContain("done");
+	});
+});
+
+describe("canRename", () => {
+	it("allows rename for live driver statuses", () => {
+		for (const s of ["working", "idle", "blocked", "done"]) expect(canRename(s)).toBe(true);
+	});
+	it("refuses rename when no driver runs the session", () => {
+		expect(canRename("unknown")).toBe(false);
 	});
 });

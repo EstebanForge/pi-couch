@@ -1,6 +1,10 @@
 import type { PreviewLine } from "../api";
 import { STATUS_DOT } from "../status";
 
+// A rename via /name needs a live pi process; the preview status is
+// "unknown" exactly when no herdr driver runs the session.
+export const canRename = (status: string): boolean => status !== "unknown";
+
 // Status chip with the same vocabulary and colors as the home card:
 // herdr status dot, yellow for waiting-for-you.
 export function PreviewChip({ status, awaiting }: { status: string; awaiting: boolean }) {
