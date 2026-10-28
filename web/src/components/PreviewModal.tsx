@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { getSessionPreview, type SessionPreview, sendPrompt } from "../api";
 import { useSheetBack } from "../nav";
-import { isWaiting } from "../status";
 import { FaCheck, FaPencilAlt, FaXmark } from "./fa";
-import { canRename, PreviewChip, PreviewLines, renameHint } from "./previewLines";
+import { canRename, PreviewChip, PreviewLines, renameHint, renameQueueMode } from "./previewLines";
 import { Spinner } from "./Spinner";
 
 type PreviewState =
@@ -29,10 +28,22 @@ export function PreviewModal({
 	const [shownTitle, setShownTitle] = useState(title);
 	const [renaming, setRenaming] = useState(false);
 	const [renameVal, setRenameVal] = useState("");
-	const [renameError, setRenameError] = useState("");
+	const [note, setNote] = useState<{ text: string; bad: boolean } | null>(null);
+	const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const bodyRef = useRef<HTMLDivElement>(null);
 
 	useEffect(() => setShownTitle(title), [title]);
+	useEffect(
+		() => () => {
+			if (noteTimer.current) clearTimeout(noteTimer.current);
+		},
+		[],
+	);
+	const showNote = (text: string, bad: boolean) => {
+		if (noteTimer.current) clearTimeout(noteTimer.current);
+		setNote({ text, bad });
+		noteTimer.current = setTimeout(() => setNote(null), 2600);
+	};
 
 	useEffect(() => {
 		let alive = true;
@@ -64,13 +75,21 @@ export function PreviewModal({
 			setRenaming(false);
 			return;
 		}
-		const r = await sendPrompt(sessionKey, `/name ${name}`);
-		if (r.ok) {
+		const queued = renameQueueMode(status) === "followUp";
+		const r = await sendPrompt(sessionKey, `/name ${name}`, queued ? "followUp" : undefined);
+		if (!r.ok) {
+			showNote(r.error === "notdriven" ? "No driver runs this session." : "Rename failed.", true);
+			return;
+		}
+		if (queued) {
+			// The name is not applied yet - pi runs the command when the
+			// turn ends and the stream flips the title everywhere.
+			setRenaming(false);
+			showNote("Queued - applies when pi finishes.", false);
+		} else {
 			setShownTitle(name);
 			setRenaming(false);
-			setRenameError("");
-		} else {
-			setRenameError(r.error === "notdriven" ? "No driver runs this session." : "Rename failed.");
+			showNote("Name saved.", false);
 		}
 	};
 
@@ -109,7 +128,7 @@ export function PreviewModal({
 								<button
 									type="submit"
 									aria-label="Save name"
-									disabled={!renameVal.trim() || isWaiting(status)}
+									disabled={!renameVal.trim() || status === "blocked"}
 									className="press-scale grid h-8 w-8 shrink-0 place-items-center rounded-lg text-primary disabled:opacity-40"
 								>
 									<FaCheck size={16} />
@@ -139,7 +158,7 @@ export function PreviewModal({
 									aria-label="Rename session"
 									onClick={() => {
 										setRenameVal(shownTitle);
-										setRenameError("");
+										setNote(null);
 										setRenaming(true);
 									}}
 									className="press-scale grid h-8 w-8 shrink-0 place-items-center rounded-lg text-muted active:text-base-content"
@@ -160,9 +179,11 @@ export function PreviewModal({
 						</button>
 					)}
 				</header>
-				{renameError && (
-					<p className="border-b border-base-content/8 px-4 py-1.5 text-[12px] text-error">
-						{renameError}
+				{note && (
+					<p
+						className={`border-b border-base-content/8 px-4 py-1.5 text-[12px] ${note.bad ? "text-error" : "text-primary"}`}
+					>
+						{note.text}
 					</p>
 				)}
 				<div ref={bodyRef} className="max-h-[50dvh] overflow-y-auto px-4 py-3">

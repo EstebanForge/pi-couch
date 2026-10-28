@@ -1,15 +1,20 @@
 import type { PreviewLine } from "../api";
-import { isWaiting, STATUS_DOT } from "../status";
+import { STATUS_DOT } from "../status";
 
 // A rename via /name needs a live pi process; the preview status is
 // "unknown" exactly when no herdr driver runs the session.
 export const canRename = (status: string): boolean => status !== "unknown";
 
-// Busy agents cannot take /name: it would land in the dialog or the
-// steering queue instead of renaming. The string is the user-facing
-// reason shown next to the disabled save button.
+// While pi is generating, /name must ride the follow-up queue: sent
+// plain it would be steered into the model as text, not run as a
+// command. undefined sends immediately.
+export const renameQueueMode = (status: string): "followUp" | undefined =>
+	status === "working" ? "followUp" : undefined;
+
+// Blocked is the one hard refusal: pi is holding a dialog, and typed
+// text would land in the dialog, not in the name.
 export const renameHint = (status: string): string | null =>
-	isWaiting(status) ? "pi is busy - rename waits until it finishes." : null;
+	status === "blocked" ? "pi is waiting on you - answer it first, then rename." : null;
 
 // Status chip with the same vocabulary and colors as the home card:
 // herdr status dot, yellow for waiting-for-you.

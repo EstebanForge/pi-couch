@@ -1,6 +1,6 @@
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { canRename, PreviewChip, PreviewLines, renameHint } from "./previewLines";
+import { canRename, PreviewChip, PreviewLines, renameHint, renameQueueMode } from "./previewLines";
 
 describe("PreviewLines", () => {
 	it("renders the tail with speaker labels, newest last", () => {
@@ -46,11 +46,20 @@ describe("canRename", () => {
 });
 
 describe("renameHint", () => {
-	it("explains the wait for busy statuses", () => {
-		expect(renameHint("working")).toContain("busy");
-		expect(renameHint("blocked")).toContain("busy");
+	it("refuses only the dialog-waiting state", () => {
+		expect(renameHint("blocked")).toContain("waiting on you");
 	});
 	it("is silent when the agent can take /name now", () => {
-		for (const s of ["idle", "done", "unknown"]) expect(renameHint(s)).toBeNull();
+		for (const s of ["working", "idle", "done", "unknown"]) expect(renameHint(s)).toBeNull();
+	});
+});
+
+describe("renameQueueMode", () => {
+	it("queues the rename behind a running turn", () => {
+		expect(renameQueueMode("working")).toBe("followUp");
+	});
+	it("sends immediately otherwise", () => {
+		for (const s of ["idle", "done", "blocked", "unknown"])
+			expect(renameQueueMode(s)).toBeUndefined();
 	});
 });
