@@ -410,6 +410,14 @@ export async function getModels(q: string): Promise<ModelRow[]> {
 	return (await res.json()) as ModelRow[];
 }
 
+// The GET catalog is cached server-side for up to a week; this forces
+// a re-fetch against pi so machine-side model changes show at once.
+export async function refreshModels(): Promise<ModelRow[]> {
+	const res = await fetch("/api/models/refresh", { method: "POST" });
+	if (!res.ok) throw new Error(`models refresh ${res.status}`);
+	return (await res.json()) as ModelRow[];
+}
+
 export type SkillInfo = { name: string; description: string };
 export type PromptInfo = { name: string; description: string; hint?: string };
 

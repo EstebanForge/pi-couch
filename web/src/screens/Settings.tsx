@@ -5,10 +5,10 @@
 // stays rejected like everywhere else (material look fights dracula).
 import { Dialog, DialogButton, Segmented, SegmentedButton, Sheet, Toggle } from "konsta/react";
 import { useEffect, useState } from "react";
-import { getVersion } from "../api";
+import { getVersion, refreshModels } from "../api";
 import { orderKeys, QUICK_KEYS } from "../chat/quick-keys";
 import { DirBrowser } from "../components/DirBrowser";
-import { FaArrowDown, FaArrowUp, FaCheck, FaPlus, FaXmark } from "../components/fa";
+import { FaArrowDown, FaArrowsRotate, FaArrowUp, FaCheck, FaPlus, FaXmark } from "../components/fa";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { useSheetBack } from "../nav";
 import {
@@ -49,6 +49,20 @@ export default function SettingsScreen() {
 	useSheetBack(editIdx !== null, () => setEditIdx(null));
 	const [picked, setPicked] = useState("");
 	const [version, setVersion] = useState<string | null>(null);
+	const [refreshing, setRefreshing] = useState(false);
+	const [refreshMsg, setRefreshMsg] = useState<string | null>(null);
+
+	// Same action as the model sheet's refresh icon; the server cache
+	// can sit for days, so both entry points force a re-fetch.
+	const refreshCatalog = () => {
+		if (refreshing) return;
+		setRefreshing(true);
+		setRefreshMsg(null);
+		refreshModels()
+			.then((rows) => setRefreshMsg(`${rows.length} models fetched`))
+			.catch(() => setRefreshMsg("Refresh failed"))
+			.finally(() => setRefreshing(false));
+	};
 
 	useEffect(() => {
 		getVersion()
@@ -305,6 +319,27 @@ export default function SettingsScreen() {
 						Tap a command to edit it; the ✕ removes it after a confirmation. Entries starting with /
 						are pi commands: they fill the chat box so pi can take arguments. Anything else is bash
 						and runs right away in the session's folder. Clearing every entry restores the defaults.
+					</p>
+				</section>
+
+				<section>
+					<h2 className="px-1 pb-2 text-[11px] font-semibold uppercase tracking-wider text-muted">
+						Model catalog
+					</h2>
+					<div className="flex items-center justify-between rounded-2xl border border-base-content/10 bg-base-200/80 px-4 py-3.5 shadow-surface-sm backdrop-blur-sm">
+						<span className="text-[15px] font-medium text-base-content">Refresh model catalog</span>
+						<button
+							type="button"
+							onClick={refreshCatalog}
+							disabled={refreshing}
+							aria-label="Refresh model catalog"
+							className="press-scale flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-primary/30 bg-primary/15 text-primary transition-colors disabled:opacity-50"
+						>
+							<FaArrowsRotate size={15} className={refreshing ? "animate-spin" : ""} />
+						</button>
+					</div>
+					<p className="px-1 pt-2 text-xs text-muted">
+						{refreshMsg ?? "Re-fetches the model list from pi. Use it after changing providers or model scopes."}
 					</p>
 				</section>
 

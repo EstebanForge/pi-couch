@@ -2,6 +2,10 @@
 
 Started 2026-10-09 as a plan and a domain glossary. It grew into the phone I drive my work through. Dates below are approximate; the git log holds the precise trail.
 
+## 2026-10-28
+
+- The model catalog learns to refresh: `POST /api/models/refresh` re-runs `pi --list-models` past the cache (memory one hour, file seven days) and the phone gets a refresh button in the model sheet and in Settings, so provider or scope changes show at once. Waiting-on-you spinners turn yellow (`text-warning`, constant across schemes) instead of the theme's accent teal.
+
 ## 2026-10-25 → 2026-10-27
 
 - Went public and stayed that way: tag a version and CI builds and publishes the binaries, and the server updates itself from GitHub releases on a 12-hour check (atomic swap, rolls back if a boot fails). A shared token gates the API by default; the first-run screen asks for it.

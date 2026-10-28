@@ -12,6 +12,7 @@ import {
 	getSkills,
 	type ModelRow,
 	type PromptInfo,
+	refreshModels,
 	runCommand,
 	type SkillInfo,
 	sendKeys,
@@ -34,6 +35,7 @@ import {
 	writePref,
 } from "../prefs";
 import {
+	FaArrowsRotate,
 	FaBrain,
 	FaCaretRight,
 	FaCheck,
@@ -141,6 +143,7 @@ export const Composer = memo(function Composer(props: {
 	const [modelQuery, setModelQuery] = useState("");
 	const [modelRows, setModelRows] = useState<ModelRow[]>([]);
 	const [modelsLoading, setModelsLoading] = useState(false);
+	const [modelsRefreshing, setModelsRefreshing] = useState(false);
 	const [modelMark, setModelMark] = useState(false);
 	const [thinkingMark, setThinkingMark] = useState(false);
 	const [chosenModel, setChosenModel] = useState<string | null>(null);
@@ -387,6 +390,19 @@ export const Composer = memo(function Composer(props: {
 		const t = setTimeout(() => setToast(""), 2200);
 		return () => clearTimeout(t);
 	}, [toast]);
+
+	const runModelsRefresh = () => {
+		if (modelsRefreshing) return;
+		hapticTick();
+		setModelsRefreshing(true);
+		refreshModels()
+			.then((rows) => {
+				setModelRows(rows);
+				setToast("Model catalog refreshed");
+			})
+			.catch(() => setToast("Catalog refresh failed"))
+			.finally(() => setModelsRefreshing(false));
+	};
 
 	const applyModel = (pattern: string) => {
 		const p = pattern.trim();
@@ -891,15 +907,27 @@ export const Composer = memo(function Composer(props: {
 			>
 				<div className="flex flex-col gap-3 p-4">
 					<div className="mx-auto mb-1.5 h-1.5 w-12 rounded-full bg-base-content/25" />
-					<div className="flex items-center justify-between px-1">
+					<div className="flex flex-col gap-2 px-1">
 						<span className="text-[13px] font-semibold tracking-wider text-muted uppercase">
 							Select model
 						</span>
-						{props.model && (
-							<span className="truncate rounded-md bg-primary/15 px-2 py-0.5 font-mono text-[11.5px] font-semibold text-primary">
-								current: {props.model}
-							</span>
-						)}
+						<div className="h-px bg-base-content/10" />
+						<div className="flex items-center gap-2">
+							{props.model && (
+								<span className="min-w-0 flex-1 truncate rounded-md bg-primary/15 px-2 py-0.5 font-mono text-[11.5px] font-semibold text-primary">
+									current: {props.model}
+								</span>
+							)}
+							<button
+							type="button"
+							onClick={runModelsRefresh}
+							disabled={modelsRefreshing}
+							aria-label="Refresh model catalog"
+							className="press-scale ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-primary/30 bg-primary/15 text-primary transition-colors disabled:opacity-50"
+						>
+								<FaArrowsRotate size={13} className={modelsRefreshing ? "animate-spin" : ""} />
+							</button>
+						</div>
 					</div>
 
 					<div className="relative">

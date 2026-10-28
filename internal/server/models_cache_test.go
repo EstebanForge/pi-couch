@@ -147,6 +147,68 @@ func TestParseModelListContext(t *testing.T) {
 	}
 }
 
+func TestModelsCacheRefreshBypassesCache(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "models.json")
+	cacheRows(t, path, time.Now(), "p/old")
+	c := newModelsCache(path)
+	if _, err := c.load(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	c.run = func(context.Context) ([]modelRow, error) {
+		return []modelRow{{ID: "p/new"}}, nil
+	}
+	rows, err := c.refresh(context.Background())
+	if err != nil || len(rows) != 1 || rows[0].ID != "p/new" {
+		t.Fatalf("rows %+v err=%v, want the fresh fetch", rows, err)
+	}
+	// The file must follow, or the next process restart serves the old catalog.
+	fileRows, _, err := readModelFile(path)
+	if err != nil || len(fileRows) != 1 || fileRows[0].ID != "p/new" {
+		t.Fatalf("file rows %+v err=%v, want the fresh fetch persisted", fileRows, err)
+	}
+}
+
+func TestModelsCacheRefreshFailureKeepsRows(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "models.json")
+	cacheRows(t, path, time.Now(), "p/old")
+	c := newModelsCache(path)
+	if _, err := c.load(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	c.run = func(context.Context) ([]modelRow, error) {
+		return nil, errors.New("pi exploded")
+	}
+	rows, err := c.refresh(context.Background())
+	if err == nil {
+		t.Fatal("want the fetch error surfaced")
+	}
+	if len(rows) != 1 || rows[0].ID != "p/old" {
+		t.Fatalf("rows %+v, want the last good catalog kept", rows)
+	}
+}
+
+func TestAPIModelsRefreshEndpoint(t *testing.T) {
+	a, _, h := streamTestApp(t)
+	cacheRows(t, a.models.path, time.Now(), "p/old")
+	a.models.run = func(context.Context) ([]modelRow, error) {
+		return []modelRow{{ID: "p/new"}}, nil
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/models/refresh", nil)
+	req.Host = "127.0.0.1:8090"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code %d body %s", rec.Code, rec.Body.String())
+	}
+	var rows []modelRow
+	if err := json.Unmarshal(rec.Body.Bytes(), &rows); err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].ID != "p/new" {
+		t.Fatalf("rows %+v", rows)
+	}
+}
+
 func TestAPIModelsUsesCache(t *testing.T) {
 	a, _, h := streamTestApp(t)
 	cacheRows(t, a.models.path, time.Now(),

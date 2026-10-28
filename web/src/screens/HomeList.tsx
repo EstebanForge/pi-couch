@@ -438,7 +438,7 @@ function SessionCard({
 		>
 			{isWaiting(st) && st === "working" ? (
 				<div className="grid h-6 w-6 shrink-0 place-items-center">
-					<Spinner size={14} className={isAwaiting ? "text-accent" : "text-primary"} />
+					<Spinner size={14} className={isAwaiting ? "text-warning" : "text-primary"} />
 				</div>
 			) : (
 				<div className="grid h-6 w-6 shrink-0 place-items-center">

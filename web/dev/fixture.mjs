@@ -110,6 +110,17 @@ createServer((req, res) => {
 		res.end(JSON.stringify([{ id: "fixture/fake-model" }, { id: "fixture/other-model" }]));
 		return;
 	}
+	if (url.pathname === "/api/models/refresh" && req.method === "POST") {
+		res.writeHead(200, { "Content-Type": "application/json" });
+		res.end(
+			JSON.stringify([
+				{ id: "fixture/fake-model" },
+				{ id: "fixture/other-model" },
+				{ id: "fixture/refreshed-model" },
+			]),
+		);
+		return;
+	}
 	res.writeHead(404, { "Content-Type": "application/json" });
 	res.end('{"error":"notfound"}');
 }).listen(PORT, "127.0.0.1", () => {

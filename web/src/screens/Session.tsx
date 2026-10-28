@@ -620,7 +620,7 @@ const Block = memo(function Block({
 	}
 	if (block.type === "status") {
 		return block.dialog || block.awaiting ? (
-			<div className="flex items-center gap-2 px-3 py-2 text-[13px] text-accent">
+			<div className="flex items-center gap-2 px-3 py-2 text-[13px] text-warning">
 				<Spinner size={14} />
 				{block.dialog
 					? `pi asks: ${block.dialog.title || block.dialog.kind} — open Terminal`

@@ -78,6 +78,22 @@ func (c *modelsCache) load(ctx context.Context) ([]modelRow, error) {
 	return c.rows, nil
 }
 
+// refresh re-runs the catalog fetch regardless of cache age, so a
+// provider or model-scope change on the machine shows without waiting
+// out the file TTL or restarting. On failure the last good rows are
+// returned alongside the error; the caller decides how to surface it.
+func (c *modelsCache) refresh(ctx context.Context) ([]modelRow, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	fresh, err := c.run(ctx)
+	if err != nil {
+		return c.rows, err
+	}
+	c.rows, c.at = fresh, time.Now()
+	writeModelFile(c.path, fresh)
+	return c.rows, nil
+}
+
 func readModelFile(path string) ([]modelRow, time.Time, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -184,4 +200,14 @@ func (a *app) apiModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, filterModels(rows, r.URL.Query().Get("q"), 500))
+}
+
+func (a *app) apiModelsRefresh(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.models.refresh(r.Context())
+	if err != nil {
+		a.logger.Error("list-models refresh", "err", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "model catalog refresh failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, rows)
 }
