@@ -3,7 +3,7 @@ import { getSessionPreview, type SessionPreview, sendPrompt } from "../api";
 import { useSheetBack } from "../nav";
 import { isWaiting } from "../status";
 import { FaCheck, FaPencilAlt, FaXmark } from "./fa";
-import { canRename, PreviewChip, PreviewLines } from "./previewLines";
+import { canRename, PreviewChip, PreviewLines, renameHint } from "./previewLines";
 import { Spinner } from "./Spinner";
 
 type PreviewState =
@@ -91,35 +91,39 @@ export function PreviewModal({
 				<header className="flex items-center gap-2 border-b border-base-content/8 px-4 py-3">
 					{renaming ? (
 						<form
-							className="flex min-w-0 flex-1 items-center gap-1"
+							className="flex min-w-0 flex-1 flex-col gap-1"
 							onSubmit={(e) => {
 								e.preventDefault();
 								runRename();
 							}}
 						>
-							<input
-								value={renameVal}
-								onChange={(e) => setRenameVal(e.target.value)}
-								maxLength={120}
-								aria-label="Session name"
-								className="min-w-0 flex-1 rounded-lg border border-base-content/15 bg-base-100 px-2.5 py-1.5 text-[14px] text-base-content outline-none focus:border-primary"
-							/>
-							<button
-								type="submit"
-								aria-label="Save name"
-								disabled={!renameVal.trim() || isWaiting(status)}
-								className="press-scale grid h-8 w-8 shrink-0 place-items-center rounded-lg text-primary disabled:opacity-40"
-							>
-								<FaCheck size={16} />
-							</button>
-							<button
-								type="button"
-								aria-label="Cancel rename"
-								onClick={() => setRenaming(false)}
-								className="press-scale grid h-8 w-8 shrink-0 place-items-center rounded-lg text-muted active:text-base-content"
-							>
-								<FaXmark size={16} />
-							</button>
+							<div className="flex min-w-0 items-center gap-1">
+								<input
+									value={renameVal}
+									onChange={(e) => setRenameVal(e.target.value)}
+									maxLength={120}
+									aria-label="Session name"
+									placeholder="New name here"
+									className="min-w-0 flex-1 rounded-lg border border-base-content/15 bg-base-100 px-2.5 py-1.5 text-[14px] text-base-content outline-none focus:border-primary"
+								/>
+								<button
+									type="submit"
+									aria-label="Save name"
+									disabled={!renameVal.trim() || isWaiting(status)}
+									className="press-scale grid h-8 w-8 shrink-0 place-items-center rounded-lg text-primary disabled:opacity-40"
+								>
+									<FaCheck size={16} />
+								</button>
+								<button
+									type="button"
+									aria-label="Cancel rename"
+									onClick={() => setRenaming(false)}
+									className="press-scale grid h-8 w-8 shrink-0 place-items-center rounded-lg text-muted active:text-base-content"
+								>
+									<FaXmark size={16} />
+								</button>
+							</div>
+							{renameHint(status) && <p className="text-[12px] text-muted">{renameHint(status)}</p>}
 						</form>
 					) : (
 						<>

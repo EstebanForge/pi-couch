@@ -1,6 +1,6 @@
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { canRename, PreviewChip, PreviewLines } from "./previewLines";
+import { canRename, PreviewChip, PreviewLines, renameHint } from "./previewLines";
 
 describe("PreviewLines", () => {
 	it("renders the tail with speaker labels, newest last", () => {
@@ -42,5 +42,15 @@ describe("canRename", () => {
 	});
 	it("refuses rename when no driver runs the session", () => {
 		expect(canRename("unknown")).toBe(false);
+	});
+});
+
+describe("renameHint", () => {
+	it("explains the wait for busy statuses", () => {
+		expect(renameHint("working")).toContain("busy");
+		expect(renameHint("blocked")).toContain("busy");
+	});
+	it("is silent when the agent can take /name now", () => {
+		for (const s of ["idle", "done", "unknown"]) expect(renameHint(s)).toBeNull();
 	});
 });
