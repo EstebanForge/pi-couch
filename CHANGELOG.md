@@ -4,6 +4,7 @@ Started 2026-10-09 as a plan and a domain glossary. It grew into the phone I dri
 
 ## 2026-10-28
 
+- Stuck dialog fix: pi shows the same dialog twice (a commit preview re-presented an hour later) and every answer bounced off a dedupe claim that never expired. Claims now expire after a minute, so the second showing answers instead of refusing forever, Cancel included.
 - The model catalog learns to refresh: `POST /api/models/refresh` re-runs `pi --list-models` past the cache (memory one hour, file seven days) and the phone gets a refresh button in the model sheet and in Settings, so provider or scope changes show at once. Waiting-on-you spinners turn yellow (`text-warning`, constant across schemes) instead of the theme's accent teal.
 
 ## 2026-10-25 → 2026-10-27
