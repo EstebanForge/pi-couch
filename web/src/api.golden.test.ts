@@ -5,6 +5,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type {
+	SessionPreview,
 	SessionsSnapshot,
 	StreamItem,
 	TranscriptAppend,
@@ -74,5 +75,18 @@ describe("wire contract goldens", () => {
 		const rows = golden("models.json") as { id: string }[];
 		expect(rows.length).toBeGreaterThan(0);
 		expect(typeof rows[0].id).toBe("string");
+	});
+
+	it("session preview carries title, status and capped lines", () => {
+		const p = golden("preview.json") as SessionPreview;
+		expect(typeof p.title).toBe("string");
+		expect(typeof p.status).toBe("string");
+		expect(typeof p.awaiting).toBe("boolean");
+		expect(Array.isArray(p.lines)).toBe(true);
+		for (const l of p.lines) {
+			expect(typeof l.seq).toBe("number");
+			expect(typeof l.who).toBe("string");
+			expect(typeof l.text).toBe("string");
+		}
 	});
 });

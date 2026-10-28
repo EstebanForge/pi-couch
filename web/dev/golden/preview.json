@@ -1,0 +1,9 @@
+{
+	"title": "QuotaGauge",
+	"status": "working",
+	"awaiting": false,
+	"lines": [
+		{ "seq": 41, "who": "user", "text": "Why does the tray icon flicker on resize?" },
+		{ "seq": 44, "who": "assistant", "text": "The panel re-anchors every frame; pinning it to the work area." }
+	]
+}

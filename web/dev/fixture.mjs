@@ -105,6 +105,21 @@ createServer((req, res) => {
 		transcript(res);
 		return;
 	}
+	if (url.pathname === "/api/sessions/demo/preview") {
+		res.writeHead(200, { "Content-Type": "application/json" });
+		res.end(
+			JSON.stringify({
+				title: "demo",
+				status: "working",
+				awaiting: false,
+				lines: [
+					{ seq: 2, who: "user", text: "Fix the login bug" },
+					{ seq: 3, who: "assistant", text: "On it: reading auth/session.ts first." },
+				],
+			}),
+		);
+		return;
+	}
 	if (url.pathname === "/api/models") {
 		res.writeHead(200, { "Content-Type": "application/json" });
 		res.end(JSON.stringify([{ id: "fixture/fake-model" }, { id: "fixture/other-model" }]));

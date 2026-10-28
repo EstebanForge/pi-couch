@@ -36,6 +36,14 @@ _Avoid_: owner, backend, controller
 A live agent's detected state: working, idle, blocked, done, unknown. Same values herdr reports.
 _Avoid_: state, health
 
+**Peek**:
+The Terminal tab's read-only pane view: look without taking the interactive attach.
+_Avoid_: preview, attach
+
+**Preview**:
+The home card's hold-to-preview: a long-press opens a centered glance card with the Session's recent conversation tail and current Status, one frozen fetch. Nothing live behind it.
+_Avoid_: peek (that is the Terminal pane view), snippet
+
 **Stop**:
 End a Session's live driver. The Session file survives on disk.
 _Avoid_: kill, close, terminate

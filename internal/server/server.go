@@ -192,6 +192,7 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("GET /api/sessions/{key}/items/{seq}", a.apiItem)
 	mux.HandleFunc("GET /api/sessions/{key}/items/{seq}/image", a.apiItemImage)
 	mux.HandleFunc("GET /api/sessions/{key}/transcript", a.apiTranscriptPage)
+	mux.HandleFunc("GET /api/sessions/{key}/preview", a.apiSessionPreview)
 	mux.HandleFunc("GET /api/sessions/{key}/files", a.apiFiles)
 	mux.HandleFunc("GET /api/sessions/{key}/files/view", a.apiFilesView)
 	mux.HandleFunc("GET /api/sessions/{key}/comments", a.apiComments)

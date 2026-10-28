@@ -1,7 +1,7 @@
 import { Fab } from "konsta/react";
 import { useEffect, useRef, useState } from "react";
-import { getHome } from "../api";
 import type { SessionMeta, SessionsPatch } from "../api";
+import { getHome } from "../api";
 import {
 	FaBell,
 	FaBellSlash,
@@ -11,12 +11,15 @@ import {
 	FaPlus,
 	FaXmark,
 } from "../components/fa";
+import { useLongPress } from "../components/longPress";
 import { NewAgentSheet } from "../components/NewAgentSheet";
 import { NewSessionSheet } from "../components/NewSessionSheet";
+import { PreviewModal } from "../components/PreviewModal";
 import { QuickSheet } from "../components/QuickSheet";
 import { Spinner } from "../components/Spinner";
 import { useTouchRipple } from "../components/useRipple";
 import { short, thousand, tildify } from "../fmt";
+import { hapticLongPress } from "../haptics";
 import { navigate, useSheetBack } from "../nav";
 import { quickPath } from "../prefs";
 import { type PushState, pushState, togglePush } from "../push";
@@ -43,6 +46,9 @@ export default function HomeList() {
 	useSheetBack(fabOpen, () => setFabOpen(false));
 	const [agentSheetOpen, setAgentSheetOpen] = useState(false);
 	const [quickSheet, setQuickSheet] = useState(false);
+	// Hold-to-preview: the long-press fires with the card's display
+	// title so the glance card needs no second fetch for the name.
+	const [preview, setPreview] = useState<{ key: string; title: string } | null>(null);
 	// Load more refetches a bigger window from the server (the store
 	// only holds what was asked for). The spinner must paint first and
 	// the step lands after a deliberate 500ms beat, so the load is
@@ -147,6 +153,7 @@ export default function HomeList() {
 
 	const card = (s: SessionMeta, index = 0) => {
 		const st = badges[s.path] ?? "unknown";
+		const title = short(s.name || s.cwd.split("/").filter(Boolean).pop() || s.key, 60);
 		return (
 			<SessionCard
 				s={s}
@@ -155,6 +162,8 @@ export default function HomeList() {
 				drivenMeta={driven[s.path]}
 				index={index}
 				home={home}
+				title={title}
+				onPreview={() => setPreview({ key: s.key, title })}
 			/>
 		);
 	};
@@ -317,6 +326,13 @@ export default function HomeList() {
 			<NewSessionSheet opened={createOpen} onClose={() => setCreateOpen(false)} />
 			<NewAgentSheet opened={agentSheetOpen} onClose={() => setAgentSheetOpen(false)} />
 			<QuickSheet opened={quickSheet} onClose={() => setQuickSheet(false)} />
+			{preview && (
+				<PreviewModal
+					sessionKey={preview.key}
+					title={preview.title}
+					onClose={() => setPreview(null)}
+				/>
+			)}
 			{/* Speed dial: scrim + pill stack above the FAB, the Calendar
 			    pattern. Konsta ships a single Fab and a bottom-sheet
 			    Actions but no speed dial, so this is hand-built. */}
@@ -414,6 +430,8 @@ function SessionCard({
 	drivenMeta,
 	index = 0,
 	home,
+	title,
+	onPreview,
 }: {
 	s: SessionMeta;
 	st: string;
@@ -421,9 +439,16 @@ function SessionCard({
 	drivenMeta?: { label?: string; title?: string };
 	index?: number;
 	home: string;
+	title: string;
+	onPreview: () => void;
 }) {
 	const ref = useRef<HTMLButtonElement>(null);
 	useTouchRipple(ref);
+	const press = useLongPress(() => {
+		hapticLongPress();
+		onPreview();
+	});
+	const open = () => navigate(`/sessions/${encodeURIComponent(s.key)}`, { dir: "fwd" });
 
 	// Cap staggering to top rows so fast scrolls or long windows don't lag
 	const delay = Math.min(index * 25, 250);
@@ -433,8 +458,16 @@ function SessionCard({
 			ref={ref}
 			type="button"
 			style={{ animationDelay: `${delay}ms` }}
-			onClick={() => navigate(`/sessions/${encodeURIComponent(s.key)}`, { dir: "fwd" })}
-			className="card-in press-scale relative overflow-hidden flex w-full items-center gap-3.5 rounded-2xl border border-base-content/8 bg-base-200/90 px-4 py-3.5 text-left shadow-surface-sm backdrop-blur-sm"
+			onClick={(e) => {
+				if (!press.onClick(e)) open();
+			}}
+			onPointerDown={press.onPointerDown}
+			onPointerMove={press.onPointerMove}
+			onPointerUp={press.onPointerUp}
+			onPointerLeave={press.onPointerLeave}
+			onPointerCancel={press.onPointerCancel}
+			onContextMenu={(e) => e.preventDefault()}
+			className="card-in press-scale relative overflow-hidden flex w-full select-none items-center gap-3.5 rounded-2xl border border-base-content/8 bg-base-200/90 px-4 py-3.5 text-left shadow-surface-sm backdrop-blur-sm [-webkit-touch-callout:none]"
 		>
 			{isWaiting(st) && st === "working" ? (
 				<div className="grid h-6 w-6 shrink-0 place-items-center">
@@ -450,9 +483,11 @@ function SessionCard({
 			)}
 			<span className="min-w-0 flex-1">
 				<span className="block truncate text-[15.5px] font-medium tracking-tight text-base-content">
-					{short(s.name || s.cwd.split("/").filter(Boolean).pop() || s.key, 60)}
+					{title}
 				</span>
-				<span className="block truncate text-[12.5px] text-muted">{short(tildify(s.cwd, home), 48)}</span>
+				<span className="block truncate text-[12.5px] text-muted">
+					{short(tildify(s.cwd, home), 48)}
+				</span>
 				{(drivenMeta?.label || drivenMeta?.title) && (
 					<span className="mt-0.5 block truncate text-[11px] font-mono text-muted/75">
 						{[drivenMeta.label, drivenMeta.title].filter(Boolean).join(" · ")}

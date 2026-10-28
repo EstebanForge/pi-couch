@@ -129,6 +129,23 @@ export type TranscriptStatus = {
 	memory?: string;
 };
 
+export type PreviewLine = { seq: number; who: string; text: string };
+
+/** One hold-to-preview card payload: the frozen recent tail plus the
+ * card's status vocabulary (herdr badge + awaiting flag). */
+export type SessionPreview = {
+	title: string;
+	status: string;
+	awaiting: boolean;
+	lines: PreviewLine[];
+};
+
+export async function getSessionPreview(key: string): Promise<SessionPreview> {
+	const res = await fetch(`/api/sessions/${encodeURIComponent(key)}/preview`);
+	if (!res.ok) throw new Error(`preview ${res.status}`);
+	return (await res.json()) as SessionPreview;
+}
+
 export async function getSessions(limit?: number, q?: string): Promise<SessionsSnapshot> {
 	const p = new URLSearchParams();
 	if (limit) p.set("limit", String(limit));

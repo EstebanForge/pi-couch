@@ -23,7 +23,7 @@ import (
 
 func TestGuardBlocksReboundHostOnJSONReads(t *testing.T) {
 	h := guardApp("https://box.example.ts.net")
-	for _, path := range []string{"/api/sessions", "/stream/transcript/k", "/api/models", "/api/models/refresh"} {
+	for _, path := range []string{"/api/sessions", "/stream/transcript/k", "/api/models", "/api/models/refresh", "/api/sessions/k/preview"} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		req.Host = "evil.example"
 		rec := httptest.NewRecorder()
