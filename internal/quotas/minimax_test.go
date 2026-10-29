@@ -12,6 +12,9 @@ import (
 
 func minimaxSrv(t *testing.T, status int, delay time.Duration, body string) *httptest.Server {
 	t.Helper()
+	// The fetcher reads the key from the environment; a CI runner has
+	// none, so every server-backed test plants its own.
+	t.Setenv("MINIMAX_API_KEY", "test-key")
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(delay)
 		w.Header().Set("Content-Type", "application/json")

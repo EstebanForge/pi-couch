@@ -21,6 +21,10 @@ func tempRepo(t *testing.T) string {
 		}
 	}
 	git("init", "-q", "-b", "main")
+	// Repo-local identity: later tests call plain `git commit` without
+	// the helper's env, and a runner has no global git identity.
+	git("config", "user.name", "t")
+	git("config", "user.email", "t@t")
 	write(dir, "a.txt", "one\n")
 	git("add", ".")
 	git("commit", "-q", "-m", "init")
