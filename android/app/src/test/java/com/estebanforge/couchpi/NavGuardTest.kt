@@ -47,18 +47,4 @@ class NavGuardTest {
     fun `host case differences still match`() {
         assertFalse(NavGuard.opensExternally("https://ZENLESS.Tail-Net.ts.net", "https://zenless.tail-net.ts.net/"))
     }
-
-    @Test
-    fun `attribute escape neutralizes quote injection`() {
-        val hostile = "https://x/'-alert(1)-'\" onclick=\""
-        val escaped = NavGuard.htmlAttrEscape(hostile)
-        for (ch in listOf('\'', '"', '<', '>')) {
-            assertFalse("raw ${ch} survived", escaped.contains(ch))
-        }
-        assertEquals(
-            "https://x/&#39;-alert(1)-&#39;&quot; onclick=&quot;",
-            escaped,
-        )
-        assertEquals("&amp;", NavGuard.htmlAttrEscape("&"))
-    }
 }

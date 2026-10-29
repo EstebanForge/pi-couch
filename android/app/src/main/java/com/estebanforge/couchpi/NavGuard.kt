@@ -21,22 +21,6 @@ object NavGuard {
         return defaultPort(scheme, origin.port) != defaultPort(scheme, target.port)
     }
 
-    // HTML attribute context: escapes the five characters that can end
-    // an attribute or open a tag, so a failed URL can never break out of
-    // the error page's markup.
-    fun htmlAttrEscape(s: String): String = buildString {
-        for (c in s) {
-            when (c) {
-                '&' -> append("&amp;")
-                '<' -> append("&lt;")
-                '>' -> append("&gt;")
-                '"' -> append("&quot;")
-                '\'' -> append("&#39;")
-                else -> append(c)
-            }
-        }
-    }
-
     private fun targetUri(raw: String?): URI? =
         runCatching { URI(raw ?: "") }.getOrNull()
 

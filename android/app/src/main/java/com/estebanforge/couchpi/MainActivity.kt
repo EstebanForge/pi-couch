@@ -11,6 +11,10 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import java.io.IOException
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.concurrent.Executors
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -24,6 +28,7 @@ import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
@@ -57,6 +62,12 @@ class MainActivity : Activity() {
     private var fileCallback: ValueCallback<Array<Uri>>? = null
 
     private val fileReq = 7001
+
+    // Reachability loop for the error page: generations cancel stale
+    // retries the moment a new load or a fresh failure takes over.
+    private val probeHandler = Handler(Looper.getMainLooper())
+    private val probeExecutor = Executors.newSingleThreadExecutor()
+    private var probeGen = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -495,6 +506,11 @@ class MainActivity : Activity() {
                 view: WebView,
                 request: WebResourceRequest,
             ): Boolean {
+                // The error page's reload affordance: probe, don't navigate.
+                if (request.url.scheme == PROBE_SCHEME) {
+                    startProbe()
+                    return true
+                }
                 if (!NavGuard.opensExternally(serverUrl, request.url.toString())) return false
                 openExternally(request.url)
                 return true
@@ -515,27 +531,88 @@ class MainActivity : Activity() {
                 view.evaluateJavascript(js, null)
             }
 
-            // A failed load (tailnet down, server stopped) must not leave a
-            // bare dark page: say what happened and offer a reload.
+            // A failed load (tailnet down, server stopped, proxy 5xx)
+            // must not leave a bare dark page: say what happened and
+            // start probing for recovery.
             override fun onReceivedError(
                 view: WebView,
                 req: WebResourceRequest,
                 err: WebResourceError,
             ) {
-                if (req.isForMainFrame) {
-                    // loadDataWithBaseURL, not loadData: loadData parses its
-                    // payload as a URL, so the hex colors' '#' read as URL
-                    // fragments and the card rendered as an empty document.
-                    view.loadDataWithBaseURL(
-                        null,
-                        loadErrorHtml(req.url.toString()),
-                        "text/html",
-                        "utf-8",
-                        null,
-                    )
+                if (req.isForMainFrame) showError(view, req.url.toString())
+            }
+
+            // The proxy 5xx path surfaces here, not in onReceivedError,
+            // and still paints the WebView's own dead-end page unless we
+            // replace it.
+            override fun onReceivedHttpError(
+                view: WebView,
+                req: WebResourceRequest,
+                resp: WebResourceResponse,
+            ) {
+                if (req.isForMainFrame) showError(view, req.url.toString())
+            }
+        }
+    }
+
+    private fun showError(view: WebView, failedUrl: String) {
+        Log.i(WEB_TAG, "main frame failed: $failedUrl")
+        // post, not inline: a synchronous load here races the failing
+        // navigation, and the WebView's own error page wins, leaving
+        // nothing to recover with but an app restart.
+        view.post {
+            // loadDataWithBaseURL over loadData: loadData parses its
+            // payload as a URL, so the hex colors' '#' read as URL
+            // fragments and the card rendered as an empty document.
+            view.loadDataWithBaseURL(failedUrl, loadErrorHtml(), "text/html", "utf-8", null)
+            startProbe()
+        }
+    }
+
+    // Poll /healthz through the tunnel and reload the app the moment
+    // it answers. Generation-checked so a successful load or a newer
+    // failure cancels older loops.
+    private fun startProbe() {
+        val url = serverUrl ?: return
+        probeGen++
+        val gen = probeGen
+        fun attempt(tries: Int) {
+            if (gen != probeGen || tries == 0) return
+            probeExecutor.execute {
+                val ok = try {
+                    val conn = URL(url.trimEnd('/') + "/healthz").openConnection() as HttpURLConnection
+                    conn.connectTimeout = 3000
+                    conn.readTimeout = 3000
+                    conn.instanceFollowRedirects = false
+                    val code = conn.responseCode
+                    conn.disconnect()
+                    code in 200..299
+                } catch (_: IOException) {
+                    false
+                }
+                runOnUiThread {
+                    if (gen != probeGen) return@runOnUiThread
+                    if (ok) {
+                        Log.i(WEB_TAG, "probe ok; reloading")
+                        setStatus("Loading…")
+                        web?.loadUrl(url)
+                    } else {
+                        setStatus("Still unreachable. Retrying…")
+                        probeHandler.postDelayed({ attempt(tries - 1) }, 2000)
+                    }
                 }
             }
         }
+        // 2s cadence for half an hour: tunnel and tailnet DNS outages
+        // run long, and recovery must not need a human tapping reload.
+        attempt(900)
+    }
+
+    private fun setStatus(text: String) {
+        web?.evaluateJavascript(
+            "(function(){var s=document.getElementById('s');if(s)s.textContent='$text';})();",
+            null,
+        )
     }
 
     private fun openExternally(url: Uri) {
@@ -547,17 +624,17 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun loadErrorHtml(failedUrl: String): String {
-        // The failed URL rides a data attribute, escaped, never
-        // interpolated into the onclick string: a quote in it used to
-        // break out of the attribute and run script.
-        val target = NavGuard.htmlAttrEscape(failedUrl)
+    private fun loadErrorHtml(): String {
+        // Recovery is native (startProbe); the button only re-kicks the
+        // probe through a scheme shouldOverrideUrlLoading intercepts.
+        // The failed URL itself never rides the markup, so nothing to
+        // escape.
         val body = "<html><body style='background:#0f1115;color:#e5e7eb;" +
             "font-family:sans-serif;display:flex;align-items:center;" +
             "justify-content:center;height:100%;margin:0'>" +
             "<div style='text-align:center'><p>Pi Couch is unreachable.</p>" +
-            "<p style='opacity:0.6;font-size:0.9em'>Check the tailnet, then reload.</p>" +
-            "<p><button data-href=\"$target\" onclick=\"location.href=this.dataset.href\" " +
+            "<p id='s' style='opacity:0.6;font-size:0.9em'>Reconnecting — check the tailnet.</p>" +
+            "<p><button id='b' onclick=\"location.href='" + PROBE_URL + "'\" " +
             "style='margin-top:16px;padding:10px 24px;border-radius:8px;border:0;" +
             "background:#4d9abf;color:#0f1115'>Reload</button></p></div></body></html>"
         return body
@@ -601,5 +678,12 @@ class MainActivity : Activity() {
         const val speechReq = 7002
 
         private const val TAG = "CouchPiSpeech"
+
+        // The error page's Reload navigates here; shouldOverrideUrlLoading
+        // intercepts the scheme and re-kicks the native probe instead of
+        // driving the WebView into a dead tunnel again.
+        const val PROBE_SCHEME = "couchpi-probe"
+        const val PROBE_URL = "$PROBE_SCHEME://reload"
+        const val WEB_TAG = "CouchPiWeb"
     }
 }

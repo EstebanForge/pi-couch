@@ -23,7 +23,7 @@ android {
         applicationId = "com.estebanforge.couchpi"
         minSdk = 32
         targetSdk = 35
-        versionCode = 11
+        versionCode = 12
         versionName = "20261029.1"
     }
 
