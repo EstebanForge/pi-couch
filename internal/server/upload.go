@@ -67,11 +67,14 @@ func (a *app) uploadHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "rewind failed"})
 		return
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		a.logger.Error("upload mkdir", "err", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "store failed"})
 		return
 	}
+	// MkdirAll's mode only lands on create; a dir an older version made
+	// world-readable gets tightened here.
+	_ = os.Chmod(dir, 0o700)
 	var suffix [4]byte
 	if _, err := rand.Read(suffix[:]); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "store failed"})
@@ -94,6 +97,8 @@ func (a *app) uploadHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "store failed"})
 		return
 	}
-	_ = dst.Chmod(0o644)
+	// Uploaded files carry private session context; owner-only keeps
+	// other local users out of /tmp.
+	_ = dst.Chmod(0o600)
 	writeJSON(w, http.StatusOK, map[string]string{"path": filepath.Join(dir, name)})
 }

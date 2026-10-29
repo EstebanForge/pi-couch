@@ -99,6 +99,26 @@ func TestSendDrops410(t *testing.T) {
 	}
 }
 
+// A 404 endpoint is as dead as a 410: the subscription was reaped
+// server-side and retrying only burns the next notification.
+func TestSendDrops404(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	s := testSender(t)
+	dead, err := s.Send(context.Background(),
+		[]store.Sub{sub(t, srv.URL)},
+		Message{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dead) != 1 || dead[0] != srv.URL {
+		t.Fatalf("dead: %v", dead)
+	}
+}
+
 func TestSendAliveAndDeadMixed(t *testing.T) {
 	gone := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusGone)

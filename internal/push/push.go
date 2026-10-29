@@ -62,7 +62,10 @@ func (s *Sender) Send(ctx context.Context, subs []store.Sub, m Message) (dead []
 			errs = append(errs, fmt.Errorf("push %s: %w", sub.Endpoint, err))
 			continue
 		}
-		if resp.StatusCode == http.StatusGone {
+		if resp.StatusCode == http.StatusGone || resp.StatusCode == http.StatusNotFound {
+			// Spec: a revoked or reaped endpoint answers 410 (or 404) and
+			// the subscription is permanently dead; keep sending to it and
+			// every push retries a corpse.
 			dead = append(dead, sub.Endpoint)
 		} else if resp.StatusCode >= 300 {
 			errs = append(errs, fmt.Errorf("push %s: endpoint answered %d", sub.Endpoint, resp.StatusCode))

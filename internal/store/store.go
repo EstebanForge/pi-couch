@@ -72,9 +72,11 @@ func NewDir(dir string) (*Store, error) {
 	return &Store{dir: dir}, nil
 }
 
-// writeFileAtomic replaces path via temp-file-and-rename so a crash mid-write
-// never truncates the previous contents. The mode applies to the final file.
-func writeFileAtomic(path string, b []byte, mode os.FileMode) error {
+// WriteFileAtomic replaces path via temp-file-and-rename so a crash
+// mid-write never truncates the previous contents; the file is fsynced
+// before the rename so the rename never lands on a disk lacking the
+// bytes. The mode applies to the final file.
+func WriteFileAtomic(path string, b []byte, mode os.FileMode) error {
 	f, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
 	if err != nil {
 		return err
@@ -89,6 +91,10 @@ func writeFileAtomic(path string, b []byte, mode os.FileMode) error {
 		return err
 	}
 	if _, err := f.Write(b); err != nil {
+		cleanup()
+		return err
+	}
+	if err := f.Sync(); err != nil {
 		cleanup()
 		return err
 	}
@@ -134,7 +140,7 @@ func (s *Store) Append(key string, cs []Comment) error {
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(s.path(key), b, 0o600)
+	return WriteFileAtomic(s.path(key), b, 0o600)
 }
 
 func (s *Store) read(key string) ([]Comment, error) {

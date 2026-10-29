@@ -92,8 +92,15 @@ func (w *Watcher) loop(ctx context.Context, fs *fsnotify.Watcher, root string) {
 			if strings.HasSuffix(ev.Name, ".jsonl") || ev.Has(fsnotify.Remove) || ev.Has(fsnotify.Rename) {
 				fire()
 			}
-		case <-fs.Errors:
-			// tolerant: files vanish mid-event on live trees
+		case err, ok := <-fs.Errors:
+			if !ok {
+				return
+			}
+			// fsnotify.Overflow means the kernel queue dropped events: a
+			// full rescan is the only safe answer, so the tick rebuilds
+			// from the tree instead of trusting what arrived.
+			_ = err
+			fire()
 		}
 	}
 }

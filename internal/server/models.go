@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/EstebanForge/couch-pi/internal/store"
 )
 
 // modelRow is one pi --list-models line as "provider/model".
@@ -118,11 +120,9 @@ func writeModelFile(path string, rows []modelRow) {
 	if err != nil {
 		return
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+	if err := store.WriteFileAtomic(path, b, 0o600); err != nil {
 		return
 	}
-	_ = os.Rename(tmp, path)
 }
 
 // piBinary resolves the pi CLI for list-models. The systemd user unit does

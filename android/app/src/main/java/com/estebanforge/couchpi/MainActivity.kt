@@ -235,7 +235,17 @@ class MainActivity : Activity() {
         if (token.isEmpty()) {
             manager.setCookie(origin, "picouch_token=; Path=/; Max-Age=0")
         } else {
-            manager.setCookie(origin, "picouch_token=$token; Path=/; Secure")
+            // HttpOnly keeps the token out of page JS (a foreign page in
+            // the WebView or an XSS in the SPA never reads it); the
+            // browser still sends it with every request. The token rides
+            // a cookie attribute, so stray separators would break the
+            // header - percent-escape anything outside the token alphabet.
+            val safe = token.filter { it.isLetterOrDigit() || it in "-_~=./" }
+            if (safe.length != token.length) {
+                Log.w("couch-pi", "token carried unusable characters; cookie not set")
+            } else {
+                manager.setCookie(origin, "picouch_token=$safe; Path=/; Secure; HttpOnly; SameSite=Lax")
+            }
         }
         manager.flush()
     }

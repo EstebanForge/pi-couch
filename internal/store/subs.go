@@ -45,7 +45,7 @@ func (s *Store) UpdateSubs(fn func([]Sub) []Sub) error {
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(s.subsPath(), b, 0o600)
+	return WriteFileAtomic(s.subsPath(), b, 0o600)
 }
 
 // SetSubs replaces the whole list.
@@ -93,7 +93,7 @@ func (s *Store) generateVAPID() (VAPID, error) {
 	if err != nil {
 		return VAPID{}, err
 	}
-	if err := writeFileAtomic(s.vapidPath(), b, 0o600); err != nil {
+	if err := WriteFileAtomic(s.vapidPath(), b, 0o600); err != nil {
 		return VAPID{}, err
 	}
 	return v, nil
