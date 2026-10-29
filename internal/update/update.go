@@ -20,6 +20,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -139,6 +140,10 @@ func (u *Updater) check() (string, error) {
 		return "", err
 	}
 	if cmpVersion(tag, u.current) <= 0 {
+		return "", nil
+	}
+	// A tag this binary already rolled back from stays dead.
+	if isRejected(u.stateDir, tag) {
 		return "", nil
 	}
 
@@ -440,7 +445,9 @@ func RecoverBoot(stateDir, binPath string, healthy time.Duration, log *slog.Logg
 	}
 	if p.Attempts == 0 {
 		_ = writePending(stateDir, pending{Tag: p.Tag, Attempts: 1})
-		time.AfterFunc(healthy, func() { os.Remove(pendingPath(stateDir)) })
+		// The marker clears when the binary actually serves (server.Run
+		// calls ProveBoot on bind), not on a timer: a process alive but
+		// refusing to listen stays an unproven boot.
 		log.Info("update boot, arming rollback", "tag", p.Tag)
 		return
 	}
@@ -450,10 +457,57 @@ func RecoverBoot(stateDir, binPath string, healthy time.Duration, log *slog.Logg
 		os.Remove(pendingPath(stateDir))
 		return
 	}
+	// The tag failed to boot twice: never chase it again, or the 12h
+	// check would re-download the same bad binary forever.
+	rejectTag(stateDir, p.Tag)
 	os.Remove(pendingPath(stateDir))
 	log.Info("update rolled back, restarting into the backup", "tag", p.Tag)
 	if err := restart(binPath); err != nil {
 		log.Error("rollback restart", "err", err)
+	}
+}
+
+// rejectedTags bounds itself to the last few rejects; a much newer
+// good release still updates, and deleting the file re-opens the tag.
+func rejectedPath(stateDir string) string {
+	return filepath.Join(stateDir, "update-rejected.json")
+}
+
+func isRejected(stateDir, tag string) bool {
+	raw, err := os.ReadFile(rejectedPath(stateDir))
+	if err != nil {
+		return false
+	}
+	var tags []string
+	if json.Unmarshal(raw, &tags) != nil {
+		return false
+	}
+	return slices.Contains(tags, tag)
+}
+
+func rejectTag(stateDir, tag string) {
+	if stateDir == "" || tag == "" {
+		return
+	}
+	var tags []string
+	if raw, err := os.ReadFile(rejectedPath(stateDir)); err == nil {
+		_ = json.Unmarshal(raw, &tags)
+	}
+	tags = append(tags, tag)
+	if len(tags) > 8 {
+		tags = tags[len(tags)-8:]
+	}
+	if raw, err := json.Marshal(tags); err == nil {
+		_ = os.WriteFile(rejectedPath(stateDir), raw, 0o600)
+	}
+}
+
+// ProveBoot clears the rollback marker once the new binary is actually
+// serving: the armed marker otherwise survives only until a later
+// crash misattributes an unrelated fault to the update.
+func ProveBoot(stateDir string) {
+	if stateDir != "" {
+		os.Remove(pendingPath(stateDir))
 	}
 }
 

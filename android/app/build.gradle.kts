@@ -24,7 +24,7 @@ android {
         minSdk = 32
         targetSdk = 35
         versionCode = 10
-        versionName = "0.1.35"
+        versionName = "20261029"
     }
 
     signingConfigs {
@@ -43,6 +43,11 @@ android {
             signingConfig = if (signingPropsFile.exists())
                 signingConfigs.getByName("release") else signingConfigs.getByName("debug")
         }
+    }
+
+    buildFeatures {
+        // BuildConfig.DEBUG gates the WebView remote debugging flag.
+        buildConfig = true
     }
 
     compileOptions {

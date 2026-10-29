@@ -26,6 +26,7 @@ import (
 	"github.com/EstebanForge/couch-pi/internal/push"
 	"github.com/EstebanForge/couch-pi/internal/quotas"
 	"github.com/EstebanForge/couch-pi/internal/store"
+	"github.com/EstebanForge/couch-pi/internal/update"
 	"github.com/EstebanForge/couch-pi/internal/web"
 )
 
@@ -83,9 +84,18 @@ func Run(ctx context.Context, logger *slog.Logger, cfg *config.Config, idx *pi.I
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	logger.Info("couch-pi listening", "addr", cfg.Addr)
+	ln, err := net.Listen("tcp", cfg.Addr)
+	if err != nil {
+		return err
+	}
+	// A bound listener is what proves an updated binary healthy: the
+	// rollback marker clears here, not on a timer.
+	if dir, derr := store.Dir(); derr == nil {
+		update.ProveBoot(dir)
+	}
 	srvErr := make(chan error, 1)
 	go func() {
-		err := srv.ListenAndServe()
+		err := srv.Serve(ln)
 		if !errors.Is(err, http.ErrServerClosed) {
 			srvErr <- err
 		}

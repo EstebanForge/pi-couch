@@ -70,6 +70,12 @@ func stage(t *testing.T, tag, token, serveBody string) stageOut {
 // checksumOverride: "" serves the correct sha256 for the body,
 // "404" answers 404, anything else is served verbatim as the file.
 func stageChecksum(t *testing.T, tag, token, serveBody, checksumOverride string) stageOut {
+	return stageState(t, tag, token, serveBody, checksumOverride, t.TempDir())
+}
+
+// stageState lets a test pin the updater's state dir (the reject list
+// lives there).
+func stageState(t *testing.T, tag, token, serveBody, checksumOverride, stateDir string) stageOut {
 	t.Helper()
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "couch-pi")
@@ -97,7 +103,6 @@ func stageChecksum(t *testing.T, tag, token, serveBody, checksumOverride string)
 		latestAPI, latestDownload, binaryPath, restart = prevAPI, prevDL, prevBin, prevRestart
 	})
 
-	stateDir := t.TempDir()
 	u := New(testLogger(), "0.1.45", token, stateDir)
 	u.checkAndMaybeRestart()
 	return stageOut{bin: bin, restarted: restarted, dlHits: &dlHits, dlPath: &dlPath, stateDir: stateDir}
@@ -397,9 +402,54 @@ func TestRecoverBootArmsThenClears(t *testing.T) {
 	if !ok || p.Attempts != 1 || p.Tag != "0.1.48" {
 		t.Fatalf("marker after arm = %+v ok=%v", p, ok)
 	}
+	// The marker survives the arm boot: only a real bind (ProveBoot)
+	// clears it, so an alive-but-never-serving binary stays unproven.
 	time.Sleep(60 * time.Millisecond)
+	if _, ok := readPending(dir); !ok {
+		t.Fatal("marker cleared without ProveBoot")
+	}
+	ProveBoot(dir)
 	if _, ok := readPending(dir); ok {
-		t.Fatal("marker not cleared after a healthy boot window")
+		t.Fatal("ProveBoot must clear the marker")
+	}
+}
+
+// A tag that failed to boot twice lands on the reject list, and the
+// updater must never chase it again.
+func TestRolledBackTagIsRejected(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "couch-pi")
+	if err := os.WriteFile(bin, []byte("bad"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bin+".bak", []byte("good"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := armPending(dir, "9.9.9"); err != nil {
+		t.Fatal(err)
+	}
+	prevRestart := restart
+	rec := &[]string{}
+	restart = func(path string) error { *rec = append(*rec, path); return nil }
+	t.Cleanup(func() { restart = prevRestart })
+
+	RecoverBoot(dir, bin, time.Millisecond, testLogger(), "9.9.9") // first boot: arm
+	if isRejected(dir, "9.9.9") {
+		t.Fatal("rejected on the first, armed boot")
+	}
+	writePending(dir, pending{Tag: "9.9.9", Attempts: 1})
+	RecoverBoot(dir, bin, time.Millisecond, testLogger(), "9.9.9") // second boot: roll back
+	if !isRejected(dir, "9.9.9") {
+		t.Fatal("rolled-back tag not rejected")
+	}
+	if len(*rec) != 1 {
+		t.Fatalf("rollbacks = %v, want one restart into the backup", *rec)
+	}
+
+	// The updater skips the rejected tag entirely: no download, no swap.
+	out := stageState(t, "9.9.9", "", fakeBinaryNew, "", dir)
+	if len(*out.restarted) != 0 || out.dlHits.Load() != 0 {
+		t.Fatalf("rejected tag chased again: restarts=%v dlHits=%d", *out.restarted, out.dlHits.Load())
 	}
 }
 

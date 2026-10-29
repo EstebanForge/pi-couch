@@ -247,9 +247,9 @@ class MainActivity : Activity() {
             settings.allowFileAccess = false
             settings.allowContentAccess = false
             // Remote WebView debugging over adb (chrome://inspect). Debug
-            // builds only; it is the precision instrument for phone-side
-            // web bugs and stays out of any future signed release.
-            WebView.setWebContentsDebuggingEnabled(true)
+            // builds only: a release build must not offer its grids to
+            // any USB-connected machine.
+            WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
             webViewClient = safeAreaClient() // stay in-app; inject real insets
             // The file input needs a WebChromeClient: without
             // onShowFileChooser the WebView no-ops the tap and the
