@@ -2,6 +2,14 @@
 
 Started 2026-10-09 as a plan and a domain glossary. It grew into the phone I drive my work through. Dates below are approximate; the git log holds the precise trail.
 
+## 2026-10-29
+
+- The self-updater lives again. Versions moved to dates a few days ago, but the updater still compared the old dotted shape, so nothing had rolled out to any box since. It understands dates now, which makes today's build the first one remote machines actually take.
+- The dialog bridge found its token. It had been posting dialogs without the api token the server requires, so every one of its reports bounced and only the pane-reading fallback ever worked. It sends the Bearer header now and warns once if the token goes missing; a session restart also stops one lost dialog event from muting every later dialog.
+- Tapping the model chip no longer interrupts a running turn. The stall guard only clears picker residue while the agent is idle, so a queued model or thinking change survives a long turn instead of being Esc'd out of the queue.
+- Push buzzes are honest again. A turn that finished, restarted and finished inside one dedupe window used to stay silent; the watcher now clears its marker the moment a turn starts, so every completed turn notifies.
+- The home list and the terminal see status changes with no file writes. A dialog opening or the driver flipping to blocked reaches the phone right away, each open stream wakes on its own channel, and the terminal screen reads patch frames through the shared session store instead of falling over on them.
+
 ## 2026-10-28
 
 - The waiting spinner became a choice: Settings picks between the blocks shuffle and a two-square rotator, previewed live on the buttons. The squares take on status colors (waiting yellow included) and go still under reduced motion.
