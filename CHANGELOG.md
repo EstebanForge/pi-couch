@@ -4,6 +4,7 @@ Started 2026-10-09 as a plan and a domain glossary. It grew into the phone I dri
 
 ## 2026-10-29
 
+- The Android app walks itself back online when the server or the tunnel is down, no close and reopen needed, and links in model replies now open in my default handler instead of rendering github.com inside the app. This round carries a fresh APK.
 - Dialog answers verify what is actually on screen before firing, so a replaced confirm bounces instead of eating the tap. The exec endpoint always wants the token, reaps backgrounded children instead of hanging, and caps its output while the command runs.
 - The terminal repaints late joiners in full, evicts viewers that stop reading so they reconnect clean, and picks up status flips with no file writes. Concurrent session parses merge into one.
 - The updater refuses to chase a release that already rolled back, proves a boot only when the server really binds, and verifies release checksums before it runs anything. Releases now ship a checksums.txt and CI gates the publish on green tests.
