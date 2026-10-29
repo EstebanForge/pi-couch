@@ -65,10 +65,20 @@ func (m SessionMeta) DisplayName() string {
 // Index walks the sessions root and caches list metadata per file.
 // Safe for concurrent use: SSE streams and page handlers share one Index.
 type Index struct {
-	root  string
-	mu    sync.Mutex
-	cache map[string]metaCache
-	tail  *tailCache
+	root    string
+	mu      sync.Mutex
+	cache   map[string]metaCache
+	tail    *tailCache
+	parsing map[string]*parseFlight
+}
+
+// parseFlight merges concurrent meta misses for one session: without
+// it, every open stream on a cold large session parsed the whole file
+// in parallel.
+type parseFlight struct {
+	done chan struct{}
+	meta SessionMeta
+	ok   bool
 }
 
 // tailCache holds the parsed entries of the session currently being
@@ -215,8 +225,8 @@ func (ix *Index) subdirs() []string {
 
 // cachedMeta serves from the cache on a hit; on a miss it parses WITHOUT
 // holding the lock, so one slow multi-MB parse never head-of-line blocks
-// every other stream. Concurrent misses may parse the same file twice; the
-// last write to the cache wins and both results are identical.
+// every other stream. Concurrent misses share one parse: the first
+// arrival parses, the rest wait for its result.
 func (ix *Index) cachedMeta(path string) (SessionMeta, bool) {
 	st, err := os.Stat(path)
 	if err != nil {
@@ -229,17 +239,38 @@ func (ix *Index) cachedMeta(path string) (SessionMeta, bool) {
 	if ok && c.id == statID(st) && c.mtime.Equal(st.ModTime()) && c.size == st.Size() {
 		return c.meta, true
 	}
-	meta, ok := ix.parse(path, key, st)
-	if !ok {
-		return SessionMeta{}, false
-	}
 	ix.mu.Lock()
-	ix.cache[key] = metaCache{mtime: st.ModTime(), size: st.Size(), id: statID(st), meta: meta}
+	if ix.parsing == nil {
+		ix.parsing = map[string]*parseFlight{}
+	}
+	if fl, busy := ix.parsing[key]; busy {
+		ix.mu.Unlock()
+		<-fl.done
+		return fl.meta, fl.ok
+	}
+	fl := &parseFlight{done: make(chan struct{})}
+	ix.parsing[key] = fl
 	ix.mu.Unlock()
-	return meta, true
+	meta, ok := ix.parse(path, key, st)
+	fl.meta, fl.ok = meta, ok
+	ix.mu.Lock()
+	delete(ix.parsing, key)
+	if ok {
+		ix.cache[key] = metaCache{mtime: st.ModTime(), size: st.Size(), id: statID(st), meta: meta}
+	}
+	ix.mu.Unlock()
+	close(fl.done)
+	return meta, ok
 }
 
+// parseProbe runs at full-parse entry; a var so the merge test can
+// count parses. Nil in production.
+var parseProbe func()
+
 func (ix *Index) parse(path, key string, st os.FileInfo) (SessionMeta, bool) {
+	if parseProbe != nil {
+		parseProbe()
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return SessionMeta{}, false

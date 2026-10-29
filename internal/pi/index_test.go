@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"sync/atomic"
 	"time"
 )
 
@@ -253,5 +254,48 @@ func TestTranscriptBeforeCapsItemStarvedPages(t *testing.T) {
 	}
 	if !more {
 		t.Fatal("want more=true: the oldest items are still above")
+	}
+}
+
+// Concurrent meta misses share one parse: eight cold readers on the
+// same session must produce a single full parse.
+func TestCachedMetaMergesConcurrentMisses(t *testing.T) {
+	ix := testIndex(t)
+	list, err := ix.List()
+	if err != nil || len(list) != 1 {
+		t.Fatalf("List: %v, %d", err, len(list))
+	}
+	path := list[0].Path
+
+	// Cold the cache and slow every parse so all eight readers land
+	// inside the parse window.
+	ix.mu.Lock()
+	ix.cache = map[string]metaCache{}
+	ix.mu.Unlock()
+	var parses atomic.Int32
+	prev := parseProbe
+	parseProbe = func() {
+		parses.Add(1)
+		time.Sleep(80 * time.Millisecond)
+	}
+	t.Cleanup(func() { parseProbe = prev })
+
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			if _, ok := ix.cachedMeta(path); !ok {
+				t.Error("cachedMeta failed")
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	if n := parses.Load(); n != 1 {
+		t.Fatalf("parse ran %d times for 8 concurrent misses, want 1", n)
 	}
 }
