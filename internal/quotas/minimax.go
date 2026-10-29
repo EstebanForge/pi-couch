@@ -1,13 +1,21 @@
 package quotas
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
 )
 
 const minimaxRemainsURL = "https://www.minimax.io/v1/token_plan/remains"
+
+// minimax.io answers slower than the shared client budget from some
+// networks (5s+ to first byte), so this fetcher widens its own
+// deadline; the service-level client stays tight for the fast
+// providers.
+const minimaxTimeout = 30 * time.Second
 
 type minimaxRemainsResp struct {
 	BaseResp struct {
@@ -24,6 +32,10 @@ type minimaxRemainsResp struct {
 }
 
 func fetchMinimaxQuota(client *http.Client) ProviderQuota {
+	return fetchMinimaxQuotaAt(client, minimaxRemainsURL)
+}
+
+func fetchMinimaxQuotaAt(client *http.Client, url string) ProviderQuota {
 	q := ProviderQuota{
 		ID:        "minimax",
 		Name:      "MiniMax",
@@ -37,7 +49,7 @@ func fetchMinimaxQuota(client *http.Client) ProviderQuota {
 		return q
 	}
 
-	req, err := http.NewRequest("GET", minimaxRemainsURL, nil)
+	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		q.Error = err.Error()
 		return q
@@ -45,9 +57,11 @@ func fetchMinimaxQuota(client *http.Client) ProviderQuota {
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := client.Do(req)
+	c := *client
+	c.Timeout = minimaxTimeout
+	resp, err := c.Do(req)
 	if err != nil {
-		q.Error = err.Error()
+		q.Error = minimaxDoError(err)
 		return q
 	}
 	defer resp.Body.Close()
@@ -60,6 +74,14 @@ func fetchMinimaxQuota(client *http.Client) ProviderQuota {
 	var u minimaxRemainsResp
 	if err := json.NewDecoder(resp.Body).Decode(&u); err != nil {
 		q.Error = err.Error()
+		return q
+	}
+	if u.BaseResp.StatusCode != 0 {
+		if u.BaseResp.StatusMsg != "" {
+			q.Error = u.BaseResp.StatusMsg
+		} else {
+			q.Error = fmt.Sprintf("minimax API error %d", u.BaseResp.StatusCode)
+		}
 		return q
 	}
 
@@ -93,4 +115,13 @@ func fetchMinimaxQuota(client *http.Client) ProviderQuota {
 	}
 
 	return q
+}
+
+// The phone renders q.Error verbatim, so a deadline miss reads short
+// instead of Go's wrapped url.Error with the endpoint URL inside.
+func minimaxDoError(err error) string {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timed out"
+	}
+	return err.Error()
 }

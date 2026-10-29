@@ -172,7 +172,7 @@ function windowRank(w: WindowQuota): number {
 	return 2;
 }
 
-function ProviderCard({ provider }: { provider: ProviderQuota }) {
+export function ProviderCard({ provider }: { provider: ProviderQuota }) {
 	const hasWindows = provider.windows && provider.windows.length > 0;
 	const isError = Boolean(provider.error);
 
@@ -189,8 +189,18 @@ function ProviderCard({ provider }: { provider: ProviderQuota }) {
 						</span>
 					)}
 				</div>
-				{isError && <span className="text-[12px] font-medium text-muted/80">{provider.error}</span>}
+				{isError && (
+					<span className="rounded-full border border-error/30 bg-error/10 px-2 py-0.5 text-[11px] font-semibold text-error">
+						unavailable
+					</span>
+				)}
 			</div>
+
+			{isError && (
+				<p className="border-t border-base-content/6 pt-3 text-[12px] leading-snug break-words text-error/80">
+					{provider.error}
+				</p>
+			)}
 
 			{hasWindows && (
 				<div className="flex flex-col gap-3 border-t border-base-content/6 pt-3">
