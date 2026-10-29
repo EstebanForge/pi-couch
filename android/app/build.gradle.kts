@@ -23,8 +23,8 @@ android {
         applicationId = "com.estebanforge.couchpi"
         minSdk = 32
         targetSdk = 35
-        versionCode = 10
-        versionName = "20261029"
+        versionCode = 11
+        versionName = "20261029.1"
     }
 
     signingConfigs {
