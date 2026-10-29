@@ -1,6 +1,8 @@
 package update
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"io"
 	"log/slog"
 	"net/http"
@@ -27,11 +29,25 @@ func fakeAPIServer(t *testing.T, tag string, hits *atomic.Int32, sawAuth *atomic
 	}))
 }
 
-func fakeDownloadServer(t *testing.T, body string, hits *atomic.Int32, lastPath *atomic.Value) *httptest.Server {
+func fakeDownloadServer(t *testing.T, body string, hits *atomic.Int32, lastPath *atomic.Value, checksumOverride string) *httptest.Server {
 	t.Helper()
+	sum := sha256.Sum256([]byte(body))
+	correct := hex.EncodeToString(sum[:]) + "  pi-couch-linux-amd64\n"
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits.Add(1)
 		lastPath.Store(r.URL.Path)
+		if strings.HasSuffix(r.URL.Path, "/checksums.txt") {
+			if checksumOverride == "404" {
+				http.NotFound(w, r)
+				return
+			}
+			if checksumOverride != "" {
+				_, _ = w.Write([]byte(checksumOverride))
+				return
+			}
+			_, _ = w.Write([]byte(correct))
+			return
+		}
 		_, _ = w.Write([]byte(body))
 	}))
 }
@@ -48,6 +64,12 @@ type stageOut struct {
 // The fake asset is a script that prints the tag the test asks for,
 // which is what the real -version probe requires.
 func stage(t *testing.T, tag, token, serveBody string) stageOut {
+	return stageChecksum(t, tag, token, serveBody, "")
+}
+
+// checksumOverride: "" serves the correct sha256 for the body,
+// "404" answers 404, anything else is served verbatim as the file.
+func stageChecksum(t *testing.T, tag, token, serveBody, checksumOverride string) stageOut {
 	t.Helper()
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "couch-pi")
@@ -60,7 +82,7 @@ func stage(t *testing.T, tag, token, serveBody string) stageOut {
 	var dlPath atomic.Value
 	api := fakeAPIServer(t, tag, &apiHits, &sawAuth)
 	t.Cleanup(api.Close)
-	dl := fakeDownloadServer(t, serveBody, &dlHits, &dlPath)
+	dl := fakeDownloadServer(t, serveBody, &dlHits, &dlPath, checksumOverride)
 	t.Cleanup(dl.Close)
 
 	prevAPI, prevDL, prevBin, prevRestart := latestAPI, latestDownload, binaryPath, restart
@@ -180,7 +202,7 @@ func TestCheckAbortsWhenBackupFails(t *testing.T) {
 	}
 	var dlHits atomic.Int32
 	var dlPath atomic.Value
-	dl := fakeDownloadServer(t, fakeBinaryNew, &dlHits, &dlPath)
+	dl := fakeDownloadServer(t, fakeBinaryNew, &dlHits, &dlPath, "")
 	t.Cleanup(dl.Close)
 	var apiHits atomic.Int32
 	var sawAuth atomic.Bool
@@ -240,6 +262,63 @@ func TestProbeRejectsWrongVersion(t *testing.T) {
 
 	if err := probeWithRetries("x", "9.9.9"); err == nil {
 		t.Fatal("wrong probe version accepted")
+	}
+}
+
+// The downloaded binary must never run, and never swap in, before its
+// checksum matches the release's checksums.txt.
+func TestChecksumGatesTheSwap(t *testing.T) {
+	t.Run("tampered asset", func(t *testing.T) {
+		out := stageChecksum(t, "9.9.9", "", fakeBinaryNew,
+			"deadbeef  pi-couch-linux-amd64\n")
+		if len(*out.restarted) != 0 {
+			t.Fatal("restart ran on a checksum mismatch")
+		}
+		got, _ := os.ReadFile(out.bin)
+		if string(got) != "old-binary" {
+			t.Fatalf("binary swapped anyway: %q", string(got))
+		}
+	})
+
+	t.Run("missing checksums file", func(t *testing.T) {
+		out := stageChecksum(t, "9.9.9", "", fakeBinaryNew, "404")
+		if len(*out.restarted) != 0 {
+			t.Fatal("restart ran without checksums")
+		}
+	})
+
+	t.Run("probe never runs before the checksum", func(t *testing.T) {
+		probes := &atomic.Int32{}
+		prev := probeBin
+		probeBin = func(string) ([]byte, error) {
+			probes.Add(1)
+			return prev("x")
+		}
+		t.Cleanup(func() { probeBin = prev })
+		stageChecksum(t, "9.9.9", "", fakeBinaryNew,
+			"0000000000000000000000000000000000000000000000000000000000000000  pi-couch-linux-amd64\n")
+		if probes.Load() != 0 {
+			t.Fatalf("probe ran %d times before the checksum passed", probes.Load())
+		}
+	})
+}
+
+func TestParseChecksums(t *testing.T) {
+	linux := strings.Repeat("a", 64)
+	darwin := strings.Repeat("b", 64)
+	sums := parseChecksums([]byte(
+		"" +
+			linux + "  pi-couch-linux-amd64\n" +
+			"\n" +
+			darwin + "  pi-couch-darwin-arm64\r\n" +
+			"this line is junk\n" +
+			"cccc  \n" +
+			strings.Repeat("d", 63) + "  too-short\n"))
+	if len(sums) != 2 {
+		t.Fatalf("entries = %d (%v), want 2", len(sums), sums)
+	}
+	if sums["pi-couch-linux-amd64"] != linux || sums["pi-couch-darwin-arm64"] != darwin {
+		t.Fatalf("sums = %v", sums)
 	}
 }
 

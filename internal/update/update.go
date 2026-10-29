@@ -7,6 +7,9 @@ package update
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -259,10 +262,83 @@ func (u *Updater) download(tag string) (string, error) {
 		return fail(err)
 	}
 
+	if err := u.verifyChecksum(tmp.Name(), tag); err != nil {
+		return fail(err)
+	}
 	if err := probeWithRetries(tmp.Name(), tag); err != nil {
 		return fail(err)
 	}
 	return tmp.Name(), nil
+}
+
+// maxChecksums bounds the checksums.txt read; the real file is a few
+// hundred bytes.
+const maxChecksums = 64 << 10
+
+// verifyChecksum proves the downloaded asset matches the release's
+// checksums.txt before anything executes it. Missing file or missing
+// entry fails closed: releases without checksums.txt do not update.
+func (u *Updater) verifyChecksum(path, tag string) error {
+	data, err := u.fetchChecksums(tag)
+	if err != nil {
+		return fmt.Errorf("fetch checksums: %w", err)
+	}
+	asset := "pi-couch-" + runtime.GOOS + "-" + runtime.GOARCH
+	want, ok := parseChecksums(data)[asset]
+	if !ok {
+		return fmt.Errorf("checksums.txt has no entry for %s", asset)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	h := sha256.New()
+	_, err = io.Copy(h, f)
+	f.Close()
+	if err != nil {
+		return err
+	}
+	if subtle.ConstantTimeCompare([]byte(hex.EncodeToString(h.Sum(nil))), []byte(want)) != 1 {
+		return fmt.Errorf("checksum mismatch for %s", asset)
+	}
+	return nil
+}
+
+func (u *Updater) fetchChecksums(tag string) ([]byte, error) {
+	url := latestDownload + tag + "/checksums.txt"
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	if u.token != "" {
+		req.Header.Set("Authorization", "Bearer "+u.token)
+	}
+	resp, err := u.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	return io.ReadAll(io.LimitReader(resp.Body, maxChecksums))
+}
+
+// parseChecksums reads the sha256sum line format (hash, whitespace,
+// name); junk lines are skipped.
+func parseChecksums(data []byte) map[string]string {
+	sums := make(map[string]string)
+	for _, line := range strings.Split(string(data), "\n") {
+		parts := strings.Fields(strings.TrimSpace(line))
+		if len(parts) != 2 || len(parts[0]) != 64 {
+			continue
+		}
+		if _, err := hex.DecodeString(parts[0]); err != nil {
+			continue
+		}
+		sums[parts[1]] = parts[0]
+	}
+	return sums
 }
 
 // probeWithRetries verifies the new binary and rides out ETXTBSY, the
