@@ -294,8 +294,8 @@ export const Composer = memo(function Composer(props: {
 		if (list.length > MAX_FILES - files.length) {
 			setNotice(`Only ${MAX_FILES} files per prompt; extras dropped.`);
 		}
-		const batch = picked.map((f, i) => ({
-			id: nextId.current++ + i,
+		const batch = picked.map((f) => ({
+			id: nextId.current++,
 			name: f.name,
 		}));
 		setFiles((cur) => [...cur, ...batch]);

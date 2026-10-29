@@ -385,13 +385,16 @@ async function postJSONBody(
 }
 
 export const sendPrompt = (key: string, text: string, whenBusy?: "followUp") =>
+	// Bounded: a wedged request must settle so the composer's send gate
+	// reopens instead of locking the input until reload.
 	postJSONBody(
 		`/api/sessions/${encodeURIComponent(key)}/prompt`,
 		whenBusy ? { text, whenBusy } : { text },
+		30_000,
 	);
 
 export const resumeSession = (key: string, text: string) =>
-	postJSONBody(`/api/sessions/${encodeURIComponent(key)}/resume`, { text });
+	postJSONBody(`/api/sessions/${encodeURIComponent(key)}/resume`, { text }, 30_000);
 
 /** Answer an open pi confirm dialog: yes presses enter, no presses
  * down+enter. ok:false carries the in-band refusal (changed, notfound,
@@ -442,10 +445,13 @@ export async function runCommand(
 	cmd: string,
 	cwd: string,
 ): Promise<{ output: string; code: number; truncated?: boolean }> {
+	// The server cuts commands at 60s; the client budget sits past it so
+	// the handler's own timeout wins.
 	const res = await fetch("/api/exec", {
 		method: "POST",
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({ cmd, cwd }),
+		signal: AbortSignal.timeout(70_000),
 	});
 	if (!res.ok) throw new Error(`exec ${res.status}`);
 	return (await res.json()) as { output: string; code: number; truncated?: boolean };
@@ -466,7 +472,11 @@ export async function getPrompts(cwd?: string): Promise<PromptInfo[]> {
 export async function uploadImage(file: File): Promise<string> {
 	const fd = new FormData();
 	fd.append("file", file);
-	const res = await fetch("/api/upload", { method: "POST", body: fd });
+	const res = await fetch("/api/upload", {
+		method: "POST",
+		body: fd,
+		signal: AbortSignal.timeout(120_000),
+	});
 	if (!res.ok) throw new Error(`upload ${res.status}`);
 	const data = (await res.json()) as { path: string };
 	return data.path;
