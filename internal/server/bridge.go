@@ -52,6 +52,13 @@ func (a *app) paneDialogID(sessionPath string) string {
 	if p == nil {
 		return ""
 	}
+	return paneParseID(sessionPath, p)
+}
+
+// paneParseID is the pane-dialog identity used by the answer path's
+// re-read: the same hash over a fresh parse must match the id the
+// request targeted, or the pane shows a different dialog now.
+func paneParseID(sessionPath string, p *piDialog) string {
 	h := fnv.New64a()
 	h.Write([]byte(sessionPath))
 	h.Write([]byte{0x1f})

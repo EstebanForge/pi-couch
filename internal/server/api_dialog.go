@@ -75,6 +75,13 @@ func (a *app) apiDialogAnswer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// Identity target for the dispatch's re-read: a matched bridge
+	// entry anchors on its title (the pane parse cannot mint bridge
+	// uuids); a synthesized pane id anchors on itself.
+	expectID, expectTitle := req.ID, ""
+	if has && dialog.ID != "" && dialog.ID == req.ID {
+		expectTitle = dialog.Title
+	}
 	if !a.answered.Claim(req.ID) {
 		a.logger.Warn("dialog answer refused", "cause", "memo claimed", "session", meta.Path, "req_id", req.ID)
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
@@ -87,17 +94,30 @@ func (a *app) apiDialogAnswer(w http.ResponseWriter, r *http.Request) {
 	// answers release on success too, because a multi-question rpiv
 	// dialog keeps one id across its questions - only confirms,
 	// escapes and editor submits are one-shot per id.
-	sent, oneShot := a.answerDispatch(w, r, req.Answer, req.Text, meta.Path)
+	sent, oneShot := a.answerDispatch(w, r, req.Answer, req.Text, meta.Path, expectID, expectTitle)
 	if !sent || !oneShot {
 		a.answered.Release(req.ID)
 	}
 }
 
 // answerDispatch runs one answer attempt; true means keys were sent
-// and the 200 already written.
-func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, text, path string) (bool, bool) {
+// and the 200 already written. expectID/expectTitle are the identity
+// the pane must still show: yes/no and escape verify the fresh parse
+// matches, not merely that some dialog is up.
+func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, text, path, expectID, expectTitle string) (bool, bool) {
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
+	// stillUp reports whether the re-read shows the targeted dialog.
+	stillUp := func(paneText string) bool {
+		p := parsePiDialog(paneText)
+		if p == nil {
+			return false
+		}
+		if expectTitle != "" {
+			return p.Title == expectTitle
+		}
+		return paneParseID(path, p) == expectID
+	}
 	paneID, err := a.herdr.TargetForPath(ctx, path)
 	if err != nil {
 		a.logger.Warn("dialog answer refused", "cause", "target unresolved", "session", path, "err", err.Error())
@@ -120,7 +140,7 @@ func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, tex
 			}
 			pr, err = a.herdr.PaneRead(ctx, paneID, "detection", 30)
 		}
-		if err != nil || !piConfirmOnScreen(pr.Text) {
+		if err != nil || !piConfirmOnScreen(pr.Text) || !stillUp(pr.Text) {
 			a.logger.Warn("dialog answer refused", "cause", "confirm off screen", "session", path)
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
 			return false, true
@@ -145,7 +165,7 @@ func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, tex
 			}
 			pr, err = a.herdr.PaneRead(ctx, paneID, "detection", 30)
 		}
-		if err != nil || !dialogOpen(pr.Text) {
+		if err != nil || !dialogOpen(pr.Text) || !stillUp(pr.Text) {
 			a.logger.Warn("dialog answer refused", "cause", "dialog off screen", "session", path)
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
 			return false, true

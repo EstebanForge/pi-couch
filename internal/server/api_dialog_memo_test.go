@@ -20,6 +20,12 @@ import (
 
 const menuScreen = "Allow edit?  ❯ Yes  No  ↑↓ navigate enter select escape/ctrl+c cancel"
 
+// confirmPaint is a titled confirm the pane parser can identity-check:
+// title line, cursor row, second row, then the menu hint.
+func confirmPaint(title string) string {
+	return title + "\n\n→ Yes\n  No\n\n↑↓ navigate  enter select  escape/ctrl+c cancel\n"
+}
+
 // herdrFake answers agent.list, pane.read and pane.send_input like a
 // herdr socket driving the fixture session; *sessPath is read per
 // request so the test can wire it after the socket exists. *sends
@@ -265,7 +271,8 @@ func bridgeReal(t *testing.T, a *app, sessPath string) {
 func TestDialogAnswerMemoDedupesDoubleTap(t *testing.T) {
 	var sends int32
 	var sessPath string
-	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath, sends: &sends})
+	pane := confirmPaint("Allow?")
+	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath, sends: &sends, paneText: &pane, paneAfterSend: &pane})
 	a, sub, h := streamTestAppWithHerdr(t, sock)
 	sessPath = filepath.Join(sub, "s1.jsonl")
 	bridgeReal(t, a, sessPath)
@@ -297,7 +304,8 @@ func TestDialogAnswerMemoDedupesDoubleTap(t *testing.T) {
 func TestDialogAnswerMemoReleasesOnSendFailure(t *testing.T) {
 	var sends int32
 	var sessPath string
-	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath, sends: &sends, failFirstSend: true})
+	pane := confirmPaint("Allow?")
+	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath, sends: &sends, failFirstSend: true, paneText: &pane, paneAfterSend: &pane})
 	a, sub, h := streamTestAppWithHerdr(t, sock)
 	sessPath = filepath.Join(sub, "s1.jsonl")
 	bridgeReal(t, a, sessPath)
@@ -327,7 +335,8 @@ func TestDialogAnswerMemoReleasesOnSendFailure(t *testing.T) {
 func TestDialogAnswerMemoAllowsRePresentedDialog(t *testing.T) {
 	var sends int32
 	var sessPath string
-	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath, sends: &sends})
+	pane := confirmPaint("Allow?")
+	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath, sends: &sends, paneText: &pane, paneAfterSend: &pane})
 	a, sub, h := streamTestAppWithHerdr(t, sock)
 	sessPath = filepath.Join(sub, "s1.jsonl")
 	bridgeReal(t, a, sessPath)
