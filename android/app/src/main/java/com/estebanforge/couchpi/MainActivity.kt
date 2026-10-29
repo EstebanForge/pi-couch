@@ -2,6 +2,7 @@ package com.estebanforge.couchpi
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -45,6 +46,10 @@ class MainActivity : Activity() {
 
     private val prefs by lazy { getSharedPreferences("couch-pi", Context.MODE_PRIVATE) }
     private var web: WebView? = null
+
+    // The configured server origin: the only URL allowed to render in
+    // the bridged WebView (see shouldOverrideUrlLoading).
+    private var serverUrl: String? = null
 
     // Pending file-chooser callback: the WebView hands it over in
     // onShowFileChooser and demands exactly one onReceiveValue, on pick
@@ -271,6 +276,7 @@ class MainActivity : Activity() {
         // offsets its own content via env(safe-area-inset-*) (viewport-fit
         // cover), so the shell applies no padding of its own.
         web = view
+        serverUrl = url
         view.addJavascriptInterface(speech, "CouchPiSpeech")
         view.addJavascriptInterface(haptics, "CouchPiHaptics")
         setContentView(view)
@@ -471,6 +477,19 @@ class MainActivity : Activity() {
     // keep the injected documentElement vars; navigations refire this hook.
     private fun safeAreaClient(): WebViewClient {
         return object : WebViewClient() {
+            // The bridges stay attached to this WebView for its whole
+            // life, so only the configured origin may render here; every
+            // other link (markdown, target=_blank, redirects) hands off
+            // to the browser. NavGuard fails closed.
+            override fun shouldOverrideUrlLoading(
+                view: WebView,
+                request: WebResourceRequest,
+            ): Boolean {
+                if (!NavGuard.opensExternally(serverUrl, request.url.toString())) return false
+                openExternally(request.url)
+                return true
+            }
+
             override fun onPageFinished(view: WebView, url: String?) {
                 val ins = view.rootWindowInsets?.getInsets(
                     WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars()
@@ -509,13 +528,26 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun openExternally(url: Uri) {
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, url).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (_: ActivityNotFoundException) {
+            // No browser installed: dropping the link beats loading it
+            // next to the mic bridge.
+        }
+    }
+
     private fun loadErrorHtml(failedUrl: String): String {
+        // The failed URL rides a data attribute, escaped, never
+        // interpolated into the onclick string: a quote in it used to
+        // break out of the attribute and run script.
+        val target = NavGuard.htmlAttrEscape(failedUrl)
         val body = "<html><body style='background:#0f1115;color:#e5e7eb;" +
             "font-family:sans-serif;display:flex;align-items:center;" +
             "justify-content:center;height:100%;margin:0'>" +
             "<div style='text-align:center'><p>Pi Couch is unreachable.</p>" +
             "<p style='opacity:0.6;font-size:0.9em'>Check the tailnet, then reload.</p>" +
-            "<p><button onclick=\"location.href='$failedUrl'\" " +
+            "<p><button data-href=\"$target\" onclick=\"location.href=this.dataset.href\" " +
             "style='margin-top:16px;padding:10px 24px;border-radius:8px;border:0;" +
             "background:#4d9abf;color:#0f1115'>Reload</button></p></div></body></html>"
         return body
