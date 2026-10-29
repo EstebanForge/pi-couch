@@ -24,6 +24,7 @@ import {
 import { dispositionFor } from "../chat/disposition";
 import { ESC_SETTLE_MS, orderKeys, type QuickKey } from "../chat/quick-keys";
 import { hapticConfirm, hapticTick } from "../haptics";
+import { stalledApply } from "./modelApply";
 import { useSheetBack } from "../nav";
 import {
 	effectiveEnterSends,
@@ -418,16 +419,18 @@ export const Composer = memo(function Composer(props: {
 			}
 		});
 		// A pattern with no exact match leaves pi sitting in its model
-		// picker overlay, blocking the TUI. If the stream does not
-		// confirm the switch, dismiss the picker and say so.
+		// picker overlay, blocking the TUI. When the stall timer fires,
+		// dismiss that residue only for an idle agent: pi queues /model
+		// while working, and Esc would abort the running turn.
 		window.setTimeout(() => {
-			setChosenModel((cur) => {
-				if (cur !== p) return cur;
-				setModelMark(false);
+			const outcome = stalledApply(chosenModelRef.current, p, statusRef.current);
+			if (outcome === "confirmed") return;
+			setChosenModel(null);
+			setModelMark(false);
+			if (outcome === "clear-and-dismiss") {
 				void sendKeys(sessionKey, ["esc"]);
 				setToast("Model not applied");
-				return null;
-			});
+			}
 		}, 8000);
 	};
 
@@ -443,20 +446,35 @@ export const Composer = memo(function Composer(props: {
 			}
 		});
 		// pi rejects a level the current model does not support without
-		// writing the jsonl entry; dismiss any TUI residue and unstick
-		// the chip when the stream never confirms.
+		// writing the jsonl entry; the same idle-only rule applies to
+		// dismissing TUI residue.
 		window.setTimeout(() => {
-			setChosenThinking((cur) => {
-				if (cur !== level) return cur;
-				setThinkingMark(false);
+			const outcome = stalledApply(chosenThinkingRef.current, level, statusRef.current);
+			if (outcome === "confirmed") return;
+			setChosenThinking(null);
+			setThinkingMark(false);
+			if (outcome === "clear-and-dismiss") {
 				void sendKeys(sessionKey, ["esc"]);
 				setToast("Thinking not applied");
-				return null;
-			});
+			}
 		}, 8000);
 	};
 
-	// Pending marks clear when the stream confirms the change.
+	// Pending marks clear when the stream confirms the change. The refs
+	// mirror the latest values for the stall timers, whose closures
+	// would otherwise read the render-time status and pending value.
+	const statusRef = useRef(status);
+	const chosenModelRef = useRef(chosenModel);
+	const chosenThinkingRef = useRef(chosenThinking);
+	useEffect(() => {
+		statusRef.current = status;
+	}, [status]);
+	useEffect(() => {
+		chosenModelRef.current = chosenModel;
+	}, [chosenModel]);
+	useEffect(() => {
+		chosenThinkingRef.current = chosenThinking;
+	}, [chosenThinking]);
 	useEffect(() => {
 		if (chosenModel !== null && props.model === chosenModel) {
 			setModelMark(false);
