@@ -17,6 +17,7 @@ type fakeHerdr struct {
 	agents    []herdr.Agent
 	script    map[string][]waitStep
 	lastUntil []string
+	blockWait func(context.Context) // set: AgentWait parks until its ctx dies
 }
 
 type waitStep struct {
@@ -33,7 +34,7 @@ func (f *fakeHerdr) Agents(context.Context) ([]herdr.Agent, error) {
 	return out, nil
 }
 
-func (f *fakeHerdr) AgentWait(_ context.Context, target string, until []string, _ time.Duration) (herdr.Agent, error) {
+func (f *fakeHerdr) AgentWait(ctx context.Context, target string, until []string, _ time.Duration) (herdr.Agent, error) {
 	f.mu.Lock()
 	f.lastUntil = append([]string(nil), until...)
 	var step waitStep
@@ -44,7 +45,12 @@ func (f *fakeHerdr) AgentWait(_ context.Context, target string, until []string, 
 	case len(steps) == 1:
 		step = steps[0]
 	default:
+		block := f.blockWait
 		f.mu.Unlock()
+		if block != nil {
+			block(ctx)
+			return herdr.Agent{}, ctx.Err()
+		}
 		time.Sleep(20 * time.Millisecond)
 		return herdr.Agent{}, context.DeadlineExceeded
 	}
@@ -82,6 +88,45 @@ func startWatcher(ctx context.Context, f herdrAPI, events chan Event) *Watcher {
 	}
 	go w.Run(ctx)
 	return w
+}
+
+// A vanished agent's watch loop must not keep its agent.wait pinned:
+// removing the pane cancels the wait context, not just the stop
+// channel. Without the cancel the goroutine and the socket call sit
+// for up to WaitMax.
+func TestVanishedAgentCancelsWait(t *testing.T) {
+	f := &fakeHerdr{agents: []herdr.Agent{probeAgent("working", true)}}
+	waitCtx := make(chan context.Context, 1)
+	f.blockWait = func(ctx context.Context) {
+		select {
+		case waitCtx <- ctx:
+		default:
+		}
+		<-ctx.Done()
+	}
+	events := make(chan Event, 4)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	startWatcher(ctx, f, events)
+
+	var inWait context.Context
+	select {
+	case inWait = <-waitCtx:
+	case <-time.After(2 * time.Second):
+		t.Fatal("watch never reached AgentWait")
+	}
+	f.setAgents() // the agent vanishes from the reconcile list
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		select {
+		case <-inWait.Done():
+			return
+		default:
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("wait context still alive after the agent vanished")
 }
 
 func TestTransitionNotifies(t *testing.T) {

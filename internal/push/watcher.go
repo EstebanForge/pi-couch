@@ -40,7 +40,11 @@ type Watcher struct {
 // Run blocks until ctx is done; callers wrap in a goroutine.
 func (w *Watcher) Run(ctx context.Context) {
 	var mu sync.Mutex
+	// stop closes so idle loops exit at once; cancel kills an in-flight
+	// agent.wait, which otherwise pins the goroutine and the socket
+	// call for up to WaitMax after the agent vanished.
 	stops := map[string]chan struct{}{}
+	cancels := map[string]context.CancelFunc{}
 	// notified tracks the last pushed status per session path so a late
 	// herdr done->idle flip cannot double-buzz the phone.
 	notified := map[string]string{}
@@ -73,8 +77,10 @@ func (w *Watcher) Run(ctx context.Context) {
 			if !running {
 				stop := make(chan struct{})
 				stops[a.PaneID] = stop
+				wctx, cancel := context.WithCancel(ctx)
+				cancels[a.PaneID] = cancel
 				mu.Unlock()
-				go w.watch(ctx, a.PaneID, stop, &mu, notified)
+				go w.watch(wctx, a.PaneID, stop, &mu, notified)
 			} else {
 				mu.Unlock()
 			}
@@ -83,6 +89,10 @@ func (w *Watcher) Run(ctx context.Context) {
 		for pane, stop := range stops {
 			if !live[pane] {
 				close(stop)
+				if cancel := cancels[pane]; cancel != nil {
+					cancel()
+					delete(cancels, pane)
+				}
 				delete(stops, pane)
 			}
 		}
