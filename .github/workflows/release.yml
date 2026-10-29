@@ -1,12 +1,11 @@
 name: release
 
-# Tag push publishes the release: four static server binaries plus a
-# checksums.txt, which the self-updater verifies before it runs the
-# download. The Android APK is a separate lifecycle and stays manual
-# (android.yml).
+# Manual only. The default release path is scripts/release.sh on the
+# dev machine: CI runs the same gates locally and publishes the same
+# assets, so this workflow exists only as a fallback and never runs
+# on push. The Android APK is a separate lifecycle (android.yml).
 on:
-  push:
-    tags: ['*']
+  workflow_dispatch:
 
 jobs:
   # The full suite gates the release; this job holds no write
@@ -56,19 +55,15 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # Tags are unprefixed date versions and must name the version the
-      # tagged commit actually carries.
-      - name: Check the tag names the version
+      # The published tag is the unprefixed date version the checked-
+      # out commit carries.
+      - name: Check the version is a date
         run: |
           set -euo pipefail
-          case "${GITHUB_REF_NAME}" in
-            v*) echo "::error::tags are unprefixed date versions (20261029), not ${GITHUB_REF_NAME}"; exit 1 ;;
-          esac
           want="$(sed -n 's/^const Version = "\(.*\)"$/\1/p' internal/server/version.go)"
-          if [ "${GITHUB_REF_NAME}" != "$want" ]; then
-            echo "::error::tag ${GITHUB_REF_NAME} does not match version.go (${want})"
-            exit 1
-          fi
+          case "$want" in
+            v*|*[!0-9.]*) echo "::error::version.go must be an unprefixed date version (20261029), not $want"; exit 1 ;;
+          esac
 
       # The binary embeds the SPA (vite emits straight into
       # internal/web/app), so the web build comes first and once.
@@ -90,10 +85,20 @@ jobs:
           (cd dist && sha256sum pi-couch-* > checksums.txt)
           ls -la dist/
 
+      - name: Tag the release at version.go
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          want="$(sed -n 's/^const Version = "\(.*\)"$/\1/p' internal/server/version.go)"
+          git tag "$want"
+          git push origin "$want"
+
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" dist/pi-couch-* dist/checksums.txt \
-            --title "${GITHUB_REF_NAME}" \
+          want="$(sed -n 's/^const Version = "\(.*\)"$/\1/p' internal/server/version.go)"
+          gh release create "$want" dist/pi-couch-* dist/checksums.txt \
+            --title "$want" \
             --generate-notes
