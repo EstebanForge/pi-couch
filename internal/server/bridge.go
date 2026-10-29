@@ -110,6 +110,16 @@ func (a *app) apiBridgeDialog(w http.ResponseWriter, r *http.Request) {
 		a.bridge = map[string]bridgeEntry{}
 	}
 	if req.Phase == "start" {
+		// Entries key on session path and die by TTL, but paths of dead
+		// sessions linger forever; sweep expired ones once the map grows.
+		if len(a.bridge) >= 256 {
+			now := time.Now()
+			for p, e := range a.bridge {
+				if now.After(e.expires) {
+					delete(a.bridge, p)
+				}
+			}
+		}
 		a.bridge[req.SessionPath] = bridgeEntry{
 			dialog:  BridgeDialog{ID: req.ID, Kind: req.Kind, Title: req.Title},
 			expires: time.Now().Add(bridgeTTL),

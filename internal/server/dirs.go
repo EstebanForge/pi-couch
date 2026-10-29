@@ -46,11 +46,17 @@ func listDirs(home, target string) dirsResponse {
 	out := []dirEntry{}
 	truncated := false
 	for _, e := range entries {
-		if e.Type()&os.ModeDir == 0 {
+		if !e.IsDir() && e.Type()&os.ModeSymlink == 0 {
 			continue
 		}
 		full := filepath.Join(path, e.Name())
-		// A symlinked dir whose resolved target leaves home is invisible.
+		// A symlinked dir whose resolved target leaves home is invisible;
+		// one that stays inside is browsable, so the dir test must stat
+		// through the link (ReadDir reports ModeSymlink, not ModeDir).
+		info, err := os.Stat(full)
+		if err != nil || !info.IsDir() {
+			continue
+		}
 		if resolved, err := filepath.EvalSymlinks(full); err != nil ||
 			(resolved != home && !strings.HasPrefix(resolved, home+string(filepath.Separator))) {
 			continue

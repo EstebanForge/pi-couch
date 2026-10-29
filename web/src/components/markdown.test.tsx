@@ -30,6 +30,17 @@ describe("Markdown", () => {
 		expect(html).toContain('target="_blank"');
 		expect(html).toContain('rel="noopener noreferrer"');
 	});
+
+	// A markdown image is a fetch the model's output decides: render the
+	// reference as a link, never an <img> (tracking pixels).
+	it("never renders markdown images as img elements", () => {
+		const html = renderToString(
+			<Markdown text={"![pixel](https://tracker.example/p.png)\n\n![junk](javascript:alert(1))"} />,
+		);
+		expect(html).not.toContain("<img");
+		expect(html.replace(/<!-- -->/g, "")).toContain("[pixel]");
+		expect(html).toContain("https://tracker.example/p.png");
+	});
 });
 
 it("neutralizes non-http link schemes", () => {

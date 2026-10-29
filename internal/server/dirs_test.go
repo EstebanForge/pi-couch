@@ -70,6 +70,29 @@ func TestDirsSkipsSymlinksOutOfHome(t *testing.T) {
 	}
 }
 
+// A symlink that stays inside home is browsable: the jail is the
+// resolved target, not the link itself.
+func TestDirsListsInHomeSymlinks(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "projects"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(home, "projects"), filepath.Join(home, "work")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(home, "missing-target"), filepath.Join(home, "dangling")); err != nil {
+		t.Fatal(err)
+	}
+	d := listDirs(home, home)
+	var names []string
+	for _, e := range d.Dirs {
+		names = append(names, e.Name)
+	}
+	if len(names) != 2 || names[0] != "projects" || names[1] != "work" {
+		t.Fatalf("names %v, want projects + the in-home symlink, no dangling", names)
+	}
+}
+
 func TestDirsCapsAt500(t *testing.T) {
 	home := t.TempDir()
 	dir := filepath.Join(home, "many")

@@ -3,6 +3,7 @@ package quotas
 import (
 	"errors"
 	"net/http"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -94,4 +95,49 @@ func TestServiceStaleSingleFlight(t *testing.T) {
 	svc.mu.Lock()
 	svc.pending = false // let the test exit without waiting on the goroutine
 	svc.mu.Unlock()
+}
+
+// Concurrent cold callers share the first fetch: the provider round
+// runs once, everyone gets the same snapshot, and nothing deadlocks.
+func TestServiceColdSingleFlight(t *testing.T) {
+	svc := newTestService()
+	var rounds atomic.Int32
+	stub := svc.fetchers
+	for i := range stub {
+		fn := stub[i].fn
+		stub[i].fn = func(c *http.Client) ProviderQuota {
+			rounds.Add(1)
+			time.Sleep(50 * time.Millisecond)
+			return fn(c)
+		}
+	}
+	svc.fetchers = stub
+
+	const n = 8
+	start := make(chan struct{})
+	results := make(chan QuotasSnapshot, n)
+	for i := 0; i < n; i++ {
+		go func() {
+			<-start
+			results <- svc.Get()
+		}()
+	}
+	close(start)
+
+	var first QuotasSnapshot
+	for i := 0; i < n; i++ {
+		select {
+		case snap := <-results:
+			if i == 0 {
+				first = snap
+			} else if snap.UpdatedAt != first.UpdatedAt {
+				t.Fatal("cold callers got different snapshots")
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("cold Get deadlocked")
+		}
+	}
+	if got := rounds.Load(); got != int32(len(stub)) {
+		t.Fatalf("provider fns ran %d times, want %d (one round)", got, len(stub))
+	}
 }

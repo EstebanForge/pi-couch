@@ -179,6 +179,21 @@ const COMPONENTS = {
 		}
 		return <a {...props} href={href} target="_blank" rel="noopener noreferrer" />;
 	},
+	// Images never fetch: a markdown image is a tracking pixel (the
+	// model's output decides what the WebView loads). Render the
+	// reference as a link instead.
+	img: (props: React.ComponentPropsWithoutRef<"img">) => {
+		const src = props.src ?? "";
+		const alt = props.alt ?? "image";
+		if (!SAFE_HREF.test(src)) {
+			return <span className="text-muted">[{alt}]</span>;
+		}
+		return (
+			<a href={src} target="_blank" rel="noopener noreferrer" className="break-all text-accent">
+				[{alt}]
+			</a>
+		);
+	},
 	pre: (props: React.ComponentPropsWithoutRef<"pre">) => {
 		const child = Array.isArray(props.children) ? props.children[0] : props.children;
 		const { text: code, lang } = textOf(child);

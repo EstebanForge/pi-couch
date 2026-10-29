@@ -50,7 +50,12 @@ func (f FileChange) Label() string {
 }
 
 func run(ctx context.Context, dir string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
+	// Repo-local config can execute programs on our behalf: the fsmonitor
+	// helper spawns a daemon on any index refresh. Pin it off; textconv
+	// and external diff drivers are refused per-command (--no-textconv,
+	// --no-ext-diff).
+	argv := append([]string{"-C", dir, "-c", "core.fsmonitor=false"}, args...)
+	cmd := exec.CommandContext(ctx, "git", argv...)
 	// The agent in the workdir runs its own git commands; a status that
 	// refreshes the index takes index.lock and can fail the agent's add or
 	// commit. GIT_OPTIONAL_LOCKS=0 keeps our reads lock-free.
@@ -127,7 +132,7 @@ func Status(ctx context.Context, repo string) ([]FileChange, error) {
 // record carries the counts, then old and new paths as their own NUL fields
 // (verified: "0\t0\t\0old\0new\0"), and the counts belong to the new path.
 func numstat(ctx context.Context, repo string, staged bool) (map[string]int, map[string]int, map[string]bool) {
-	args := []string{"diff", "--numstat", "-z", "--no-ext-diff"}
+	args := []string{"diff", "--numstat", "-z", "--no-ext-diff", "--no-textconv"}
 	if staged {
 		args = append(args, "--cached")
 	}
@@ -161,21 +166,48 @@ func numstat(ctx context.Context, repo string, staged bool) (map[string]int, map
 	return added, deleted, bin
 }
 
+// diffCapture bounds what git can hand us: a repo diff can be tens of
+// megabytes and only the first DiffLimit lines survive anyway.
+type diffCapture struct {
+	buf        []byte
+	max        int
+	overstream bool
+}
+
+func (c *diffCapture) Write(p []byte) (int, error) {
+	if room := c.max - len(c.buf); len(p) > room {
+		c.buf = append(c.buf, p[:room]...)
+		c.overstream = true
+		return len(p), nil
+	}
+	c.buf = append(c.buf, p...)
+	return len(p), nil
+}
+
 // Diff returns the diff for one path; staged selects --cached. Truncated
-// reports hitting DiffLimit; binary files return empty text.
+// reports hitting the line or byte cap; binary files return empty text.
 func Diff(ctx context.Context, repo, path string, staged bool) (text string, truncated bool, err error) {
-	args := []string{"diff", "--no-ext-diff", "--"}
+	args := []string{"diff", "--no-ext-diff", "--no-textconv", "--"}
 	if staged {
-		args = []string{"diff", "--cached", "--no-ext-diff", "--"}
+		args = []string{"diff", "--cached", "--no-ext-diff", "--no-textconv", "--"}
 	}
 	args = append(args, path)
-	out, err := run(ctx, repo, args...)
-	if err != nil {
-		return "", false, err
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", repo, "-c", "core.fsmonitor=false"}, args...)...)
+	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
+	cap1 := &diffCapture{max: 512 << 10}
+	var errb bytes.Buffer
+	cmd.Stdout = cap1
+	cmd.Stderr = &errb
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(errb.String())
+		if strings.Contains(msg, "not a git repository") {
+			return "", false, ErrNotRepo
+		}
+		return "", false, fmt.Errorf("git %s: %s", strings.Join(args, " "), msg)
 	}
-	lines := strings.Split(out, "\n")
-	if len(lines) > DiffLimit {
-		return strings.Join(lines[:DiffLimit], "\n"), true, nil
+	lines := strings.Split(string(cap1.buf), "\n")
+	if cap1.overstream || len(lines) > DiffLimit {
+		return strings.Join(lines[:min(DiffLimit, len(lines))], "\n"), true, nil
 	}
-	return out, false, nil
+	return string(cap1.buf), false, nil
 }

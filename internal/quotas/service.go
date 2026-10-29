@@ -21,7 +21,8 @@ type Service struct {
 	mu       sync.Mutex
 	cached   *QuotasSnapshot
 	cachedAt time.Time
-	pending  bool // one background revalidate at a time
+	pending  bool  // one background revalidate at a time
+	ready    chan struct{} // closed once the first cold fetch lands
 }
 
 func defaultFetchers() []struct {
@@ -52,31 +53,41 @@ func NewService() *Service {
 
 // Get returns the snapshot. A fresh cache answers as-is; a stale one
 // answers instantly with Refreshing set while a single background
-// revalidate runs; only a cold service fetches inline, because there
-// is nothing older to show.
+// revalidate runs; a cold service fetches once, outside the lock, and
+// concurrent cold callers wait on that same fetch instead of pinning
+// the mutex through a full provider round.
 func (s *Service) Get() QuotasSnapshot {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	if s.cached != nil && time.Since(s.cachedAt) < quotaTTL {
+		out := *s.cached
+		s.mu.Unlock()
+		return out
+	}
 	if s.cached != nil {
-		if time.Since(s.cachedAt) < quotaTTL {
-			return *s.cached
-		}
 		if !s.pending {
 			s.pending = true
 			go s.revalidate()
 		}
 		out := *s.cached
 		out.Refreshing = true
+		s.mu.Unlock()
 		return out
 	}
-	return s.refreshLocked()
-}
-
-func (s *Service) refreshLocked() QuotasSnapshot {
-	snap := s.fetch()
-	s.cached = &snap
-	s.cachedAt = time.Now()
-	return snap
+	if s.ready == nil {
+		s.ready = make(chan struct{})
+		s.mu.Unlock()
+		snap := s.fetch()
+		s.mu.Lock()
+		s.cached = &snap
+		s.cachedAt = time.Now()
+		close(s.ready)
+		s.mu.Unlock()
+		return snap
+	}
+	ready := s.ready
+	s.mu.Unlock()
+	<-ready
+	return s.Get()
 }
 
 // revalidate swaps in a fresh snapshot off-request; the pending flag
