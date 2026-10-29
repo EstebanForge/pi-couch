@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"testing"
 	"sync/atomic"
+	"testing"
 	"time"
 )
 

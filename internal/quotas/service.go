@@ -21,7 +21,7 @@ type Service struct {
 	mu       sync.Mutex
 	cached   *QuotasSnapshot
 	cachedAt time.Time
-	pending  bool  // one background revalidate at a time
+	pending  bool          // one background revalidate at a time
 	ready    chan struct{} // closed once the first cold fetch lands
 }
 
