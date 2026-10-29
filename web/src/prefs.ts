@@ -65,6 +65,16 @@ export function setEnterSendsPref(v: EnterSendsPref): void {
 	writePref(prefKey("enterSends"), v === "auto" ? null : v);
 }
 
+export type SpinnerStyle = "blocks" | "squares";
+
+export function spinnerStylePref(): SpinnerStyle {
+	return readPref(prefKey("spinner")) === "squares" ? "squares" : "blocks";
+}
+
+export function setSpinnerStylePref(v: SpinnerStyle): void {
+	writePref(prefKey("spinner"), v === "squares" ? "squares" : null);
+}
+
 export function quickKeysEnabled(): boolean {
 	return readPref(prefKey("quickKeys")) !== "0";
 }

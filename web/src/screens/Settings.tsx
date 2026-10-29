@@ -10,6 +10,7 @@ import { orderKeys, QUICK_KEYS } from "../chat/quick-keys";
 import { DirBrowser } from "../components/DirBrowser";
 import { FaArrowDown, FaArrowsRotate, FaArrowUp, FaCheck, FaPlus, FaXmark } from "../components/fa";
 import { ScreenHeader } from "../components/ScreenHeader";
+import { Spinner } from "../components/Spinner";
 import { useSheetBack } from "../nav";
 import {
 	type EnterSendsPref,
@@ -19,11 +20,14 @@ import {
 	quickKeyOrder,
 	quickKeysEnabled,
 	quickPath,
+	type SpinnerStyle,
 	setEnterSendsPref,
 	setQuickCommands,
 	setQuickKeyOrder,
 	setQuickKeysEnabled,
 	setQuickPath,
+	setSpinnerStylePref,
+	spinnerStylePref,
 } from "../prefs";
 import { activeScheme, SCHEMES, setScheme } from "../theme";
 
@@ -33,8 +37,14 @@ const ENTER_CHOICES: { value: EnterSendsPref; label: string; hint: string }[] = 
 	{ value: "newline", label: "Always newline", hint: "Enter always adds a line" },
 ];
 
+const SPINNER_CHOICES: { value: SpinnerStyle; label: string }[] = [
+	{ value: "blocks", label: "Blocks" },
+	{ value: "squares", label: "Squares" },
+];
+
 export default function SettingsScreen() {
 	const [schemeId, setSchemeId] = useState(activeScheme().id);
+	const [spinner, setSpinner] = useState<SpinnerStyle>(spinnerStylePref);
 	const [enter, setEnter] = useState<EnterSendsPref>(enterSendsPref);
 	const [keys, setKeys] = useState(quickKeysEnabled);
 	const [order, setOrder] = useState(() => orderKeys(quickKeyOrder()).map((k) => k.id));
@@ -127,6 +137,38 @@ export default function SettingsScreen() {
 					</div>
 					<p className="px-1 pt-2 text-xs text-muted">
 						Applies everywhere at once, including the terminal grid.
+					</p>
+				</section>
+
+				<section>
+					<h2 className="px-1 pb-2 text-[11px] font-semibold uppercase tracking-wider text-muted">
+						Waiting spinner
+					</h2>
+					<div className="rounded-2xl border border-base-content/10 bg-base-200/80 p-1.5 shadow-surface-sm">
+						<Segmented
+							className="w-full"
+							colors={{ strongBgMaterial: "bg-base-300", strongHighlightBgMaterial: "bg-primary" }}
+						>
+							{SPINNER_CHOICES.map((c) => (
+								<SegmentedButton
+									key={c.value}
+									active={spinner === c.value}
+									onClick={() => {
+										setSpinnerStylePref(c.value);
+										setSpinner(c.value);
+									}}
+									className={`text-[13px] font-medium ${spinner === c.value ? "text-primary-content" : "text-base-content"}`}
+								>
+									<span className="flex items-center justify-center gap-1.5">
+										<Spinner variant={c.value} size={13} />
+										{c.label}
+									</span>
+								</SegmentedButton>
+							))}
+						</Segmented>
+					</div>
+					<p className="px-1 pt-2 text-xs text-muted">
+						Shows wherever pi is working or waiting on you. Both buttons preview their style live.
 					</p>
 				</section>
 
@@ -263,7 +305,9 @@ export default function SettingsScreen() {
 									}}
 									className="min-w-0 flex-1 px-4 py-2 text-left"
 								>
-									<span className="block truncate font-mono text-[14px] text-base-content">{c}</span>
+									<span className="block truncate font-mono text-[14px] text-base-content">
+										{c}
+									</span>
 								</button>
 								<button
 									type="button"
@@ -339,7 +383,8 @@ export default function SettingsScreen() {
 						</button>
 					</div>
 					<p className="px-1 pt-2 text-xs text-muted">
-						{refreshMsg ?? "Re-fetches the model list from pi. Use it after changing providers or model scopes."}
+						{refreshMsg ??
+							"Re-fetches the model list from pi. Use it after changing providers or model scopes."}
 					</p>
 				</section>
 

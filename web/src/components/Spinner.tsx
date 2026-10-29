@@ -1,4 +1,5 @@
 import { useId } from "react";
+import { type SpinnerStyle, spinnerStylePref } from "../prefs";
 
 // The one waiting indicator for the whole app: svg-spinners "blocks
 // shuffle" (MIT, Utkarsh Verma — github.com/n3r4zzurr0/svg-spinners).
@@ -8,8 +9,19 @@ import { useId } from "react";
 const REDUCED =
 	typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-export function Spinner({ size = 14, className = "" }: { size?: number; className?: string }) {
+export function Spinner({
+	size = 14,
+	className = "",
+	variant,
+}: {
+	size?: number;
+	className?: string;
+	variant?: SpinnerStyle;
+}) {
 	const uid = useId();
+	if ((variant ?? spinnerStylePref()) === "squares") {
+		return <SpinnerSquares size={size} className={className} />;
+	}
 	const id = (n: string) => `${uid}${n}`;
 	const begin = (n: string) => `${id(n)}.end`;
 	const rect = (x: number, y: number, anims: React.ReactNode) => (
@@ -107,5 +119,25 @@ export function Spinner({ size = 14, className = "" }: { size?: number; classNam
 				),
 			)}
 		</svg>
+	);
+}
+
+// Alternate style, pickable in Settings: the pure-CSS two-square
+// rotator. Squares draw as inset currentColor rings so status colors
+// (yellow waiting, theme primary) carry over; the span's height and
+// the --sq-* vars scale every part off the same size prop as the svg.
+function SpinnerSquares({ size, className }: { size: number; className: string }) {
+	return (
+		<span
+			role="img"
+			aria-label="waiting"
+			className={`spinner-squares inline-block shrink-0 align-[-2px] ${className}`}
+			style={{
+				height: Math.max(4, Math.round(size * 0.4)),
+				gap: size * 0.22,
+				["--sq-ring" as string]: `${(size * 0.12).toFixed(2)}px`,
+				["--sq-slide" as string]: `${(size * 0.11).toFixed(2)}px`,
+			}}
+		/>
 	);
 }

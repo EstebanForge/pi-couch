@@ -384,6 +384,54 @@
 	}
 }
 
+/* Two-square rotator, the alternate waiting spinner (Settings >
+   Waiting spinner). Geometry comes from the span's inline styles so
+   one size prop scales square, ring and slide together. */
+.spinner-squares {
+	display: inline-flex;
+	animation: sq-flip 1s infinite;
+}
+.spinner-squares::before,
+.spinner-squares::after {
+	content: "";
+	height: 100%;
+	aspect-ratio: 1;
+	box-shadow: 0 0 0 var(--sq-ring, 1.5px) inset currentColor;
+	animation: sq-slide 1s infinite;
+}
+.spinner-squares::after {
+	--s: -1;
+}
+@keyframes sq-flip {
+	0%,
+	50% {
+		transform: rotate(0deg);
+	}
+	80%,
+	100% {
+		transform: rotate(180deg);
+	}
+}
+@keyframes sq-slide {
+	0% {
+		transform: translate(0);
+	}
+	50%,
+	80% {
+		transform: translate(calc(var(--s, 1) * var(--sq-slide, 1.5px)));
+	}
+	100% {
+		transform: translate(0);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.spinner-squares,
+	.spinner-squares::before,
+	.spinner-squares::after {
+		animation: none;
+	}
+}
+
 /* Native-feeling mobile touch interactions and depth */
 .press-scale {
 	transition:
