@@ -11,6 +11,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.Message
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
@@ -267,6 +268,10 @@ class MainActivity : Activity() {
             settings.domStorageEnabled = true
             settings.allowFileAccess = false
             settings.allowContentAccess = false
+            // Without this, target=_blank and window.open load in the
+            // main view and never reach shouldOverrideUrlLoading, so a
+            // model's markdown link renders github.com beside the bridges.
+            settings.setSupportMultipleWindows(true)
             // Remote WebView debugging over adb (chrome://inspect). Debug
             // builds only: a release build must not offer its grids to
             // any USB-connected machine.
@@ -276,6 +281,33 @@ class MainActivity : Activity() {
             // onShowFileChooser the WebView no-ops the tap and the
             // mobile file/gallery picker never opens.
             webChromeClient = object : WebChromeClient() {
+                // The popup's destination only ever shows up as a load
+                // into the throwaway view, so hand it to the browser
+                // and drop the view; no second bridged WebView exists.
+                override fun onCreateWindow(
+                    view: WebView,
+                    isDialog: Boolean,
+                    isUserGesture: Boolean,
+                    resultMsg: Message,
+                ): Boolean {
+                    val catcher = WebView(view.context).apply {
+                        settings.javaScriptEnabled = false
+                        webViewClient = object : WebViewClient() {
+                            override fun shouldOverrideUrlLoading(
+                                v: WebView,
+                                request: WebResourceRequest,
+                            ): Boolean {
+                                openExternally(request.url)
+                                v.post { v.destroy() }
+                                return true
+                            }
+                        }
+                    }
+                    (resultMsg.obj as WebView.WebViewTransport).webView = catcher
+                    resultMsg.sendToTarget()
+                    return true
+                }
+
                 override fun onShowFileChooser(
                     webView: WebView?,
                     callback: ValueCallback<Array<Uri>>,
