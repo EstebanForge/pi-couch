@@ -39,6 +39,15 @@ func (a *app) streamTerminal(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
+			if f.reset {
+				// This viewer stalled and was evicted: end the stream so
+				// the client reconnects into a fresh full repaint.
+				if !writeSSE(w, "reset", "{}") {
+					return
+				}
+				flusher.Flush()
+				return
+			}
 			if f.failed {
 				// No herdr binary to observe with: legacy snapshot loop.
 				a.pollTerminal(w, r, target)

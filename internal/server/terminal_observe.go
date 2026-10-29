@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strconv"
 	"sync"
+	"time"
 )
 
 // observeBin is the herdr binary the hub spawns; a var so tests point
@@ -18,6 +19,7 @@ type observeFrame struct {
 	bytes  string // base64 ansi, straight off herdr's NDJSON
 	closed bool   // the pane's stream ended
 	failed bool   // the observe process could not run at all
+	reset  bool   // the viewer stalled and was evicted; reconnect for a clean repaint
 }
 
 // observeHub fans one `herdr terminal session observe` subprocess per
@@ -31,9 +33,18 @@ type observeHub struct {
 }
 
 type observeWatch struct {
-	cancel context.CancelFunc
-	mu     sync.Mutex
-	subs   map[chan observeFrame]struct{}
+	cancel  context.CancelFunc
+	mu      sync.Mutex
+	subs    map[chan observeFrame]struct{}
+	cols    int
+	rows    int
+	restart chan struct{} // cap 1: a late joiner needs herdr's frame-0 repaint
+}
+
+func (w *observeWatch) dims() (int, int) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.cols, w.rows
 }
 
 func newObserveHub(socketPath string) *observeHub {
@@ -49,16 +60,43 @@ func (h *observeHub) subscribe(pane string, cols, rows int) (<-chan observeFrame
 		h.watches = map[string]*observeWatch{}
 	}
 	ch := make(chan observeFrame, observeSubBuffer)
-	w, ok := h.watches[pane]
-	if !ok {
-		ctx, cancel := context.WithCancel(context.Background())
-		w = &observeWatch{cancel: cancel, subs: map[chan observeFrame]struct{}{}}
-		h.watches[pane] = w
-		go runObserve(ctx, pane, cols, rows, w, h)
+	if w := h.watches[pane]; w != nil {
+		// herdr emits its full repaint only on frame 0, so a viewer
+		// joining a running stream gets deltas against an empty grid:
+		// respawn the process, with the new viewer's geometry winning.
+		w.mu.Lock()
+		w.cols, w.rows = cols, rows
+		w.subs[ch] = struct{}{}
+		w.mu.Unlock()
+		select {
+		case w.restart <- struct{}{}:
+		default:
+		}
+		return ch, func() {
+			w.mu.Lock()
+			_, live := w.subs[ch]
+			delete(w.subs, ch)
+			w.mu.Unlock()
+			if !live {
+				return
+			}
+			h.mu.Lock()
+			defer h.mu.Unlock()
+			cur, ok := h.watches[pane]
+			if !ok || cur != w || len(w.subs) > 0 {
+				return
+			}
+			w.cancel()
+			delete(h.watches, pane)
+		}
 	}
+	ctx, cancel := context.WithCancel(context.Background())
+	w := &observeWatch{cancel: cancel, subs: map[chan observeFrame]struct{}{}, cols: cols, rows: rows, restart: make(chan struct{}, 1)}
+	h.watches[pane] = w
 	w.mu.Lock()
 	w.subs[ch] = struct{}{}
 	w.mu.Unlock()
+	go runObserve(ctx, pane, w, h)
 	return ch, func() {
 		w.mu.Lock()
 		_, live := w.subs[ch]
@@ -79,9 +117,9 @@ func (h *observeHub) subscribe(pane string, cols, rows int) (<-chan observeFrame
 }
 
 // fan delivers one frame to every subscriber; a stalled viewer's full
-// buffer drops frames instead of wedging the hub (the sessions-stream
-// drop-on-full precedent). Sends happen outside the lock so a slow
-// consumer never blocks subscribe.
+// buffer evicts it with a reset frame and a closed channel, so the
+// client reconnects for a clean repaint instead of rendering a
+// hole-riddled delta chain forever.
 func (w *observeWatch) fan(f observeFrame) {
 	w.mu.Lock()
 	subs := make([]chan observeFrame, 0, len(w.subs))
@@ -93,6 +131,16 @@ func (w *observeWatch) fan(f observeFrame) {
 		select {
 		case ch <- f:
 		default:
+			w.mu.Lock()
+			if _, live := w.subs[ch]; live {
+				delete(w.subs, ch)
+				select {
+				case ch <- observeFrame{reset: true}:
+				default:
+				}
+				close(ch)
+			}
+			w.mu.Unlock()
 		}
 	}
 }
@@ -105,33 +153,81 @@ func (h *observeHub) drop(pane string, w *observeWatch) {
 	}
 }
 
-// runObserve streams herdr's NDJSON viewport: terminal.frame records
-// carry base64 ansi pty bytes (the first record is a full repaint), and
-// terminal.closed or stdout EOF means the pane's stream ended.
-func runObserve(ctx context.Context, pane string, cols, rows int, w *observeWatch, h *observeHub) {
+// runObserve keeps one herdr observe process alive per pane
+// generation: a restart signal (late joiner) kills the generation so
+// it respawns and frame 0's full repaint reaches everyone. EOF without
+// a pending restart means the pane's stream ended.
+func runObserve(ctx context.Context, pane string, w *observeWatch, h *observeHub) {
 	defer w.cancel()
-	fail := func() {
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		cols, rows := w.dims()
+		kill := make(chan struct{})
+		ended := make(chan bool, 1)
+		go func() { ended <- observeOnce(ctx, kill, pane, cols, rows, w, h) }()
+		select {
+		case closed := <-ended:
+			if ctx.Err() != nil {
+				return
+			}
+			select {
+			case <-w.restart:
+				continue
+			case <-ctx.Done():
+				return
+			case <-time.After(50 * time.Millisecond):
+			}
+			if !closed {
+				w.fan(observeFrame{closed: true})
+			}
+			h.drop(pane, w)
+			return
+		case <-w.restart:
+			close(kill)
+			<-ended // reap the killed generation
+		case <-ctx.Done():
+			close(kill)
+			<-ended
+			return
+		}
+	}
+}
+
+// observeOnce streams one process generation, fanning frames. Returns
+// true when herdr itself declared the pane closed; false on EOF, error
+// or kill.
+func observeOnce(ctx context.Context, kill <-chan struct{}, pane string, cols, rows int, w *observeWatch, h *observeHub) bool {
+	fail := func() bool {
 		w.fan(observeFrame{failed: true})
 		h.drop(pane, w)
+		return true
 	}
 	bin, err := exec.LookPath(observeBin)
 	if err != nil {
-		fail()
-		return
+		return fail()
 	}
-	cmd := exec.CommandContext(ctx, bin, "terminal", "session", "observe", pane,
+	genCtx, genCancel := context.WithCancel(ctx)
+	defer genCancel()
+	go func() {
+		select {
+		case <-kill:
+			genCancel()
+		case <-genCtx.Done():
+		}
+	}()
+	cmd := exec.CommandContext(genCtx, bin, "terminal", "session", "observe", pane,
 		"--cols", strconv.Itoa(cols), "--rows", strconv.Itoa(rows))
 	if h.socketPath != "" {
 		cmd.Env = append(os.Environ(), "HERDR_SOCKET_PATH="+h.socketPath)
 	}
 	out, err := cmd.StdoutPipe()
 	if err != nil {
-		fail()
-		return
+		return fail()
 	}
 	if err := cmd.Start(); err != nil {
-		fail()
-		return
+		return fail()
 	}
 	defer func() { _ = cmd.Wait() }()
 
@@ -151,8 +247,8 @@ func runObserve(ctx context.Context, pane string, cols, rows int, w *observeWatc
 			w.fan(observeFrame{bytes: rec.Bytes})
 		} else if rec.Type == "terminal.closed" {
 			w.fan(observeFrame{closed: true})
+			return true
 		}
 	}
-	w.fan(observeFrame{closed: true})
-	h.drop(pane, w)
+	return false
 }

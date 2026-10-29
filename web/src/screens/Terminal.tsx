@@ -184,6 +184,9 @@ export default function TerminalScreen({ sessionKey }: { sessionKey: string }) {
 	// term frames are the fallback's whole-screen snapshots. gone ends
 	// it for good. Reconnecting on dims changes respawns the observe
 	// viewport at the new grid.
+	// A fresh EventSource (including every reconnect) gets frame 0 as
+	// a full repaint, so the grid must reset on each open or the new
+	// paint lands on top of the old screen's leftovers.
 	useEffect(() => {
 		let stream: Stream | null = null;
 		let first = true;
@@ -191,16 +194,25 @@ export default function TerminalScreen({ sessionKey }: { sessionKey: string }) {
 			stream = connectStream(
 				`/stream/terminal/${encodeURIComponent(sessionKey)}?cols=${dims.cols}&rows=${dims.rows}`,
 				{
-					events: ["delta", "term", "gone", "ping"],
+					events: ["delta", "term", "gone", "reset", "ping"],
+					onStatus: (status) => {
+						if (status === "connecting") first = true;
+					},
 					onEvent: (name, data) => {
 						if (name === "gone") {
 							setGone(true);
 							stream?.close();
 							return;
 						}
-						if (name !== "delta" && name !== "term") return;
 						const term = termRef.current;
 						if (!term) return;
+						if (name === "reset") {
+							// Evicted for stalling: clear and let the
+							// reconnect's frame 0 repaint cleanly.
+							term.reset();
+							return;
+						}
+						if (name !== "delta" && name !== "term") return;
 						setGone(false);
 						if (name === "term") {
 							let frame: { text?: string };

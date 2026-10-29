@@ -114,13 +114,7 @@ func TestObserveHubOneSpawnPerPane(t *testing.T) {
 
 	h := newObserveHub("")
 	ch1, unsub1 := h.subscribe("p1", 100, 30)
-	ch2, unsub2 := h.subscribe("p1", 100, 30)
 	_, unsub3 := h.subscribe("p2", 80, 24)
-	// drain ch2 so the fan-out never blocks on a full buffer
-	go func() {
-		for range ch2 {
-		}
-	}()
 	<-ch1
 	deadline := time.Now().Add(2 * time.Second)
 	for {
@@ -134,13 +128,90 @@ func TestObserveHubOneSpawnPerPane(t *testing.T) {
 		time.Sleep(30 * time.Millisecond)
 	}
 	if n := strings.Count(mustRead(t, spawns), "\n"); n != 2 {
-		t.Fatalf("spawns = %d, want 2 (one per pane, two viewers share p1)", n)
+		t.Fatalf("spawns = %d, want 2 (one per pane while no one joins late)", n)
 	}
 	unsub1()
-	unsub2()
-	waitGone(t, filepath.Join(dir, "lastpid-p1"))
 	unsub3()
+	waitGone(t, filepath.Join(dir, "lastpid-p1"))
 	waitGone(t, filepath.Join(dir, "lastpid-p2"))
+}
+
+// herdr's observe emits its full repaint only on frame 0, so a viewer
+// joining a running stream would get deltas against an empty grid. A
+// late joiner respawns the process: everyone gets frame 0 again, and
+// the new viewer's geometry wins.
+func TestObserveLateJoinerGetsFullRepaint(t *testing.T) {
+	dir := t.TempDir()
+	// argv: $4 pane, $6 cols, $8 rows - the payload names its generation,
+	// computed by the shell so each respawn reports its own dims.
+	bin := observeScript(t, dir,
+		"printf '{\"type\":\"terminal.frame\",\"encoding\":\"ansi\",\"bytes\":\"%s\"}\\n' \"$(printf 'F-%sx%s' \"$6\" \"$8\" | base64 | tr -d '\\n')\"\n"+
+			"for i in $(seq 1 100); do sleep 0.05; "+frameLine(b64("tick"))+"; done")
+	old := observeBin
+	observeBin = bin
+	t.Cleanup(func() { observeBin = old })
+
+	h := newObserveHub("")
+	ch1, unsub1 := h.subscribe("p1", 100, 30)
+	defer unsub1()
+	first := <-ch1
+	if got, _ := base64.StdEncoding.DecodeString(first.bytes); string(got) != "F-100x30" {
+		t.Fatalf("first viewer payload %q", got)
+	}
+
+	ch2, unsub2 := h.subscribe("p1", 200, 50)
+	defer unsub2()
+	select {
+	case f := <-ch2:
+		got, _ := base64.StdEncoding.DecodeString(f.bytes)
+		if string(got) != "F-200x50" {
+			t.Fatalf("late joiner first frame = %q, want a full repaint at its own dims", got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("late joiner never got a frame")
+	}
+	// The early viewer shares the new generation's repaint.
+	select {
+	case f := <-ch1:
+		got, _ := base64.StdEncoding.DecodeString(f.bytes)
+		if string(got) != "F-200x50" {
+			t.Fatalf("early viewer after respawn = %q", got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("early viewer starved after respawn")
+	}
+}
+
+// A stalled viewer's full buffer must evict it with a reset (and a
+// closed stream, so the client reconnects) instead of silently losing
+// frames and rendering a hole-riddled screen forever.
+func TestObserveStalledViewerEvicted(t *testing.T) {
+	dir := t.TempDir()
+	line := `{"type":"terminal.frame","encoding":"ansi","bytes":"` + b64("spam") + `"}`
+	awkLine := strings.ReplaceAll(line, `"`, `\"`)
+	bin := observeScript(t, dir, `awk 'BEGIN{ for (i = 0; i < 400; i++) print "`+awkLine+`" }'`)
+	old := observeBin
+	observeBin = bin
+	t.Cleanup(func() { observeBin = old })
+
+	h := newObserveHub("")
+	ch, unsub := h.subscribe("p1", 100, 30)
+	defer unsub()
+
+	// Consume nothing while the flood fills the buffer (64): the hub
+	// must evict this viewer on its own, then close the channel.
+	time.Sleep(500 * time.Millisecond)
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case _, ok := <-ch:
+			if !ok {
+				return // evicted and closed
+			}
+		case <-deadline:
+			t.Fatal("stalled viewer was never evicted")
+		}
+	}
 }
 
 func mustRead(t *testing.T, p string) string {
