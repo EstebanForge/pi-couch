@@ -13,9 +13,10 @@ import (
 // pane repeats. Each step may mutate the agent list after firing, which
 // models herdr's own state converging on the transition.
 type fakeHerdr struct {
-	mu     sync.Mutex
-	agents []herdr.Agent
-	script map[string][]waitStep
+	mu        sync.Mutex
+	agents    []herdr.Agent
+	script    map[string][]waitStep
+	lastUntil []string
 }
 
 type waitStep struct {
@@ -32,8 +33,9 @@ func (f *fakeHerdr) Agents(context.Context) ([]herdr.Agent, error) {
 	return out, nil
 }
 
-func (f *fakeHerdr) AgentWait(_ context.Context, target string, _ []string, _ time.Duration) (herdr.Agent, error) {
+func (f *fakeHerdr) AgentWait(_ context.Context, target string, until []string, _ time.Duration) (herdr.Agent, error) {
 	f.mu.Lock()
+	f.lastUntil = append([]string(nil), until...)
 	var step waitStep
 	steps := f.script[target]
 	switch {
@@ -292,6 +294,57 @@ func TestWorkingResetsDedupe(t *testing.T) {
 	case e := <-events:
 		t.Fatalf("unexpected third event: %+v", e)
 	case <-time.After(500 * time.Millisecond):
+	}
+}
+
+// The watch loop itself must wake on the working transition and clear
+// the dedupe marker: a fast turn can finish, start and finish again
+// inside one reconcile window, so the tick never sees working.
+func TestWorkingTransitionClearsDedupe(t *testing.T) {
+	stepDone := waitStep{
+		ag:   probeAgent("done", true),
+		then: func(f *fakeHerdr) { f.setAgents(probeAgent("done", true)) },
+	}
+	// the working step exists only in the wait script; the agent list
+	// flips done -> done so the reconcile tick cannot rescue the marker
+	stepWorking := waitStep{ag: probeAgent("working", true)}
+	stepDone2 := waitStep{ag: probeAgent("done", true)}
+	f := &fakeHerdr{
+		agents: []herdr.Agent{probeAgent("working", true)},
+		script: map[string][]waitStep{"wP:p1": {stepDone, stepWorking, stepDone2}},
+	}
+	events := make(chan Event, 8)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	startWatcher(ctx, f, events)
+
+	select {
+	case e := <-events:
+		if e.Status != "done" {
+			t.Fatalf("first event: %+v", e)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no done event")
+	}
+	f.mu.Lock()
+	containsWorking := false
+	for _, s := range f.lastUntil {
+		if s == "working" {
+			containsWorking = true
+		}
+	}
+	f.mu.Unlock()
+	if !containsWorking {
+		t.Fatalf("AgentWait until-list %v must include working", f.lastUntil)
+	}
+	f.setAgents(probeAgent("done", true))
+	select {
+	case e := <-events:
+		if e.Status != "done" {
+			t.Fatalf("second event: %+v", e)
+		}
+	case <-time.After(4 * time.Second):
+		t.Fatal("second cycle suppressed: the working transition did not clear dedupe")
 	}
 }
 

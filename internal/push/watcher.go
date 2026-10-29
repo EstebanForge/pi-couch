@@ -119,7 +119,7 @@ func (w *Watcher) watch(ctx context.Context, pane string, stop <-chan struct{}, 
 			return
 		default:
 		}
-		ag, err := w.HC.AgentWait(ctx, pane, []string{"idle", "blocked", "done"}, w.WaitMax)
+		ag, err := w.HC.AgentWait(ctx, pane, []string{"idle", "blocked", "done", "working"}, w.WaitMax)
 		if err != nil {
 			select {
 			case <-stop:
@@ -134,6 +134,15 @@ func (w *Watcher) watch(ctx context.Context, pane string, stop <-chan struct{}, 
 		path := ""
 		if ag.Session != nil {
 			path = ag.Session.Value
+		}
+		// A fast turn can finish, start and finish again inside one
+		// reconcile window, so the working transition itself must clear
+		// the dedupe marker or the second done stays silent.
+		if status == "working" && path != "" {
+			mu.Lock()
+			delete(notified, path)
+			mu.Unlock()
+			continue
 		}
 		if !notifyStatuses[status] || path == "" {
 			continue
