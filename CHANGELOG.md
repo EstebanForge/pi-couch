@@ -4,6 +4,13 @@ Started 2026-10-09 as a plan and a domain glossary. It grew into the phone I dri
 
 ## 2026-10-29
 
+- Dialog answers verify what is actually on screen before firing, so a replaced confirm bounces instead of eating the tap. The exec endpoint always wants the token, reaps backgrounded children instead of hanging, and caps its output while the command runs.
+- The terminal repaints late joiners in full, evicts viewers that stop reading so they reconnect clean, and picks up status flips with no file writes. Concurrent session parses merge into one.
+- The updater refuses to chase a release that already rolled back, proves a boot only when the server really binds, and verifies release checksums before it runs anything. Releases now ship a checksums.txt and CI gates the publish on green tests.
+- The Android app keeps navigation on its own origin and hands foreign links to the browser, and the web inspector stays off outside debug builds. This round carries a fresh APK.
+- A wedged composer send recovers on its own instead of locking the input, attachment ids cannot collide, push watches die with their agent, and the quota screen stops pinning its lock on a cold fetch.
+- Housekeeping: uploads drop with private permissions, the token cookie is HttpOnly with a same-site rule, the folder picker follows symlinks that stay inside the home jail, dead endpoints went away, and markdown images render as links instead of fetches.
+
 - The self-updater lives again. Versions moved to dates a few days ago, but the updater still compared the old dotted shape, so nothing had rolled out to any box since. It understands dates now, which makes today's build the first one remote machines actually take.
 - The dialog bridge found its token. It had been posting dialogs without the api token the server requires, so every one of its reports bounced and only the pane-reading fallback ever worked. It sends the Bearer header now and warns once if the token goes missing; a session restart also stops one lost dialog event from muting every later dialog.
 - Tapping the model chip no longer interrupts a running turn. The stall guard only clears picker residue while the agent is idle, so a queued model or thinking change survives a long turn instead of being Esc'd out of the queue.
