@@ -4,6 +4,8 @@ Started 2026-10-09 as a plan and a domain glossary. It grew into the phone I dri
 
 ## 2026-10-28
 
+- Hold-to-preview on the home cards: press and hold a session card and a glance card floats in with the last lines said and the live status. It opens on the newest line, closes with fluid motion, and carries a pencil to rename driven sessions; a rename on a running turn queues behind it instead of being dropped.
+- MiniMax quota cards stopped failing: the endpoint is slow enough to outrun the shared fetch budget, so it gets a longer deadline of its own, the API's own errors surface instead of an empty card, and provider errors wrap in a tidy strip inside the card instead of spilling out of it.
 - Stuck dialog fix: pi shows the same dialog twice (a commit preview re-presented an hour later) and every answer bounced off a dedupe claim that never expired. Claims now expire after a minute, so the second showing answers instead of refusing forever, Cancel included.
 - The model catalog learns to refresh: `POST /api/models/refresh` re-runs `pi --list-models` past the cache (memory one hour, file seven days) and the phone gets a refresh button in the model sheet and in Settings, so provider or scope changes show at once. Waiting-on-you spinners turn yellow (`text-warning`, constant across schemes) instead of the theme's accent teal.
 
