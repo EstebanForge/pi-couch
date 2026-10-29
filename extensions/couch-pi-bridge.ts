@@ -14,6 +14,8 @@
 //
 // Install: symlink this file into ~/.pi/agent/extensions/.
 
+import { readFileSync } from "node:fs";
+
 declare const process: { env: Record<string, string | undefined> };
 declare const crypto: { randomUUID?: () => string };
 
@@ -43,6 +45,31 @@ const PANE_ID = process.env.HERDR_PANE_ID;
 // the server is up, and vanish by TTL when it is not.
 const COUCHPI_URL = process.env.COUCHPI_URL || "http://127.0.0.1:8090";
 
+let accessToken: string | undefined;
+let tokenLookedUp = false;
+let warned = false;
+
+// The server enforces its bearer token by default; without it every
+// dialog POST 401s and the bridge stays dead while looking alive. Env
+// wins, then the systemd unit's 0600 env file.
+function accessTokenForDial(): string {
+	if (tokenLookedUp) {
+		return accessToken ?? "";
+	}
+	tokenLookedUp = true;
+	accessToken = process.env.PICOUCH_ACCESS_TOKEN;
+	if (!accessToken) {
+		try {
+			const raw = readFileSync(`${process.env.HOME || ""}/.config/pi-couch/env`, "utf8");
+			const line = raw.split("\n").find((l) => l.startsWith("PICOUCH_ACCESS_TOKEN="));
+			if (line) accessToken = line.slice("PICOUCH_ACCESS_TOKEN=".length).trim();
+		} catch {
+			// no env file either: the dial still goes out and the warn explains
+		}
+	}
+	return accessToken ?? "";
+}
+
 function newDialogID(): string {
 	try {
 		if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
@@ -55,12 +82,28 @@ function newDialogID(): string {
 function dial(phase: "start" | "end", kind: string, title: string | undefined, sessionPath: string | undefined, id: string | undefined): void {
 	const body = JSON.stringify({ phase, kind, title, id, session_path: sessionPath });
 	try {
+		const token = accessTokenForDial();
 		fetch(`${COUCHPI_URL}/api/bridge/dialog`, {
 			method: "POST",
-			headers: { "content-type": "application/json" },
+			headers: {
+				"content-type": "application/json",
+				...(token ? { authorization: `Bearer ${token}` } : {}),
+			},
 			body,
 			signal: AbortSignal.timeout(1500),
-		}).catch(() => {});
+		})
+			.then((res) => {
+				if (!res.ok && !warned) {
+					warned = true;
+					console.error(`couch-pi bridge: POST rejected (HTTP ${res.status}); check PICOUCH_ACCESS_TOKEN`);
+				}
+			})
+			.catch(() => {
+				if (!warned) {
+					warned = true;
+					console.error("couch-pi bridge: cannot reach the server; dialogs surface only while it is up");
+				}
+			});
 	} catch {
 		// no fetch, no server, no problem: herdr blocked state still carries
 	}
@@ -80,6 +123,10 @@ export default function couchPiBridge(pi: ExtensionAPI) {
 	pi.on("session_start", (_event, ctx) => {
 		tui = ctx?.mode === "tui";
 		sessionPath = ctx?.sessionManager?.getSessionFile?.();
+		// a new or resumed session owns fresh dialog state: a lost
+		// ui_prompt_end must not mute every later dialog in the pane
+		depth = 0;
+		dialogID = undefined;
 	});
 	pi.on("ui_prompt_start", (event) => {
 		if (!tui) {
