@@ -322,6 +322,68 @@
 	will-change: transform, opacity;
 }
 
+/* Preview glance card (components/PreviewModal.tsx): the card rises
+   from a slight scale while the scrim fades, both running backwards on
+   close. Reduced-motion users get the plain swap; the close timer in
+   useStagedClose still runs, it just has nothing to watch. */
+@keyframes preview-scrim-in {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+@keyframes preview-scrim-out {
+	from {
+		opacity: 1;
+	}
+	to {
+		opacity: 0;
+	}
+}
+@keyframes preview-card-in {
+	from {
+		opacity: 0;
+		transform: translateY(14px) scale(0.94);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+@keyframes preview-card-out {
+	from {
+		opacity: 1;
+		transform: none;
+	}
+	to {
+		opacity: 0;
+		transform: translateY(10px) scale(0.96);
+	}
+}
+.preview-scrim-in {
+	animation: preview-scrim-in 200ms ease-out both;
+}
+.preview-scrim-out {
+	animation: preview-scrim-out 160ms ease-in both;
+}
+.preview-card-in {
+	animation: preview-card-in 260ms cubic-bezier(0.05, 0.7, 0.1, 1) both;
+	will-change: transform, opacity;
+}
+.preview-card-out {
+	animation: preview-card-out 160ms ease-in both;
+}
+@media (prefers-reduced-motion: reduce) {
+	.preview-scrim-in,
+	.preview-scrim-out,
+	.preview-card-in,
+	.preview-card-out {
+		animation: none;
+	}
+}
+
 /* Native-feeling mobile touch interactions and depth */
 .press-scale {
 	transition:

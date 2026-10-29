@@ -4,6 +4,7 @@ import { useSheetBack } from "../nav";
 import { FaCheck, FaPencilAlt, FaXmark } from "./fa";
 import { canRename, PreviewChip, PreviewLines, renameHint, renameQueueMode } from "./previewLines";
 import { Spinner } from "./Spinner";
+import { useStagedClose } from "./useStagedClose";
 
 type PreviewState =
 	| { s: "loading" }
@@ -23,7 +24,10 @@ export function PreviewModal({
 	title: string;
 	onClose: () => void;
 }) {
-	useSheetBack(true, onClose);
+	// The exit animation runs before the parent unmounts: every close
+	// affordance (corner X, scrim, Back) goes through the staged close.
+	const { closing, close } = useStagedClose(onClose);
+	useSheetBack(true, close);
 	const [state, setState] = useState<PreviewState>({ s: "loading" });
 	const [shownTitle, setShownTitle] = useState(title);
 	const [renaming, setRenaming] = useState(false);
@@ -98,19 +102,23 @@ export function PreviewModal({
 			<button
 				type="button"
 				aria-label="Close preview"
-				onClick={onClose}
-				className="fixed inset-0 z-40 cursor-default bg-black/60 backdrop-blur-xs"
+				onClick={close}
+				className={`fixed inset-0 z-40 cursor-default bg-black/60 backdrop-blur-xs ${
+					closing ? "preview-scrim-out" : "preview-scrim-in"
+				}`}
 			/>
 			<div
 				role="dialog"
 				aria-modal="true"
 				aria-label={`Preview of ${shownTitle}`}
-				className="fixed inset-x-4 top-1/2 z-50 mx-auto max-w-md -translate-y-1/2 overflow-hidden rounded-2xl border border-base-content/10 bg-base-200 shadow-surface-lg"
+				className={`fixed inset-x-4 top-1/2 z-50 mx-auto max-w-md -translate-y-1/2 overflow-hidden rounded-2xl border border-base-content/10 bg-base-200 shadow-surface-lg ${
+					closing ? "preview-card-out" : "preview-card-in"
+				}`}
 			>
 				<header className="flex items-center gap-2 border-b border-base-content/8 px-4 py-3">
 					{renaming ? (
 						<form
-							className="flex min-w-0 flex-1 flex-col gap-1"
+							className="card-in flex min-w-0 flex-1 flex-col gap-1"
 							onSubmit={(e) => {
 								e.preventDefault();
 								runRename();
@@ -172,7 +180,7 @@ export function PreviewModal({
 						<button
 							type="button"
 							aria-label="Close preview"
-							onClick={onClose}
+							onClick={close}
 							className="press-scale grid h-8 w-8 shrink-0 place-items-center rounded-lg text-muted active:text-base-content"
 						>
 							<FaXmark size={16} />
@@ -194,7 +202,11 @@ export function PreviewModal({
 						</div>
 					)}
 					{state.s === "error" && <p className="py-6 text-sm text-error">{state.message}</p>}
-					{state.s === "ok" && <PreviewLines lines={state.preview.lines} />}
+					{state.s === "ok" && (
+						<div className="card-in">
+							<PreviewLines lines={state.preview.lines} />
+						</div>
+					)}
 				</div>
 			</div>
 		</>
