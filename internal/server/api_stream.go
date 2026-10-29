@@ -260,7 +260,8 @@ func (a *app) apiStreamTranscript(w http.ResponseWriter, r *http.Request) {
 	}
 	ticks, unsub := a.subscribeTicks()
 	defer unsub()
-	wake := a.dialogWake
+	wake, unsubWake := a.subscribeWake()
+	defer unsubWake()
 	var pace pacer
 	send := func(event string, v any) bool { return writeEventJSON(w, event, v) == nil }
 
@@ -364,7 +365,8 @@ func (a *app) apiStreamSessions(w http.ResponseWriter, r *http.Request) {
 	}
 	ticks, unsub := a.subscribeTicks()
 	defer unsub()
-	wake := a.dialogWake
+	wake, unsubWake := a.subscribeWake()
+	defer unsubWake()
 	var pace pacer
 	type entryHash struct {
 		hash uint64
@@ -416,24 +418,44 @@ func (a *app) apiStreamSessions(w http.ResponseWriter, r *http.Request) {
 		}
 		reset := lastEntries == nil || len(upserts) > sessionUpsertCap
 		lastEntries = entries
-		if reset || len(upserts) > 0 || len(removed) > 0 || lastTotal != len(sessions) {
-			lastTotal = len(sessions)
-			patch := sessionPatch{Total: lastTotal}
-			if reset {
-				patch.Sessions = sessions
-				// A reset re-baselines the client, so the map gates must
-				// ride too or a stale client would keep pre-reset maps.
-				lastBadges, lastDriven, lastAwaiting = nil, nil, nil
-			} else {
+		// A herdr-only change (dialog opens, driver flips blocked) touches
+		// no session file, so the map fields must open the gate themselves
+		// or the phone sits on stale status until some unrelated write.
+		emit := false
+		patch := sessionPatch{Total: len(sessions)}
+		if lastTotal != len(sessions) {
+			emit = true
+		}
+		lastTotal = len(sessions)
+		if reset {
+			patch.Sessions = sessions
+			// A reset re-baselines the client, so the map gates must
+			// ride too or a stale client would keep pre-reset maps.
+			lastBadges, lastDriven, lastAwaiting = nil, nil, nil
+			emit = true
+		} else {
+			if len(upserts) > 0 {
 				patch.Upserts = upserts
-				patch.Removed = removed
+				emit = true
 			}
-			bb, _ := json.Marshal(badges)
-			db, _ := json.Marshal(driven)
-			ab, _ := json.Marshal(awaiting)
-			patch.Badges = field(bb, &lastBadges)
-			patch.Driven = field(db, &lastDriven)
-			patch.Awaiting = field(ab, &lastAwaiting)
+			if len(removed) > 0 {
+				patch.Removed = removed
+				emit = true
+			}
+		}
+		bb, _ := json.Marshal(badges)
+		db, _ := json.Marshal(driven)
+		ab, _ := json.Marshal(awaiting)
+		if patch.Badges = field(bb, &lastBadges); patch.Badges != nil {
+			emit = true
+		}
+		if patch.Driven = field(db, &lastDriven); patch.Driven != nil {
+			emit = true
+		}
+		if patch.Awaiting = field(ab, &lastAwaiting); patch.Awaiting != nil {
+			emit = true
+		}
+		if emit {
 			if writeEventJSON(w, "reset", patch) != nil {
 				return
 			}

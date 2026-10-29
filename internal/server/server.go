@@ -60,14 +60,15 @@ type app struct {
 	dialogLatch   map[string]*dialogWire // last good wire parse per session; a flaked tick must not drop the card's body
 	models        *modelsCache           // pi catalog: memory, state file, then pi
 	memory        *memoryProbe           // agent memory server health
-	dialogWake    chan struct{}          // cap 1: a dialog changed; stream loops push now
-	observes      *observeHub            // per-pane `herdr observe` subprocesses fanned to terminal viewers
-	quotas        *quotas.Service        // provider quotas & limits tracker
+	wakeMu        sync.Mutex
+	wakeSubs      map[chan struct{}]struct{} // per-stream wake channels; a dialog changed
+	observes      *observeHub                // per-pane `herdr observe` subprocesses fanned to terminal viewers
+	quotas        *quotas.Service            // provider quotas & limits tracker
 }
 
 func Run(ctx context.Context, logger *slog.Logger, cfg *config.Config, idx *pi.Index, hc *herdr.Client, w *pi.Watcher, st *store.Store, pusher *push.Sender) error {
 	home, _ := os.UserHomeDir()
-	a := &app{logger: logger, idx: idx, herdr: hc, watcher: w, st: st, pusher: pusher, allowedOrigin: cfg.Origin, accessToken: cfg.AccessToken, uploadDir: cfg.UploadsDir, home: home, answered: newDialogMemos(), models: newModelsCache(filepath.Join(st.Dir(), "models.json")), memory: newMemoryProbe(cfg.MemoryURL, cfg.MemorySecret), dialogWake: make(chan struct{}, 1), dialogLatch: map[string]*dialogWire{}, observes: newObserveHub(hc.SocketPath()), quotas: quotas.NewService()}
+	a := &app{logger: logger, idx: idx, herdr: hc, watcher: w, st: st, pusher: pusher, allowedOrigin: cfg.Origin, accessToken: cfg.AccessToken, uploadDir: cfg.UploadsDir, home: home, answered: newDialogMemos(), models: newModelsCache(filepath.Join(st.Dir(), "models.json")), memory: newMemoryProbe(cfg.MemoryURL, cfg.MemorySecret), dialogLatch: map[string]*dialogWire{}, observes: newObserveHub(hc.SocketPath()), quotas: quotas.NewService()}
 	if pusher != nil {
 		a.vapidPublic = pusher.Public
 	}
@@ -391,16 +392,35 @@ func (a *app) subscribeTicks() (<-chan struct{}, func()) {
 	return a.watcher.Subscribe()
 }
 
-// wakeDialog signals the stream loops that dialog state changed, so a
-// pi question reaches the phone now instead of riding the next
-// session-file tick or the 15s heartbeat. Nil-safe for test apps.
-func (a *app) wakeDialog() {
-	if a.dialogWake == nil {
-		return
+// subscribeWake hands each stream loop its own capacity-1 channel: a
+// single shared channel delivered a wake to one ready subscriber, so a
+// second open stream waited out the whole tick after a dialog opened.
+func (a *app) subscribeWake() (<-chan struct{}, func()) {
+	a.wakeMu.Lock()
+	defer a.wakeMu.Unlock()
+	if a.wakeSubs == nil {
+		a.wakeSubs = make(map[chan struct{}]struct{})
 	}
-	select {
-	case a.dialogWake <- struct{}{}:
-	default:
+	ch := make(chan struct{}, 1)
+	a.wakeSubs[ch] = struct{}{}
+	return ch, func() {
+		a.wakeMu.Lock()
+		delete(a.wakeSubs, ch)
+		a.wakeMu.Unlock()
+	}
+}
+
+// wakeDialog signals every stream loop that dialog state changed, so a
+// pi question reaches the phone now instead of riding the next
+// session-file tick or the 15s heartbeat.
+func (a *app) wakeDialog() {
+	a.wakeMu.Lock()
+	defer a.wakeMu.Unlock()
+	for ch := range a.wakeSubs {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
 	}
 }
 

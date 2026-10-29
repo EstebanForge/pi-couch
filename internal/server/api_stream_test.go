@@ -106,7 +106,6 @@ func streamTestApp(t *testing.T) (*app, string, http.Handler) {
 		answered:    newDialogMemos(),
 		models:      newModelsCache(filepath.Join(t.TempDir(), "models.json")),
 		memory:      newMemoryProbe("", ""),
-		dialogWake:  make(chan struct{}, 1),
 		observes:    newObserveHub(herdr.DefaultSocketPath()),
 		dialogLatch: map[string]*dialogWire{},
 	}

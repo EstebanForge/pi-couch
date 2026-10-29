@@ -13,6 +13,63 @@ import (
 
 // The home cards render the live driver state: the pane title and the
 // workspace label ride next to the status, joined by session path.
+// A driver status flip with no jsonl write must still reach clients:
+// dialogs open and herdr flips blocked without touching session files,
+// and the home list has to show it on the next tick.
+func TestSessionsStreamStatusOnlyChange(t *testing.T) {
+	var sends int32
+	var sessPath string
+	status := "working"
+	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath, sends: &sends, status: &status})
+	_, sub, h := streamTestAppWithHerdr(t, sock)
+	sessPath = filepath.Join(sub, "s1.jsonl")
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/stream/sessions")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	frames := readFrames(t, resp.Body)
+
+	waitFrame(t, frames, 5*time.Second, "reset")
+	status = "blocked"
+	f := waitFrame(t, frames, 8*time.Second, "reset")
+	var patch sessionPatch
+	if err := json.Unmarshal([]byte(f.data), &patch); err != nil {
+		t.Fatal(err)
+	}
+	if patch.Badges == nil && patch.Driven == nil {
+		t.Fatalf("status-only flip sent no map fields: %s", f.data)
+	}
+}
+
+// Each stream owns its wake channel: one shared capacity-1 channel
+// delivered to a single ready subscriber, so a second open stream
+// waited out the whole tick after a dialog opened.
+func TestDialogWakeReachesEverySubscriber(t *testing.T) {
+	a := &app{}
+	w1, un1 := a.subscribeWake()
+	w2, un2 := a.subscribeWake()
+	a.wakeDialog()
+	for i, ch := range []<-chan struct{}{w1, w2} {
+		select {
+		case <-ch:
+		default:
+			t.Fatalf("subscriber %d missed the wake", i+1)
+		}
+	}
+	un1()
+	a.wakeDialog()
+	select {
+	case <-w2:
+	default:
+		t.Fatal("live subscriber missed the second wake")
+	}
+	_ = un2
+}
+
 func TestSessionsCarriesDrivenInfo(t *testing.T) {
 	var sends int32
 	var sessPath string

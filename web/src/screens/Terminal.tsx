@@ -11,9 +11,10 @@ import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { Segmented, SegmentedButton, Toast } from "konsta/react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { type SessionsSnapshot, sendKeys, sendTextInput } from "../api";
+import { type SessionsPatch, sendKeys, sendTextInput } from "../api";
 import { ESC_SETTLE_MS } from "../chat/quick-keys";
 import { ScreenHeader } from "../components/ScreenHeader";
+import { useSessions } from "../state/sessions";
 import { connectStream, type Stream } from "../stream";
 
 // The terminal palette rides the active color scheme (theme.ts); the
@@ -55,9 +56,18 @@ export default function TerminalScreen({ sessionKey }: { sessionKey: string }) {
 	const fitRef = useRef<FitAddon | null>(null);
 	const [gone, setGone] = useState(false);
 	const [wheel, setWheel] = useState(false);
-	const [status, setStatus] = useState("");
-	const [draft, setDraft] = useState("");
 	const [toast, setToast] = useState("");
+
+	// Driver status rides the shared sessions store: stream frames are
+	// patches, and a herdr-only flip (dialog opens) touches no session
+	// file, so the status must come from applied patch state.
+	const badges = useSessions((s) => s.badges);
+	const sessions = useSessions((s) => s.sessions);
+	const applySessions = useSessions((s) => s.apply);
+	const loadSessions = useSessions((s) => s.load);
+	const sessionMeta = sessions.find((x) => x.key === sessionKey);
+	const status = sessionMeta ? (badges[sessionMeta.path] ?? "") : "";
+	const [draft, setDraft] = useState("");
 	const [dims, setDims] = useState({ cols: 100, rows: 30 });
 	const [mode, setMode] = useState<"fit" | "wide">("fit");
 	const building = useRef(false);
@@ -149,7 +159,9 @@ export default function TerminalScreen({ sessionKey }: { sessionKey: string }) {
 					return;
 				}
 				fit.fit();
-				setDims((d) => (d.cols === term.cols && d.rows === term.rows ? d : { cols: term.cols, rows: term.rows }));
+				setDims((d) =>
+					d.cols === term.cols && d.rows === term.rows ? d : { cols: term.cols, rows: term.rows },
+				);
 			} catch {
 				// fit can throw while the host is display:none mid-nav
 			}
@@ -225,24 +237,24 @@ export default function TerminalScreen({ sessionKey }: { sessionKey: string }) {
 		return () => stream?.close();
 	}, [sessionKey, dims]);
 
-	// Driver status rides the sessions stream; an agentless session has
-	// no badge, which disables every key.
+	// Driver status rides the sessions stream through the shared store;
+	// frames are patches, so apply them instead of parsing snapshots.
 	useEffect(() => {
+		void loadSessions().catch(() => {});
 		const stream = connectStream(`/api/stream/sessions`, {
 			events: ["reset"],
 			onEvent: (_name, data) => {
-				let snap: SessionsSnapshot;
+				let patch: SessionsPatch;
 				try {
-					snap = JSON.parse(data) as SessionsSnapshot;
+					patch = JSON.parse(data) as SessionsPatch;
 				} catch {
 					return;
 				}
-				const s = snap.sessions.find((x) => x.key === sessionKey);
-				setStatus(s ? (snap.badges[s.path] ?? "") : "");
+				applySessions(patch);
 			},
 		});
 		return () => stream.close();
-	}, [sessionKey]);
+	}, [applySessions, loadSessions]);
 
 	const back = () => history.back();
 
@@ -293,7 +305,9 @@ export default function TerminalScreen({ sessionKey }: { sessionKey: string }) {
 						className={`absolute inset-0 ${mode === "wide" ? "overflow-x-auto overflow-y-hidden" : "overflow-hidden"} ${wheel ? "" : "opacity-80"}`}
 					/>
 					{mode === "wide" && (
-						<div className="pointer-events-none absolute right-2 bottom-1 text-[10px] text-muted/70">swipe to pan →</div>
+						<div className="pointer-events-none absolute right-2 bottom-1 text-[10px] text-muted/70">
+							swipe to pan →
+						</div>
 					)}
 				</div>
 
