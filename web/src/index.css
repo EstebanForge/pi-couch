@@ -27,8 +27,6 @@
 @source "../node_modules/konsta/react/components/Sheet.js";
 @source "../node_modules/konsta/react/components/Toast.js";
 @source "../node_modules/konsta/react/components/Toggle.js";
-@source "../node_modules/konsta/react/components/Sheet.js";
-@source "../node_modules/konsta/react/components/Toast.js";
 @source "../node_modules/konsta/shared/classes/AppClasses.js";
 @source "../node_modules/konsta/shared/classes/ButtonClasses.js";
 @source "../node_modules/konsta/shared/classes/DialogClasses.js";
@@ -41,7 +39,6 @@
 @source "../node_modules/konsta/shared/classes/SheetClasses.js";
 @source "../node_modules/konsta/shared/classes/ToastClasses.js";
 @source "../node_modules/konsta/shared/classes/ToggleClasses.js";
-@source "../node_modules/konsta/shared/classes/ToastClasses.js";
 @source "../node_modules/konsta/shared/touch-ripple-class.js";
 
 /* Konsta's dark: variants must key off the .dark class (we set it on the

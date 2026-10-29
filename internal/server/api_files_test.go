@@ -168,14 +168,3 @@ func TestAPIFilesListAndView(t *testing.T) {
 		t.Fatalf("missing file: %d, want 400", code)
 	}
 }
-
-func TestAPICommentsSent(t *testing.T) {
-	h, _ := repoTestApp(t, t.TempDir())
-	code, body := getJSON(t, h, "/api/sessions/s1/comments")
-	if code != http.StatusOK {
-		t.Fatalf("comments: %d %v", code, body)
-	}
-	if _, ok := body["sent"].([]any); !ok {
-		t.Fatalf("sent array missing: %v", body)
-	}
-}

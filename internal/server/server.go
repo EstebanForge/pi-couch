@@ -206,7 +206,6 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("GET /api/sessions/{key}/preview", a.apiSessionPreview)
 	mux.HandleFunc("GET /api/sessions/{key}/files", a.apiFiles)
 	mux.HandleFunc("GET /api/sessions/{key}/files/view", a.apiFilesView)
-	mux.HandleFunc("GET /api/sessions/{key}/comments", a.apiComments)
 	mux.HandleFunc("POST /api/sessions/{key}/comments", a.apiSendAll)
 	mux.HandleFunc("POST /api/sessions/{key}/stop", a.apiStop)
 	mux.HandleFunc("POST /api/sessions/{key}/close", a.apiClose)

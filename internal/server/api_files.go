@@ -7,14 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"path"
 	"time"
 
 	"github.com/EstebanForge/couch-pi/internal/browse"
 	"github.com/EstebanForge/couch-pi/internal/git"
-	"github.com/EstebanForge/couch-pi/internal/store"
 )
 
 // changeFile is the wire shape of one git.FileChange row.
@@ -197,23 +195,4 @@ func (a *app) apiFilesView(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"file": file, "kind": kind, "content": content})
-}
-
-// apiComments returns the session's sent-comment history.
-func (a *app) apiComments(w http.ResponseWriter, r *http.Request) {
-	meta, ok := a.idx.Meta(r.PathValue("key"))
-	if !ok {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "notfound"})
-		return
-	}
-	sent, err := a.st.Sent(meta.Key)
-	if err != nil {
-		// History is additive UI; a broken state file must not 500.
-		slog.Error("sent comments", "err", err)
-		sent = nil
-	}
-	if sent == nil {
-		sent = []store.Comment{}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"sent": sent})
 }

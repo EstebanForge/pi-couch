@@ -315,15 +315,6 @@ export async function getFileView(key: string, file: string): Promise<FileView> 
 	return (await res.json()) as FileView;
 }
 
-export type SentComment = { ts: number; file: string; line: number; body: string };
-
-export async function getSentComments(key: string): Promise<SentComment[]> {
-	const res = await fetch(`/api/sessions/${encodeURIComponent(key)}/comments`);
-	if (!res.ok) throw new Error(`comments ${res.status}`);
-	const data = (await res.json()) as { sent: SentComment[] };
-	return data.sent ?? [];
-}
-
 export type PendingComment = { file: string; line: number; text: string };
 
 // Send-all posts the JSON twin under /api.
