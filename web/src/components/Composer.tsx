@@ -24,7 +24,6 @@ import {
 import { dispositionFor } from "../chat/disposition";
 import { ESC_SETTLE_MS, orderKeys, type QuickKey } from "../chat/quick-keys";
 import { hapticConfirm, hapticTick } from "../haptics";
-import { stalledApply } from "./modelApply";
 import { useSheetBack } from "../nav";
 import {
 	effectiveEnterSends,
@@ -48,6 +47,7 @@ import {
 	FaTableCellsLarge,
 	FaXmark,
 } from "./fa";
+import { stalledApply } from "./modelApply";
 import { Spinner } from "./Spinner";
 
 const MAX_FILES = 10;
@@ -215,7 +215,6 @@ export const Composer = memo(function Composer(props: {
 	// Autosize: grow with content, cap at half the visual viewport.
 	// Clearing (send) skips the read entirely: height auto followed by
 	// a scrollHeight read forces synchronous layout mid-send.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: the effect must re-run on every text change even though text is not read
 	useEffect(() => {
 		const el = ta.current;
 		if (!el) return;
@@ -692,7 +691,7 @@ export const Composer = memo(function Composer(props: {
 								</span>
 							</span>
 						)}
-							{props.memory && (
+						{props.memory && (
 							<span role="img" aria-label={`memory ${props.memory}`}>
 								<FaBrain size={13} />
 							</span>
@@ -937,12 +936,12 @@ export const Composer = memo(function Composer(props: {
 								</span>
 							)}
 							<button
-							type="button"
-							onClick={runModelsRefresh}
-							disabled={modelsRefreshing}
-							aria-label="Refresh model catalog"
-							className="press-scale ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-primary/30 bg-primary/15 text-primary transition-colors disabled:opacity-50"
-						>
+								type="button"
+								onClick={runModelsRefresh}
+								disabled={modelsRefreshing}
+								aria-label="Refresh model catalog"
+								className="press-scale ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-primary/30 bg-primary/15 text-primary transition-colors disabled:opacity-50"
+							>
 								<FaArrowsRotate size={13} className={modelsRefreshing ? "animate-spin" : ""} />
 							</button>
 						</div>
