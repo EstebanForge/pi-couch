@@ -286,6 +286,14 @@ func TestCmpVersion(t *testing.T) {
 		{"0.1.9", "0.1.10", -1},
 		{"garbage", "0.1.45", -1},
 		{"v2.0.0", "1.9.9", 1},
+		// date scheme: 1 and 2 dotted parts must order against each
+		// other and against the old three-part semver
+		{"20261028.1", "20261028", 1},
+		{"20261029", "20261028.9", 1},
+		{"20261028", "0.1.58", 1},
+		{"20261028.2", "20261028.10", -1},
+		{"20261028.3", "20261028.3", 0},
+		{"junk", "20261028", -1},
 	}
 	for _, c := range cases {
 		if got := cmpVersion(c.a, c.b); got != c.want {

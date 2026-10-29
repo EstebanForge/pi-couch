@@ -381,8 +381,10 @@ func RecoverBoot(stateDir, binPath string, healthy time.Duration, log *slog.Logg
 	}
 }
 
-// cmpVersion compares dotted numeric versions; unparsable input sorts
-// oldest so a junk tag never triggers a downgrade.
+// cmpVersion compares dotted numeric versions of any part count so
+// the date scheme (20261028, 20261028.3) orders against the old
+// three-part semver; unparsable input sorts oldest so a junk tag
+// never triggers a downgrade.
 func cmpVersion(a, b string) int {
 	pa, poka := parseVersion(a)
 	pb, pokb := parseVersion(b)
@@ -395,9 +397,16 @@ func cmpVersion(a, b string) int {
 		}
 		return 0
 	}
-	for i := range pa {
-		if pa[i] != pb[i] {
-			if pa[i] > pb[i] {
+	for i := 0; i < len(pa) || i < len(pb); i++ {
+		var av, bv int
+		if i < len(pa) {
+			av = pa[i]
+		}
+		if i < len(pb) {
+			bv = pb[i]
+		}
+		if av != bv {
+			if av > bv {
 				return 1
 			}
 			return -1
@@ -406,16 +415,16 @@ func cmpVersion(a, b string) int {
 	return 0
 }
 
-func parseVersion(s string) ([3]int, bool) {
-	var out [3]int
+func parseVersion(s string) ([]int, bool) {
 	parts := strings.Split(strings.TrimPrefix(s, "v"), ".")
-	if len(parts) != 3 {
-		return out, false
-	}
+	out := make([]int, len(parts))
 	for i, p := range parts {
+		if p == "" {
+			return nil, false
+		}
 		n, err := strconv.Atoi(p)
 		if err != nil || n < 0 {
-			return out, false
+			return nil, false
 		}
 		out[i] = n
 	}
