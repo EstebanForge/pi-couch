@@ -316,16 +316,17 @@ func (d *Driver) Prompt(ctx context.Context, addr, text string) error {
 		return err
 	}
 	if res.Started != nil && !*res.Started {
+		// started:false means the turn did not begin in the send
+		// window. The first-paint race leaves the draft pasted in the
+		// composer with its Enter lost, so resending would double the
+		// text: nudge Enter instead, same as the create flow.
 		select {
 		case <-time.After(d.sendRetry):
 		case <-ctx.Done():
 			return ctx.Err()
 		}
-		if res, err = d.c.Send(ctx, addr, text, SendParams{}); err != nil {
+		if err := d.c.Keys(ctx, addr, []string{"enter"}); err != nil {
 			return err
-		}
-		if res.Started != nil && !*res.Started {
-			return errors.New("hc: pi never took the prompt (first paint race)")
 		}
 	}
 	return nil

@@ -7,7 +7,6 @@ import (
 	"net"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -263,8 +262,7 @@ func TestDriverPromptSendsToTheTerminal(t *testing.T) {
 	}
 }
 
-func TestDriverPromptRetriesWhenFirstPaintEatsTheEnter(t *testing.T) {
-	var sends int32
+func TestDriverPromptNudgesEnterWhenFirstPaintEatsIt(t *testing.T) {
 	d, f, _ := startDriverReply(t, func(method string, params json.RawMessage) (any, *Error) {
 		if method == "events.subscribe" {
 			return map[string]any{"seq": 1, "terminals": []map[string]any{
@@ -272,10 +270,9 @@ func TestDriverPromptRetriesWhenFirstPaintEatsTheEnter(t *testing.T) {
 			}}, nil
 		}
 		if method == "terminal.send" {
-			if atomic.AddInt32(&sends, 1) == 1 {
-				return map[string]any{"started": false, "turn": 0}, nil
-			}
-			return map[string]any{"started": true, "turn": 0}, nil
+			// The paste landed but the Enter was lost: the draft is
+			// sitting in the composer, so a resend would double it.
+			return map[string]any{"started": false, "turn": 0}, nil
 		}
 		return map[string]any{}, nil
 	})
@@ -289,10 +286,13 @@ func TestDriverPromptRetriesWhenFirstPaintEatsTheEnter(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := d.Prompt(ctx, "t1", "hi"); err != nil {
-		t.Fatalf("prompt with retry: %v", err)
+		t.Fatalf("prompt with enter nudge: %v", err)
 	}
-	if n := len(f.seen("terminal.send")); n != 2 {
-		t.Fatalf("send calls = %d, want 2 (one retry)", n)
+	if n := len(f.seen("terminal.send")); n != 1 {
+		t.Fatalf("send calls = %d, want exactly 1 (no doubled prompt)", n)
+	}
+	if n := len(f.seen("terminal.keys")); n != 1 {
+		t.Fatalf("keys calls = %d, want 1 enter nudge", n)
 	}
 }
 
