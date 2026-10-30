@@ -87,7 +87,7 @@ export function DirBrowser({
 						type="button"
 						disabled={disabled}
 						onClick={() => load(d.path)}
-						className="press-scale block w-full truncate rounded-xl px-3 py-2 text-left text-[14px] text-base-content transition-colors active:bg-base-200 hover:bg-base-300/80"
+						className="press-scale block w-full shrink-0 truncate rounded-xl px-3 py-2 text-left text-[14px] text-base-content transition-colors active:bg-base-200 hover:bg-base-300/80"
 					>
 						{d.name}
 					</button>

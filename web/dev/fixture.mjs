@@ -120,6 +120,20 @@ createServer((req, res) => {
 		);
 		return;
 	}
+	if (url.pathname === "/api/dirs") {
+		res.writeHead(200, { "Content-Type": "application/json" });
+		res.end(
+			JSON.stringify({
+				path: "/home/demo",
+				parent: "/home",
+				truncated: false,
+				dirs: ["AndroidStudioProjects", "Documents", "Download", "Music", "go", "Dev", "Movies"].map(
+					(name) => ({ name, path: `/home/demo/${name}` }),
+				),
+			}),
+		);
+		return;
+	}
 	if (url.pathname === "/api/models") {
 		res.writeHead(200, { "Content-Type": "application/json" });
 		res.end(JSON.stringify([{ id: "fixture/fake-model" }, { id: "fixture/other-model" }]));
