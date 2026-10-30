@@ -115,9 +115,6 @@ func waitAgentActive(ctx context.Context, hc *herdr.Client, paneID string) error
 // existing workspace), label (reuse the labeled workspace or create
 // it at cwd — the Quick flow).
 func (a *app) apiAgents(w http.ResponseWriter, r *http.Request) {
-	if !a.requireHerdr(w) {
-		return
-	}
 	var req struct {
 		Cwd         string `json:"cwd"`
 		WorkspaceID string `json:"workspace_id"`
@@ -160,22 +157,37 @@ func (a *app) apiAgents(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	var key, name string
 	homeErr := false
-	switch mode {
-	case "workspace":
-		key, name, err = a.createInWorkspace(ctx, req.WorkspaceID, req.Prompt, piArgs)
-	case "label":
-		var cwd string
-		cwd, err = a.homeDir(req.Cwd)
-		homeErr = err != nil
-		if err == nil {
-			key, name, err = a.createInLabeledWorkspace(ctx, req.Label, cwd, req.Prompt, piArgs)
+	if a.hcDrv != nil {
+		// hc has no workspaces: the Quick flow's label folds into a
+		// plain spawn at the folder, and workspace splits cannot exist.
+		if mode == "workspace" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "workspaces need the herdr driver"})
+			return
 		}
-	default:
 		var cwd string
 		cwd, err = a.homeDir(req.Cwd)
 		homeErr = err != nil
 		if err == nil {
-			key, name, err = a.createAgentSession(ctx, filepath.Base(cwd), cwd, req.Prompt, piArgs)
+			key, name, err = a.createAgentSessionHC(ctx, filepath.Base(cwd), cwd, req.Prompt, piArgs)
+		}
+	} else {
+		switch mode {
+		case "workspace":
+			key, name, err = a.createInWorkspace(ctx, req.WorkspaceID, req.Prompt, piArgs)
+		case "label":
+			var cwd string
+			cwd, err = a.homeDir(req.Cwd)
+			homeErr = err != nil
+			if err == nil {
+				key, name, err = a.createInLabeledWorkspace(ctx, req.Label, cwd, req.Prompt, piArgs)
+			}
+		default:
+			var cwd string
+			cwd, err = a.homeDir(req.Cwd)
+			homeErr = err != nil
+			if err == nil {
+				key, name, err = a.createAgentSession(ctx, filepath.Base(cwd), cwd, req.Prompt, piArgs)
+			}
 		}
 	}
 	if err != nil {
@@ -248,9 +260,11 @@ func (a *app) homeDir(raw string) (string, error) {
 }
 
 // apiWorkspaces lists herdr workspaces for the new-agent sheet. An
-// action surface fails loudly, unlike the passive home badges.
+// action surface fails loudly, unlike the passive home badges. Under
+// hc there are no workspaces, so the sheet sees an empty list.
 func (a *app) apiWorkspaces(w http.ResponseWriter, r *http.Request) {
-	if !a.requireHerdr(w) {
+	if a.hcDrv != nil {
+		writeJSON(w, http.StatusOK, []herdr.Workspace{})
 		return
 	}
 	ws, err := a.herdr.Workspaces(r.Context())
@@ -357,9 +371,6 @@ func (a *app) resumeSession(ctx context.Context, label, cwd, path, text string) 
 // rides along as the first prompt. The jsonl already exists, so the
 // answer needs no session discovery — the requested key is the key.
 func (a *app) apiSessionResume(w http.ResponseWriter, r *http.Request) {
-	if !a.requireHerdr(w) {
-		return
-	}
 	key := r.PathValue("key")
 	var req struct {
 		Text string `json:"text"`
@@ -392,6 +403,16 @@ func (a *app) apiSessionResume(w http.ResponseWriter, r *http.Request) {
 	label := meta.Name
 	if label == "" {
 		label = filepath.Base(cwd)
+	}
+	if a.hcDrv != nil {
+		name, err := a.resumeSessionHC(ctx, label, cwd, meta.Path, strings.TrimSpace(req.Text))
+		if err != nil {
+			a.logger.Error("resume failed", slog.String("key", key), slog.String("error", err.Error()))
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "resume failed"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"key": key, "agent": name})
+		return
 	}
 	name, err := a.resumeSession(ctx, label, cwd, meta.Path, strings.TrimSpace(req.Text))
 	if err != nil {
@@ -571,4 +592,139 @@ func (a *app) sessionKeyForPane(ctx context.Context, paneID string, undo func())
 		case <-time.After(500 * time.Millisecond):
 		}
 	}
+}
+
+// hcSpawnName fits agentName's output to hc's terminal-name rules: hc
+// rejects names shaped like an address (t7), so a bare alnum name
+// gains a pi- prefix.
+func hcSpawnName(label string) string {
+	name := agentName(label)
+	if !strings.ContainsAny(name, "-_.") {
+		if name = "pi-" + name; len(name) > 32 {
+			name = name[:32]
+		}
+	}
+	return name
+}
+
+// createAgentSessionHC spawns pi in a fresh hc terminal, submits the
+// first prompt and waits for the bridge's pi.session label plus the
+// file itself. A name conflict retries once with a suffix.
+func (a *app) createAgentSessionHC(ctx context.Context, label, cwd, prompt string, piArgs []string) (string, string, error) {
+	name := hcSpawnName(label)
+	t9, err := a.hcDrv.Spawn(ctx, cwd, name, piArgs)
+	if err != nil {
+		name = hcSpawnName(label + fmt.Sprintf("-%04x", time.Now().UnixNano()&0xffff))
+		if t9, err = a.hcDrv.Spawn(ctx, cwd, name, piArgs); err != nil {
+			return "", "", fmt.Errorf("hc spawn: %w", err)
+		}
+	}
+	addr := t9.Address
+	undo := func() { _ = a.hcDrv.Discard(context.Background(), addr) }
+	if prompt != "" {
+		if err := a.hcDrv.Prompt(ctx, addr, prompt); err != nil {
+			undo()
+			return "", "", fmt.Errorf("prompt: %w", err)
+		}
+		if !a.sessionAppearedHC(ctx, addr, sessionVerifyWait) {
+			a.logger.Warn("prompt unverified, recovering in background")
+			go a.ensureTurnStartedHC(context.WithoutCancel(ctx), addr, prompt)
+		}
+	}
+	key, err := a.sessionKeyForAddrHC(ctx, addr, undo)
+	return key, name, err
+}
+
+// resumeSessionHC starts pi again over a closed session's jsonl via
+// --session, which loads that exact file, so the phone's key never
+// changes and no session discovery is needed.
+func (a *app) resumeSessionHC(ctx context.Context, label, cwd, path, text string) (string, error) {
+	name := hcSpawnName(label)
+	t9, err := a.hcDrv.Spawn(ctx, cwd, name, []string{"--session", path})
+	if err != nil {
+		name = hcSpawnName(label + fmt.Sprintf("-%04x", time.Now().UnixNano()&0xffff))
+		if t9, err = a.hcDrv.Spawn(ctx, cwd, name, []string{"--session", path}); err != nil {
+			return "", fmt.Errorf("hc spawn: %w", err)
+		}
+	}
+	addr := t9.Address
+	if text != "" {
+		if err := a.hcDrv.Prompt(ctx, addr, text); err != nil {
+			_ = a.hcDrv.Discard(context.Background(), addr)
+			return "", fmt.Errorf("prompt: %w", err)
+		}
+	}
+	return name, nil
+}
+
+// sessionAppearedHC polls until the terminal carries a pi.session
+// label AND the jsonl exists on disk - the bridge labels at session
+// start, long before pi writes the file at turn start.
+func (a *app) sessionAppearedHC(ctx context.Context, addr string, d time.Duration) bool {
+	deadline := time.Now().Add(d)
+	for {
+		if p, ok := a.hcDrv.SessionLabel(addr); ok {
+			if _, err := os.Stat(p); err == nil {
+				return true
+			}
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(400 * time.Millisecond):
+		}
+	}
+}
+
+// sessionKeyForAddrHC waits for the spawned pi's session file and
+// returns the phone's key for it.
+func (a *app) sessionKeyForAddrHC(ctx context.Context, addr string, undo func()) (string, error) {
+	deadline := time.Now().Add(agentCreateTimeout - 5*time.Second)
+	for {
+		if p, ok := a.hcDrv.SessionLabel(addr); ok {
+			if _, err := os.Stat(p); err == nil {
+				return strings.TrimSuffix(filepath.Base(p), ".jsonl"), nil
+			}
+		}
+		if time.Now().After(deadline) {
+			undo()
+			return "", errors.New("agent never reported a session")
+		}
+		select {
+		case <-ctx.Done():
+			undo()
+			return "", ctx.Err()
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+}
+
+// ensureTurnStartedHC nudges a soft-failed first prompt off-request:
+// hc's Send always appends Enter, so a lost submit means the draft
+// sits un-submitted and pressing enter again is the only safe nudge.
+func (a *app) ensureTurnStartedHC(ctx context.Context, addr, prompt string) {
+	collapse := strings.Join(strings.Fields(prompt), " ")
+	frag := collapse
+	if r := []rune(frag); len(r) > 40 {
+		frag = string(r[:40])
+	}
+	for attempt := 0; attempt < 4; attempt++ {
+		if a.sessionAppearedHC(ctx, addr, sessionVerifyWait) {
+			return
+		}
+		plain := ""
+		if read, err := a.hcDrv.PaneRead(ctx, addr, "detection", 10); err == nil {
+			plain = strings.Join(strings.Fields(read.Text), " ")
+		}
+		if strings.Contains(plain, frag) {
+			if err := a.hcDrv.PressKeys(ctx, addr, []string{"enter"}); err != nil {
+				a.logger.Warn("prompt submit failed", slog.String("error", err.Error()))
+				return
+			}
+		}
+	}
+	a.logger.Warn("agent never started its first turn")
 }

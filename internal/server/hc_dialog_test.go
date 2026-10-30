@@ -31,6 +31,11 @@ type hcFakeCore struct {
 	keys   [][]string
 	paints []string // terminal.read sequence; the last repeats
 	ri     int
+
+	subs  []net.Conn              // connections that subscribed, in order
+	runs  []map[string]any        // terminal.run params
+	sends []map[string]any        // terminal.send params
+	snap  func() []map[string]any // snapshot terminals; nil = labeled t1
 }
 
 // startHCFake wires a fake core whose snapshot carries one live
@@ -98,13 +103,16 @@ func (f *hcFakeCore) reply(conn net.Conn, line string) {
 	var result any
 	switch req.Method {
 	case "events.subscribe":
-		result = map[string]any{"seq": 1, "terminals": []map[string]any{{
-			"address": "t1",
-			"labels":  map[string]any{"pi.session": f.sessionPath},
-			"state":   "live",
-			"status":  map[string]any{"state": "working", "app": "pi"},
-			"title":   "Pi · t1",
-		}}}
+		f.mu.Lock()
+		f.subs = append(f.subs, conn)
+		f.mu.Unlock()
+		result = map[string]any{"seq": 1, "terminals": f.snapshotTerminals()}
+	case "terminal.run":
+		f.mu.Lock()
+		f.runs = append(f.runs, req.Params)
+		f.mu.Unlock()
+		name, _ := req.Params["name"].(string)
+		result = map[string]any{"address": "t7", "name": name, "state": "live"}
 	case "terminal.read":
 		f.mu.Lock()
 		text := f.paints[f.ri]
@@ -122,12 +130,64 @@ func (f *hcFakeCore) reply(conn net.Conn, line string) {
 		f.mu.Unlock()
 		result = map[string]any{"status": map[string]any{"state": "working"}, "turn": 1}
 	case "terminal.send":
+		f.mu.Lock()
+		f.sends = append(f.sends, req.Params)
+		f.mu.Unlock()
 		result = map[string]any{"started": true, "turn": 1}
 	default:
 		result = map[string]any{}
 	}
 	out, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": result})
 	_, _ = conn.Write(append(out, '\n'))
+}
+
+func (f *hcFakeCore) snapshotTerminals() []map[string]any {
+	f.mu.Lock()
+	snap := f.snap
+	f.mu.Unlock()
+	if snap != nil {
+		return snap()
+	}
+	return []map[string]any{{
+		"address": "t1",
+		"labels":  map[string]any{"pi.session": f.sessionPath},
+		"state":   "live",
+		"status":  map[string]any{"state": "working", "app": "pi"},
+		"title":   "Pi · t1",
+	}}
+}
+
+// event pushes one notification onto the newest subscribe connection.
+func (f *hcFakeCore) event(kind, addr string, data map[string]any) {
+	f.mu.Lock()
+	var conn net.Conn
+	if n := len(f.subs); n > 0 {
+		conn = f.subs[n-1]
+	}
+	f.mu.Unlock()
+	if conn == nil {
+		f.t.Fatal("no subscribe conn to push the event on")
+	}
+	line, _ := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "event",
+		"params":  map[string]any{"type": kind, "terminal": addr, "data": data, "seq": 1},
+	})
+	if _, err := conn.Write(append(line, '\n')); err != nil {
+		f.t.Fatalf("event: %v", err)
+	}
+}
+
+func (f *hcFakeCore) runLog() []map[string]any {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]map[string]any{}, f.runs...)
+}
+
+func (f *hcFakeCore) sendLog() []map[string]any {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]map[string]any{}, f.sends...)
 }
 
 func (f *hcFakeCore) keyLog() [][]string {

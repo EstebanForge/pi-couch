@@ -65,9 +65,10 @@ func (f *fakeStatus) TargetForPath(_ context.Context, path string) (string, erro
 	return addr, nil
 }
 
-// TestHCModeRefusesHerdrCommands pins the wave-3 state: with the hc
-// driver wired (status set, herdr nil) the command surfaces refuse
-// loudly instead of dialing the wrong socket.
+// TestHCModeRefusesHerdrCommands pins the remaining herdr-only
+// surface: with the hc driver wired (status set, herdr nil) the
+// terminal stream and input handlers refuse loudly instead of dialing
+// the wrong socket. Command surfaces run on both drivers since wave 4.
 func TestHCModeRefusesHerdrCommands(t *testing.T) {
 	a := &app{
 		logger:      slog.New(slog.NewTextHandler(testDiscard{}, nil)),
@@ -79,9 +80,10 @@ func TestHCModeRefusesHerdrCommands(t *testing.T) {
 		status:      &fakeStatus{badges: map[string]string{}},
 		dialogLatch: map[string]*dialogWire{},
 	}
-	req := httptest.NewRequest(http.MethodPost, "/api/agents", bytes.NewBufferString(`{"cwd":"/home/me/x","prompt":"hi"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/s1/terminal/input", bytes.NewBufferString(`{"keys":["enter"]}`))
+	req.SetPathValue("key", "s1")
 	rec := httptest.NewRecorder()
-	a.apiAgents(rec, req)
+	a.terminalInput(rec, req)
 	if rec.Code != http.StatusNotImplemented {
 		t.Fatalf("code %d, want 501", rec.Code)
 	}

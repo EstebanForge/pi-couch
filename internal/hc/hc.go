@@ -100,6 +100,7 @@ type InterruptResult struct {
 // RunParams starts a program in a new terminal.
 type RunParams struct {
 	Argv   []string          `json:"argv,omitempty"`
+	Line   string            `json:"line,omitempty"`
 	Name   string            `json:"name,omitempty"`
 	Cwd    string            `json:"cwd,omitempty"`
 	Env    map[string]string `json:"env,omitempty"`

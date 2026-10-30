@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"time"
 
@@ -21,12 +22,14 @@ type Driver struct {
 	// reportWait caps the wait for a terminal's first status report
 	// before a Prompt (the first-paint race: an early send loses its
 	// Enter); sendRetry is the gap before the started:false resend;
-	// finishWait caps the graceful wait in Close. Tests shrink all of
+	// finishWait caps the graceful wait in Close; spawnReadyWait caps
+	// the wait for pi's first report in Spawn. Tests shrink all of
 	// them.
-	retry      time.Duration
-	reportWait time.Duration
-	sendRetry  time.Duration
-	finishWait time.Duration
+	retry          time.Duration
+	reportWait     time.Duration
+	sendRetry      time.Duration
+	finishWait     time.Duration
+	spawnReadyWait time.Duration
 
 	mu     sync.RWMutex
 	byAddr map[string]Terminal
@@ -35,7 +38,7 @@ type Driver struct {
 
 // NewDriver wraps a client with the session map. Run drives it.
 func NewDriver(c *Client) *Driver {
-	return &Driver{c: c, retry: time.Second, reportWait: 3 * time.Second, sendRetry: time.Second, finishWait: 3 * time.Second, byAddr: map[string]Terminal{}, byPath: map[string]string{}}
+	return &Driver{c: c, retry: time.Second, reportWait: 3 * time.Second, sendRetry: time.Second, finishWait: 3 * time.Second, spawnReadyWait: 15 * time.Second, byAddr: map[string]Terminal{}, byPath: map[string]string{}}
 }
 
 // Run subscribes until the context ends, re-subscribing with backoff
@@ -147,6 +150,9 @@ func (d *Driver) apply(ev Event) {
 			if json.Unmarshal(b, &s) == nil {
 				t.Status = &s
 			}
+		}
+		if rep, ok := ev.Data["reported"].(bool); ok {
+			t.Reported = rep
 		}
 		d.byAddr[ev.Terminal] = t
 	case "turn":
@@ -329,6 +335,64 @@ func (d *Driver) Stop(ctx context.Context, addr string) error {
 	return err
 }
 
+// Spawn runs pi in a fresh terminal and waits for its first status
+// report - the moment the TUI reads input. The line (never argv: a
+// template named "pi" would hijack the spawn) is built by shell
+// quoting each argument.
+func (d *Driver) Spawn(ctx context.Context, dir, name string, argv []string) (Terminal, error) {
+	parts := make([]string, 0, len(argv)+1)
+	parts = append(parts, "pi")
+	for _, a := range argv {
+		parts = append(parts, shQuote(a))
+	}
+	var t Terminal
+	res, err := d.c.Run(ctx, RunParams{Name: name, Cwd: dir, Line: strings.Join(parts, " ")})
+	if err != nil {
+		return t, err
+	}
+	deadline := time.Now().Add(d.spawnReadyWait)
+	for {
+		d.mu.RLock()
+		rec, ok := d.byAddr[res.Address]
+		reported := ok && rec.Reported
+		d.mu.RUnlock()
+		if reported {
+			return res, nil
+		}
+		if time.Now().After(deadline) {
+			return res, errors.New("hc: pi never filed its first status report")
+		}
+		select {
+		case <-ctx.Done():
+			return res, ctx.Err()
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+}
+
+// SessionLabel returns the terminal's pi.session label, if the bridge
+// has filed one yet.
+func (d *Driver) SessionLabel(addr string) (string, bool) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	t, ok := d.byAddr[addr]
+	if !ok {
+		return "", false
+	}
+	p, ok := t.Labels["pi.session"]
+	return p, ok && p != ""
+}
+
+// Discard tears down a spawn that failed before it became a session:
+// kill (a no-op on a non-live terminal) then remove, best-effort.
+func (d *Driver) Discard(ctx context.Context, addr string) error {
+	if err := d.c.Kill(ctx, addr); err != nil {
+		return err
+	}
+	_ = d.c.Remove(ctx, addr)
+	return nil
+}
+
 // finished polls until the terminal leaves the live set (or up to
 // finishWait), reporting whether it exited.
 func (d *Driver) finished(addr string) bool {
@@ -362,4 +426,9 @@ func (d *Driver) Close(ctx context.Context, addr string) error {
 	}
 	_ = d.c.Remove(ctx, addr)
 	return nil
+}
+
+// shQuote single-quotes one shell word, escaping embedded quotes.
+func shQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

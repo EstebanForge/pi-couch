@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -428,5 +429,147 @@ func TestDriverServesThePaneSource(t *testing.T) {
 	}
 	if pr.PaneID != "t1" || pr.Text != "screen text\n" {
 		t.Fatalf("read = %q / %q, want t1 / screen text", pr.PaneID, pr.Text)
+	}
+}
+
+func TestDriverSpawnRunsPiAndWaitsForTheFirstReport(t *testing.T) {
+	var mu sync.Mutex
+	var runs []map[string]any
+	d, _, conns := startDriverReply(t, func(method string, params json.RawMessage) (any, *Error) {
+		switch method {
+		case "events.subscribe":
+			return map[string]any{"seq": 1, "terminals": []map[string]any{}}, nil
+		case "terminal.run":
+			var p map[string]any
+			_ = json.Unmarshal(params, &p)
+			mu.Lock()
+			runs = append(runs, p)
+			mu.Unlock()
+			return map[string]any{"address": "t9", "name": p["name"], "state": "live"}, nil
+		}
+		return map[string]any{}, nil
+	})
+	d.spawnReadyWait = 2 * time.Second
+
+	type spawnRes struct {
+		addr string
+		err  error
+	}
+	done := make(chan spawnRes, 1)
+	go func() {
+		t9, err := d.Spawn(context.Background(), "/home/me/proj", "pi-demo", []string{"--model", "x/y"})
+		done <- spawnRes{t9.Address, err}
+	}()
+
+	var conn net.Conn
+	select {
+	case conn = <-conns:
+	case <-time.After(2 * time.Second):
+		t.Fatal("no held subscribe conn")
+	}
+	waitFor(t, func() bool { mu.Lock(); defer mu.Unlock(); return len(runs) == 1 })
+	if _, err := conn.Write(eventLine("created", "t9", map[string]any{
+		"address": "t9", "name": "pi-demo", "state": "live",
+	})); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if _, err := conn.Write(eventLine("status", "t9", map[string]any{
+		"status":   map[string]any{"state": "working", "app": "pi"},
+		"reported": true,
+	})); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case r := <-done:
+		if r.err != nil {
+			t.Fatalf("spawn: %v", r.err)
+		}
+		if r.addr != "t9" {
+			t.Fatalf("spawn addr = %q, want t9", r.addr)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("spawn never returned")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	line, _ := runs[0]["line"].(string)
+	if !strings.HasPrefix(line, "pi ") || !strings.Contains(line, "--model") || !strings.Contains(line, "x/y") {
+		t.Fatalf("run line = %q, want a quoted pi command", line)
+	}
+	if runs[0]["cwd"] != "/home/me/proj" || runs[0]["name"] != "pi-demo" {
+		t.Fatalf("run params = %v, want the cwd and name", runs[0])
+	}
+	if _, ok := runs[0]["caller"]; ok {
+		t.Fatal("caller must never ride a run")
+	}
+}
+
+func TestDriverSpawnTimesOutWhenPiNeverReports(t *testing.T) {
+	d, _, conns := startDriverReply(t, func(method string, params json.RawMessage) (any, *Error) {
+		if method == "events.subscribe" {
+			return map[string]any{"seq": 1, "terminals": []map[string]any{}}, nil
+		}
+		if method == "terminal.run" {
+			return map[string]any{"address": "t9", "state": "live"}, nil
+		}
+		return map[string]any{}, nil
+	})
+	d.spawnReadyWait = 60 * time.Millisecond
+	select {
+	case <-conns:
+	case <-time.After(2 * time.Second):
+		t.Fatal("no held subscribe conn")
+	}
+	if _, err := d.Spawn(context.Background(), "/home/me", "pi-x", nil); err == nil {
+		t.Fatal("spawn without a first report must fail")
+	}
+}
+
+func TestDriverSessionLabel(t *testing.T) {
+	d, _, _ := startDriver(t, []map[string]any{
+		record("t1", "/x/a.jsonl", "live", "idle"),
+	})
+	waitFor(t, func() bool {
+		_, ok := d.SessionLabel("t1")
+		return ok
+	})
+	if p, ok := d.SessionLabel("t1"); !ok || p != "/x/a.jsonl" {
+		t.Fatalf("label = %q, %v, want /x/a.jsonl", p, ok)
+	}
+	if _, ok := d.SessionLabel("t0"); ok {
+		t.Fatal("unknown terminal must not carry a label")
+	}
+}
+
+func TestDriverDiscardKillsThenRemoves(t *testing.T) {
+	var mu sync.Mutex
+	var order []string
+	d, _, _ := startDriverReply(t, func(method string, params json.RawMessage) (any, *Error) {
+		switch method {
+		case "events.subscribe":
+			return map[string]any{"seq": 1, "terminals": []map[string]any{
+				record("t1", "/x/a.jsonl", "live", "idle"),
+			}}, nil
+		case "terminal.kill", "terminal.rm":
+			mu.Lock()
+			order = append(order, method)
+			mu.Unlock()
+			return map[string]any{}, nil
+		}
+		return map[string]any{}, nil
+	})
+	waitFor(t, func() bool {
+		_, err := d.TargetForPath(context.Background(), "/x/a.jsonl")
+		return err == nil
+	})
+	if err := d.Discard(context.Background(), "t1"); err != nil {
+		t.Fatalf("discard: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(order) != 2 || order[0] != "terminal.kill" || order[1] != "terminal.rm" {
+		t.Fatalf("discard calls = %v, want kill then rm", order)
 	}
 }
