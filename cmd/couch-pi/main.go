@@ -124,6 +124,8 @@ func main() {
 		drv := hc.NewDriver(hcc)
 		go drv.Run(ctx)
 		status = drv
+		// One events connection replaces the per-agent waits (ADR-0008).
+		go (&push.HCWatcher{Client: hcc, OnEvent: notifyFunc(logger, idx, st, pusher), Log: logger}).Run(ctx)
 	} else {
 		onEvent := notifyFunc(logger, idx, st, pusher)
 		go (&push.Watcher{HC: hr, Reconcile: 15 * time.Second, Stability: 2 * time.Second, WaitMax: 15 * time.Minute, Rearm: 5 * time.Second, OnEvent: onEvent, Log: logger}).Run(ctx)
@@ -155,6 +157,7 @@ func notifyFunc(logger *slog.Logger, idx *pi.Index, st *store.Store, pusher *pus
 			"done":    "Agent completed task execution.",
 			"blocked": "Agent is blocked and requires input.",
 			"idle":    "Agent is idle.",
+			"error":   "Agent run failed.",
 		}[e.Status]
 		subs, err := st.Subs()
 		if err != nil {

@@ -372,6 +372,10 @@ type EventStream struct {
 // Events yields notifications as they arrive.
 func (s *EventStream) Events() <-chan Event { return s.events }
 
+// Done closes when the stream ends (socket loss or a read error): the
+// events channel never closes on its own.
+func (s *EventStream) Done() <-chan struct{} { return s.done }
+
 // Close drops the subscription connection.
 func (s *EventStream) Close() { s.closeOnce.Do(func() { _ = s.conn.Close() }) }
 
