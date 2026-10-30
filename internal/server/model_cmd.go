@@ -38,9 +38,6 @@ var (
 // apiModel and apiThinking are the JSON twins of modelSet/thinkingSet:
 // fetch cannot read their 303 redirects, so outcomes are in-band.
 func (a *app) apiModel(w http.ResponseWriter, r *http.Request) {
-	if !a.requireHerdr(w) {
-		return
-	}
 	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
 	var in struct {
 		Pattern string `json:"pattern"`
@@ -53,9 +50,6 @@ func (a *app) apiModel(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) apiThinking(w http.ResponseWriter, r *http.Request) {
-	if !a.requireHerdr(w) {
-		return
-	}
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<10)
 	var in struct {
 		Level string `json:"level"`
@@ -92,13 +86,17 @@ func (a *app) modelAgent(key, pattern string) error {
 	if !ok {
 		return errNotFound
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
 	target, err := a.statusFor().TargetForPath(ctx, meta.Path)
 	if err != nil {
 		return herdr.ErrNotDriven
 	}
-	if err := a.herdr.Prompt(ctx, target, "/model "+pattern); err != nil {
+	cmd := a.cmdFor()
+	if cmd == nil {
+		return herdr.ErrNotDriven
+	}
+	if err := cmd.Prompt(ctx, target, "/model "+pattern); err != nil {
 		a.logger.Error("model set", "err", err)
 		return errModelFail
 	}
@@ -132,13 +130,17 @@ func (a *app) thinkingAgent(key, level string) error {
 	if !ok {
 		return errNotFound
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
 	target, err := a.statusFor().TargetForPath(ctx, meta.Path)
 	if err != nil {
 		return herdr.ErrNotDriven
 	}
-	if err := a.herdr.Prompt(ctx, target, "/thinking "+level); err != nil {
+	cmd := a.cmdFor()
+	if cmd == nil {
+		return herdr.ErrNotDriven
+	}
+	if err := cmd.Prompt(ctx, target, "/thinking "+level); err != nil {
 		a.logger.Error("thinking set", "err", err)
 		return errThinkingFail
 	}

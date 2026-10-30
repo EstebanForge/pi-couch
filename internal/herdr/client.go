@@ -48,6 +48,9 @@ type Client struct {
 	path    string
 	timeout time.Duration
 	seq     atomic.Int64
+	// closeGrace is the gap between Close's two ctrl+d presses; tests
+	// shrink it.
+	closeGrace time.Duration
 }
 
 func DefaultSocketPath() string {
@@ -261,11 +264,38 @@ func (c *Client) Prompt(ctx context.Context, target, text string) error {
 	return err
 }
 
-// SendKeys delivers key presses; abort is SendKeys(ctx, target, ["ctrl+c"])
-// per ADR-0001, not an API verb.
+// SendKeys delivers key presses; abort is ctrl+c per ADR-0001, not an
+// API verb.
 func (c *Client) SendKeys(ctx context.Context, target string, keys []string) error {
 	_, err := c.call(ctx, "agent.send_keys", map[string]any{"target": target, "keys": keys})
 	return err
+}
+
+// Stop aborts the target's current turn.
+func (c *Client) Stop(ctx context.Context, target string) error {
+	return c.SendKeys(ctx, target, []string{"ctrl+c"})
+}
+
+// Close exits pi (ctrl+d twice: pi, then its shell) and removes the
+// pane best-effort, so sibling panes in the workspace survive.
+func (c *Client) Close(ctx context.Context, target string) error {
+	grace := c.closeGrace
+	if grace == 0 {
+		grace = time.Second
+	}
+	if err := c.PaneSendInput(ctx, target, "", []string{"ctrl+d"}); err != nil {
+		return err
+	}
+	select {
+	case <-time.After(grace):
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	if err := c.PaneSendInput(ctx, target, "", []string{"ctrl+d"}); err != nil {
+		return err
+	}
+	_ = c.PaneClose(ctx, target)
+	return nil
 }
 
 // PaneRead is one pane.read result: ansi text plus the pane revision.

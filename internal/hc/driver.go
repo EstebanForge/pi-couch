@@ -3,6 +3,7 @@ package hc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 	"time"
 
@@ -17,7 +18,15 @@ type Driver struct {
 	c *Client
 
 	// retry is the reconnect backoff after a lost events stream.
-	retry time.Duration
+	// reportWait caps the wait for a terminal's first status report
+	// before a Prompt (the first-paint race: an early send loses its
+	// Enter); sendRetry is the gap before the started:false resend;
+	// finishWait caps the graceful wait in Close. Tests shrink all of
+	// them.
+	retry      time.Duration
+	reportWait time.Duration
+	sendRetry  time.Duration
+	finishWait time.Duration
 
 	mu     sync.RWMutex
 	byAddr map[string]Terminal
@@ -26,7 +35,7 @@ type Driver struct {
 
 // NewDriver wraps a client with the session map. Run drives it.
 func NewDriver(c *Client) *Driver {
-	return &Driver{c: c, retry: time.Second, byAddr: map[string]Terminal{}, byPath: map[string]string{}}
+	return &Driver{c: c, retry: time.Second, reportWait: 3 * time.Second, sendRetry: time.Second, finishWait: 3 * time.Second, byAddr: map[string]Terminal{}, byPath: map[string]string{}}
 }
 
 // Run subscribes until the context ends, re-subscribing with backoff
@@ -207,4 +216,88 @@ func (d *Driver) TargetForPath(_ context.Context, path string) (string, error) {
 		return "", herdr.ErrNotDriven
 	}
 	return addr, nil
+}
+
+// reported waits until the terminal has filed its first status report
+// (bounded), so a Prompt never lands in the first-paint composer.
+func (d *Driver) reported(addr string) {
+	deadline := time.Now().Add(d.reportWait)
+	for {
+		d.mu.RLock()
+		t, ok := d.byAddr[addr]
+		d.mu.RUnlock()
+		if ok && t.Reported {
+			return
+		}
+		if time.Now().After(deadline) {
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+}
+
+// Prompt submits one user prompt to the terminal. hc still owns its
+// quiet-and-settle pacing, so callers budget the context generously.
+func (d *Driver) Prompt(ctx context.Context, addr, text string) error {
+	d.reported(addr)
+	res, err := d.c.Send(ctx, addr, text, SendParams{})
+	if err != nil {
+		return err
+	}
+	if res.Started != nil && !*res.Started {
+		select {
+		case <-time.After(d.sendRetry):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		if res, err = d.c.Send(ctx, addr, text, SendParams{}); err != nil {
+			return err
+		}
+		if res.Started != nil && !*res.Started {
+			return errors.New("hc: pi never took the prompt (first paint race)")
+		}
+	}
+	return nil
+}
+
+// Stop aborts the terminal's current turn: hc presses esc for
+// status-reporting programs, which is the correct pi interrupt.
+func (d *Driver) Stop(ctx context.Context, addr string) error {
+	_, err := d.c.Interrupt(ctx, addr, 8*time.Second)
+	return err
+}
+
+// finished polls until the terminal leaves the live set (or up to
+// finishWait), reporting whether it exited.
+func (d *Driver) finished(addr string) bool {
+	deadline := time.Now().Add(d.finishWait)
+	for {
+		d.mu.RLock()
+		_, ok := d.byAddr[addr]
+		d.mu.RUnlock()
+		if !ok {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+}
+
+// Close ends the session's pi: graceful ctrl+d first, kill as the
+// escalation (herdr's close ran the same dance through the pane), then
+// the record removal best-effort. The jsonl stays as an archive.
+func (d *Driver) Close(ctx context.Context, addr string) error {
+	keyCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	err := d.c.Keys(keyCtx, addr, []string{"ctrl+d"})
+	cancel()
+	_ = err // an un-quiet screen only moves us to the escalation sooner
+	if !d.finished(addr) {
+		if err := d.c.Kill(ctx, addr); err != nil {
+			return err
+		}
+	}
+	_ = d.c.Remove(ctx, addr)
+	return nil
 }

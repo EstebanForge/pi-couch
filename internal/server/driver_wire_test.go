@@ -6,16 +6,45 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/EstebanForge/couch-pi/internal/herdr"
 	"github.com/EstebanForge/couch-pi/internal/pi"
 )
 
-// fakeStatus stands in for any StatusReader in wiring tests.
+// fakeStatus stands in for any StatusReader in wiring tests; the
+// command log doubles as a CommandDriver.
 type fakeStatus struct {
-	badges map[string]string
+	badges  map[string]string
+	targets map[string]string
+
+	mu   sync.Mutex
+	cmds []string
+}
+
+func (f *fakeStatus) log(cmd string) {
+	f.mu.Lock()
+	f.cmds = append(f.cmds, cmd)
+	f.mu.Unlock()
+}
+
+func (f *fakeStatus) Prompt(_ context.Context, target, text string) error {
+	f.log("prompt:" + target + ":" + text)
+	return nil
+}
+
+func (f *fakeStatus) Stop(_ context.Context, target string) error {
+	f.log("stop:" + target)
+	return nil
+}
+
+func (f *fakeStatus) Close(_ context.Context, target string) error {
+	f.log("close:" + target)
+	return nil
 }
 
 func (f *fakeStatus) Badges(_ context.Context) map[string]string { return f.badges }
@@ -29,7 +58,11 @@ func (f *fakeStatus) DriveStatus(_ context.Context) (map[string]string, map[stri
 }
 
 func (f *fakeStatus) TargetForPath(_ context.Context, path string) (string, error) {
-	return "", herdr.ErrNotDriven
+	addr, ok := f.targets[path]
+	if !ok {
+		return "", herdr.ErrNotDriven
+	}
+	return addr, nil
 }
 
 // TestHCModeRefusesHerdrCommands pins the wave-3 state: with the hc
@@ -54,6 +87,44 @@ func TestHCModeRefusesHerdrCommands(t *testing.T) {
 	}
 	if !bytes.Contains(rec.Body.Bytes(), []byte("unsupported-driver")) {
 		t.Fatalf("body %q, want the unsupported-driver error", rec.Body.String())
+	}
+}
+
+// TestHCCommandSurfacePrompts pins the wave-4 seam: with only the hc
+// driver wired, promptAgent dispatches through the CommandDriver
+// interface instead of the herdr client.
+func TestHCCommandSurfacePrompts(t *testing.T) {
+	root := t.TempDir()
+	sub := filepath.Join(root, "sess")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeLines(t, filepath.Join(sub, "s1.jsonl"), sessHeader, userLine("a", "", "first"))
+	fake := &fakeStatus{badges: map[string]string{}, targets: map[string]string{}}
+	a := &app{
+		logger:      slog.New(slog.NewTextHandler(testDiscard{}, nil)),
+		idx:         pi.NewIndex(root),
+		home:        testHome(),
+		answered:    newDialogMemos(),
+		models:      newModelsCache(filepath.Join(t.TempDir(), "models.json")),
+		memory:      newMemoryProbe("", ""),
+		status:      fake,
+		dialogLatch: map[string]*dialogWire{},
+	}
+	meta, ok := a.idx.Meta("s1")
+	if !ok {
+		t.Fatal("session s1 not indexed")
+	}
+	fake.mu.Lock()
+	fake.targets[meta.Path] = "t1"
+	fake.mu.Unlock()
+	if err := a.promptAgent("s1", "hi"); err != nil {
+		t.Fatalf("prompt under hc: %v", err)
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if len(fake.cmds) != 1 || !strings.HasPrefix(fake.cmds[0], "prompt:") || !strings.HasSuffix(fake.cmds[0], ":hi") {
+		t.Fatalf("commands = %v, want one prompt carrying hi", fake.cmds)
 	}
 }
 

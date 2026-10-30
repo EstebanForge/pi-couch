@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -46,18 +47,25 @@ func eventLine(kind, addr string, data map[string]any) []byte {
 // reply carries snap; the test receives the held events connection to
 // push notifications through.
 func startDriver(t *testing.T, snap []map[string]any) (*Driver, *fakeCore, <-chan net.Conn) {
-	t.Helper()
-	mu := sync.Mutex{}
-	handler := func(method string, _ json.RawMessage) (any, *Error) {
+	return startDriverReply(t, func(method string, _ json.RawMessage) (any, *Error) {
 		if method == "events.subscribe" {
-			mu.Lock()
-			defer mu.Unlock()
 			return map[string]any{"seq": 1, "terminals": snap}, nil
 		}
 		return map[string]any{}, nil
-	}
+	})
+}
+
+// startDriverReply is the handler-injectable harness: command methods
+// (terminal.send, terminal.interrupt, ...) reply from the handler.
+func startDriverReply(t *testing.T, reply func(method string, params json.RawMessage) (any, *Error)) (*Driver, *fakeCore, <-chan net.Conn) {
+	t.Helper()
+	mu := sync.Mutex{}
 	conns := make(chan net.Conn, 4)
-	f := startFakeCore(t, handler)
+	f := startFakeCore(t, func(method string, params json.RawMessage) (any, *Error) {
+		mu.Lock()
+		defer mu.Unlock()
+		return reply(method, params)
+	})
 	f.afterReply = func(conn net.Conn, method string) bool {
 		if method == "events.subscribe" {
 			conns <- conn
@@ -208,5 +216,172 @@ func TestDriverResubscribesAfterStreamLoss(t *testing.T) {
 	}
 	if n := len(f.seen("events.subscribe")); n < 2 {
 		t.Fatalf("subscribe calls = %d, want at least 2", n)
+	}
+}
+
+func TestDriverPromptSendsToTheTerminal(t *testing.T) {
+	var mu sync.Mutex
+	var sent []map[string]any
+	d, f, _ := startDriverReply(t, func(method string, params json.RawMessage) (any, *Error) {
+		if method == "events.subscribe" {
+			return map[string]any{"seq": 1, "terminals": []map[string]any{
+				record("t1", "/home/me/.pi/sessions/a.jsonl", "live", "idle"),
+			}}, nil
+		}
+		if method == "terminal.send" {
+			var p map[string]any
+			_ = json.Unmarshal(params, &p)
+			mu.Lock()
+			sent = append(sent, p)
+			mu.Unlock()
+			return map[string]any{"started": true, "turn": 1}, nil
+		}
+		return map[string]any{}, nil
+	})
+	waitFor(t, func() bool {
+		_, err := d.TargetForPath(context.Background(), "/home/me/.pi/sessions/a.jsonl")
+		return err == nil
+	})
+
+	if err := d.Prompt(context.Background(), "t1", "hi"); err != nil {
+		t.Fatalf("prompt: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(sent) != 1 {
+		t.Fatalf("sends = %d, want 1", len(sent))
+	}
+	if sent[0]["terminal"] != "t1" || sent[0]["text"] != "hi" {
+		t.Fatalf("send params = %v, want terminal t1 text hi", sent[0])
+	}
+	if _, ok := sent[0]["caller"]; ok {
+		t.Fatal("caller must never ride a send")
+	}
+	if n := len(f.seen("terminal.send")); n != 1 {
+		t.Fatalf("send calls = %d, want 1", n)
+	}
+}
+
+func TestDriverPromptRetriesWhenFirstPaintEatsTheEnter(t *testing.T) {
+	var sends int32
+	d, f, _ := startDriverReply(t, func(method string, params json.RawMessage) (any, *Error) {
+		if method == "events.subscribe" {
+			return map[string]any{"seq": 1, "terminals": []map[string]any{
+				record("t1", "/home/me/.pi/sessions/a.jsonl", "live", ""),
+			}}, nil
+		}
+		if method == "terminal.send" {
+			if atomic.AddInt32(&sends, 1) == 1 {
+				return map[string]any{"started": false, "turn": 0}, nil
+			}
+			return map[string]any{"started": true, "turn": 0}, nil
+		}
+		return map[string]any{}, nil
+	})
+	d.reportWait = 50 * time.Millisecond
+	d.sendRetry = 20 * time.Millisecond
+	waitFor(t, func() bool {
+		_, err := d.TargetForPath(context.Background(), "/home/me/.pi/sessions/a.jsonl")
+		return err == nil
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := d.Prompt(ctx, "t1", "hi"); err != nil {
+		t.Fatalf("prompt with retry: %v", err)
+	}
+	if n := len(f.seen("terminal.send")); n != 2 {
+		t.Fatalf("send calls = %d, want 2 (one retry)", n)
+	}
+}
+
+func TestDriverStopInterrupts(t *testing.T) {
+	d, f, _ := startDriverReply(t, func(method string, params json.RawMessage) (any, *Error) {
+		if method == "events.subscribe" {
+			return map[string]any{"seq": 1, "terminals": []map[string]any{
+				record("t1", "/home/me/.pi/sessions/a.jsonl", "live", "working"),
+			}}, nil
+		}
+		if method == "terminal.interrupt" {
+			return map[string]any{"outcome": "stopped", "key": "esc"}, nil
+		}
+		return map[string]any{}, nil
+	})
+	waitFor(t, func() bool {
+		_, err := d.TargetForPath(context.Background(), "/home/me/.pi/sessions/a.jsonl")
+		return err == nil
+	})
+
+	if err := d.Stop(context.Background(), "t1"); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	if n := len(f.seen("terminal.interrupt")); n != 1 {
+		t.Fatalf("interrupt calls = %d, want 1", n)
+	}
+}
+
+func TestDriverCloseIsGracefulThenEscalates(t *testing.T) {
+	// pi ignores the first ctrl+d in this core: close must escalate to
+	// kill, then rm the record.
+	d, f, _ := startDriverReply(t, func(method string, params json.RawMessage) (any, *Error) {
+		if method == "events.subscribe" {
+			return map[string]any{"seq": 1, "terminals": []map[string]any{
+				record("t1", "/home/me/.pi/sessions/a.jsonl", "live", "idle"),
+			}}, nil
+		}
+		return map[string]any{}, nil
+	})
+	d.finishWait = 50 * time.Millisecond
+	waitFor(t, func() bool {
+		_, err := d.TargetForPath(context.Background(), "/home/me/.pi/sessions/a.jsonl")
+		return err == nil
+	})
+
+	if err := d.Close(context.Background(), "t1"); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	if n := len(f.seen("terminal.keys")); n != 1 {
+		t.Fatalf("keys calls = %d, want 1 (ctrl+d)", n)
+	}
+	if n := len(f.seen("terminal.kill")); n != 1 {
+		t.Fatalf("kill calls = %d, want 1 (escalation)", n)
+	}
+	if n := len(f.seen("terminal.rm")); n != 1 {
+		t.Fatalf("rm calls = %d, want 1", n)
+	}
+}
+
+func TestDriverCloseSkipsTheKillWhenPiExits(t *testing.T) {
+	var d *Driver
+	d, f, _ := startDriverReply(t, func(method string, params json.RawMessage) (any, *Error) {
+		if method == "events.subscribe" {
+			return map[string]any{"seq": 1, "terminals": []map[string]any{
+				record("t1", "/home/me/.pi/sessions/a.jsonl", "live", "idle"),
+			}}, nil
+		}
+		if method == "terminal.keys" {
+			// pi took the ctrl+d: the record is gone by the next look.
+			d.mu.Lock()
+			delete(d.byAddr, "t1")
+			delete(d.byPath, "/home/me/.pi/sessions/a.jsonl")
+			d.mu.Unlock()
+			return map[string]any{}, nil
+		}
+		return map[string]any{}, nil
+	})
+	d.finishWait = 50 * time.Millisecond
+	waitFor(t, func() bool {
+		_, err := d.TargetForPath(context.Background(), "/home/me/.pi/sessions/a.jsonl")
+		return err == nil
+	})
+
+	if err := d.Close(context.Background(), "t1"); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	if n := len(f.seen("terminal.kill")); n != 0 {
+		t.Fatalf("kill calls = %d, want 0 (graceful exit)", n)
+	}
+	if n := len(f.seen("terminal.rm")); n != 1 {
+		t.Fatalf("rm calls = %d, want 1", n)
 	}
 }

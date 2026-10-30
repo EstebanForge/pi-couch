@@ -88,6 +88,30 @@ func (a *app) statusFor() StatusReader {
 	return a.herdr
 }
 
+// CommandDriver is the in-session command surface both drivers serve
+// (ADR-0008 wave 4): prompt, abort, close, addressed by the driver
+// target TargetForPath hands out.
+type CommandDriver interface {
+	Prompt(ctx context.Context, target, text string) error
+	Stop(ctx context.Context, target string) error
+	Close(ctx context.Context, target string) error
+}
+
+var _ CommandDriver = (*herdr.Client)(nil)
+var _ CommandDriver = (*hc.Driver)(nil)
+
+// cmdFor returns the command surface: herdr when wired, else the hc
+// driver. Nil means no driver can take commands.
+func (a *app) cmdFor() CommandDriver {
+	if a.herdr != nil {
+		return a.herdr
+	}
+	if d, ok := a.status.(CommandDriver); ok {
+		return d
+	}
+	return nil
+}
+
 // requireHerdr gates the herdr-only surfaces while the hc waves land:
 // the hc state is herdr==nil with an explicit status driver wired.
 // Literals with neither (tests) keep exercising the herdr paths.
@@ -371,13 +395,19 @@ func (a *app) promptAgent(key, text string) error {
 	if !ok {
 		return errNotFound
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// hc's send pipeline paces itself (quiet, settle, first-paint
+	// retry), so the ceiling is generous; herdr answers in milliseconds.
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
 	target, err := a.statusFor().TargetForPath(ctx, meta.Path)
 	if err != nil {
 		return herdr.ErrNotDriven
 	}
-	if err := a.herdr.Prompt(ctx, target, text); err != nil {
+	cmd := a.cmdFor()
+	if cmd == nil {
+		return herdr.ErrNotDriven
+	}
+	if err := cmd.Prompt(ctx, target, text); err != nil {
 		a.logger.Error("prompt", "err", err)
 		return errPromptFail
 	}

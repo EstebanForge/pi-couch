@@ -490,49 +490,44 @@ func (a *app) stopAgent(key string) error {
 	if !ok {
 		return errNotFound
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	target, err := a.statusFor().TargetForPath(ctx, meta.Path)
 	if err != nil {
 		return herdr.ErrNotDriven
 	}
-	if err := a.herdr.SendKeys(ctx, target, []string{"ctrl+c"}); err != nil {
+	cmd := a.cmdFor()
+	if cmd == nil {
+		return herdr.ErrNotDriven
+	}
+	if err := cmd.Stop(ctx, target); err != nil {
 		a.logger.Error("stop", "err", err)
 		return errStopFail
 	}
 	return nil
 }
 
-// closeWorkspace closes the herdr workspace driving the session. The
+// closeWorkspace closes the driver surface running the session. The
 // jsonl stays as a read-only archive.
 func (a *app) closeWorkspace(key string) error {
 	meta, ok := a.idx.Meta(key)
 	if !ok {
 		return errNotFound
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// hc's graceful wait wants room before the kill escalation.
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	paneID, err := a.statusFor().TargetForPath(ctx, meta.Path)
+	target, err := a.statusFor().TargetForPath(ctx, meta.Path)
 	if err != nil {
 		return herdr.ErrNotDriven
 	}
-	// Graceful pane-level close: ctrl+d exits pi, and once the shell
-	// is back a second ctrl+d ends it — the pane dies with its shell,
-	// so sibling agents in the same workspace survive (workspace.close
-	// would tear them all down).
-	if err := a.herdr.PaneSendInput(ctx, paneID, "", []string{"ctrl+d"}); err != nil {
+	cmd := a.cmdFor()
+	if cmd == nil {
+		return herdr.ErrNotDriven
+	}
+	if err := cmd.Close(ctx, target); err != nil {
 		return errCloseFail
 	}
-	select {
-	case <-time.After(time.Second):
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-	if err := a.herdr.PaneSendInput(ctx, paneID, "", []string{"ctrl+d"}); err != nil {
-		return errCloseFail
-	}
-	// Best effort: remove the pane if herdr kept it after the shell died.
-	_ = a.herdr.PaneClose(ctx, paneID)
 	return nil
 }
 
@@ -541,18 +536,12 @@ var errNotFound = errors.New("session not found")
 var errClientGone = errors.New("client gone")
 
 func (a *app) apiStop(w http.ResponseWriter, r *http.Request) {
-	if !a.requireHerdr(w) {
-		return
-	}
 	a.writeOutcome(w, a.stopAgent(r.PathValue("key")))
 }
 
 // apiPrompt is the JSON twin of the templ steerPrompt: fetch cannot
 // read the 303 redirects, so the outcome is in-band.
 func (a *app) apiPrompt(w http.ResponseWriter, r *http.Request) {
-	if !a.requireHerdr(w) {
-		return
-	}
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var in struct {
 		Text     string `json:"text"`
@@ -588,9 +577,6 @@ func (a *app) apiPrompt(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) apiClose(w http.ResponseWriter, r *http.Request) {
-	if !a.requireHerdr(w) {
-		return
-	}
 	a.writeOutcome(w, a.closeWorkspace(r.PathValue("key")))
 }
 
