@@ -267,6 +267,9 @@ func (a *app) apiWorkspaces(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, []herdr.Workspace{})
 		return
 	}
+	if !a.requireHerdr(w) {
+		return
+	}
 	ws, err := a.herdr.Workspaces(r.Context())
 	if err != nil {
 		a.logger.Error("workspace list failed", slog.String("error", err.Error()))

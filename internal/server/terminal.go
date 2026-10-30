@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -10,9 +11,6 @@ import (
 )
 
 func (a *app) streamTerminal(w http.ResponseWriter, r *http.Request) {
-	if !a.requireHerdr(w) {
-		return
-	}
 	key := r.PathValue("key")
 	meta, ok := a.idx.Meta(key)
 	if !ok {
@@ -32,6 +30,10 @@ func (a *app) streamTerminal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cols, rows := terminalDims(r)
+	if a.hcDrv != nil {
+		a.streamTerminalHC(w, r, target, cols, rows)
+		return
+	}
 	ch, unsub := a.observes.subscribe(target, cols, rows)
 	defer unsub()
 	ticker := time.NewTicker(keepaliveEvery)
@@ -143,9 +145,6 @@ func writeSSE(w http.ResponseWriter, event, data string) bool {
 
 // terminalInput forwards wheel input: text runs, or named keys.
 func (a *app) terminalInput(w http.ResponseWriter, r *http.Request) {
-	if !a.requireHerdr(w) {
-		return
-	}
 	key := r.PathValue("key")
 	meta, ok := a.idx.Meta(key)
 	if !ok {
@@ -168,10 +167,66 @@ func (a *app) terminalInput(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no driver", http.StatusConflict)
 		return
 	}
+	if a.hcDrv != nil {
+		if in.Text != "" {
+			// hc's Send always appends Enter: raw typing would submit
+			// half-written text. Same refusal as editor answers.
+			http.Error(w, "raw text input needs the herdr driver", http.StatusConflict)
+			return
+		}
+		if err := a.hcDrv.PressKeys(ctx, target, in.Keys); err != nil {
+			a.logger.Error("hc terminal input", "err", err)
+			http.Error(w, "input failed", http.StatusBadGateway)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if err := a.herdr.PaneSendInput(ctx, target, in.Text, in.Keys); err != nil {
 		a.logger.Error("terminal input", "err", err)
 		http.Error(w, "input failed", http.StatusBadGateway)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// streamTerminalHC fans an hc attach out as the same delta SSE frames
+// the herdr observe hub emits: raw pty bytes, base64'd. The first
+// frame is hc's full paint. A stalled stream ends as reset so the
+// client reconnects into a fresh paint instead of double-painting.
+func (a *app) streamTerminalHC(w http.ResponseWriter, r *http.Request, target string, cols, rows int) {
+	stream, err := a.hcDrv.Attach(r.Context(), target, cols, rows)
+	if err != nil {
+		writeSSE(w, "gone", "{}")
+		http.NewResponseController(w).Flush()
+		return
+	}
+	defer stream.Close()
+	flusher := http.NewResponseController(w)
+	ticker := time.NewTicker(keepaliveEvery)
+	defer ticker.Stop()
+	for {
+		select {
+		case f, ok := <-stream.Frames():
+			if !ok {
+				if stream.Stalled() {
+					writeSSE(w, "reset", "{}")
+					flusher.Flush()
+				}
+				return
+			}
+			frame, err := json.Marshal(map[string]string{"bytes": base64.StdEncoding.EncodeToString(f.Bytes)})
+			if err != nil || !writeSSE(w, "delta", string(frame)) {
+				return
+			}
+			flusher.Flush()
+		case <-ticker.C:
+			if !writeSSE(w, "ping", "{}") {
+				return
+			}
+			flusher.Flush()
+		case <-r.Context().Done():
+			return
+		}
+	}
 }

@@ -224,6 +224,9 @@ func (d *Driver) TargetForPath(_ context.Context, path string) (string, error) {
 	return addr, nil
 }
 
+// SetRetryForTest shrinks the reconnect backoff for tests.
+func (d *Driver) SetRetryForTest(retry time.Duration) { d.retry = retry }
+
 // Agents renders the labeled live terminals as herdr agents, the shape
 // the awaiting detector polls. Status rides the terminal's own OSC
 // 7501 report, so hc blocks surface here without any regex.
