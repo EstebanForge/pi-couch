@@ -12,12 +12,13 @@ Pi Couch: phone-first web client for the pi coding agents on this server. Shows 
 - `CONTEXT.md`: binding domain glossary. Use these exact words in code, UI, and docs. Avoid the synonyms listed under each term (Session, Workdir, Repo, Changes, Comment, Steering, Driver, Status, Stop, Resume, Close).
 - `docs/adr/NNNN-slug.md`: decision records. New architectural decisions go in a new ADR, not as edits to the plan.
 - `docs/m0-findings.md`: verified herdr and pi facts from the M0 probes. Trust these over assumptions.
+- `docs/hc-findings.md`: verified herdr-core (hc) facts from the 2026-10-30 probes: wire formats, the first-paint send race, status semantics, and which dialogs never report blocked.
 - `docs/herdr-web-ui-learnings.md`: verified facts and porting patterns extracted from the herdr-web-ui codebase (2026-10-12), including the `terminal session observe` correction to m0-findings.
 
 ## Locked decisions (do not relitigate)
 
 - Plain pi sessions only: jsonl trees under `~/.pi/agent/sessions/`. No pi-durable, no RPC children, no guests (ADR-0001).
-- herdr is the only driver. Every start, steer, stop, resume goes through herdr's socket API. Protocol 22 is pinned; adapt on change. Abort is Ctrl-C via send-keys, not an API verb (ADR-0001).
+- Two drivers behind one seam (ADR-0008, accepted 2026-10-30): `driver = "herdr"` (default) or `driver = "hc"` in the config picks exactly one per server process. herdr speaks pinned protocol 22; hc speaks herdr-core's JSON-RPC plus framed attach, with session identity on the `pi.session` terminal label. Under hc, abort is esc via terminal.interrupt (herdr keeps Ctrl-C). `hc_socket` overrides hc's socket discovery. `docs/hc-findings.md` holds the verified probe facts.
 - Stack: one Go binary, stdlib `net/http` routing, and a React 19 + Vite + Tailwind 4 + Konsta SPA served from `go:embed`. The templ pages, Datastar and the daisyUI CDN died at the stage-7 cutover (ADR-0006 supersedes ADR-0002). No web framework on the server; node is a build-time dependency only. ADR-0007 amends ADR-0001 for the dialog-sensor bridge extension.
 - Android install surface: thin Kotlin WebView APK. One Activity, no IPC bridge, no bundled assets, no FCM; sideloaded, not the PWA install flow (ADR-0003).
 - Security: server binds 127.0.0.1 only, fronted by `tailscale serve`. The tailnet is the boundary; no extra auth layer. Never widen this without a new ADR.
@@ -54,7 +55,7 @@ Pins: fsnotify v1.10.1, webpush-go v1.4.0; the web stack pins live in web/packag
 ## Architecture (planned, per PLAN.md)
 
 - Scanner: walks `~/.pi/agent/sessions/`, parses jsonl tolerantly, tails with fsnotify. Indexes by mtime with in-memory metadata.
-- herdr client: socket at `~/.config/herdr/herdr.sock`, request envelope from `herdr api schema`; CLI fallback where the socket is fiddly.
+- herdr client: socket at `~/.config/herdr/herdr.sock`, request envelope from `herdr api schema`; CLI fallback where the socket is fiddly. The hc client lives beside it in `internal/hc` (plain JSON-RPC per call, one events connection, framed attach); `internal/hc/driver.go` maps hc terminals onto the same session/status/command surface.
 - Terminal bridge: herdr socket only. `pane.read` in `ansi` format polled on a 1 s tick into xterm.js; keystrokes out via `pane.send_input`. No PTY bridge, no cgo: the socket has no attach method and no output push (m0-findings).
 - Git service: repo discovery by pruned scan, diffs via exec git.
 - State: comments in a plain JSON file per session; UI preferences (enter-send behavior, quick keys) in browser localStorage per device. Push subscriptions and the VAPID key live in the store state dir. No database.

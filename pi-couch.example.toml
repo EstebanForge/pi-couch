@@ -51,3 +51,15 @@ enforce_token = true
 # set false to pin a version and update by hand. While this repo is
 # private the check needs a GITHUB_TOKEN in the environment.
 auto_update = true
+
+# Driver backend (ADR-0008): "herdr" (default) talks to the legacy
+# herdr socket; "hc" talks to herdr-core. Exactly one runs per server
+# process; switching backends is a restart, and live panes under the
+# old backend show unknown badges until their sessions restart.
+#   driver = "hc"
+driver = "herdr"
+
+# herdr-core socket path. Empty uses hc's own discovery (HC_SOCKET,
+# then the XDG runtime dir). Only read when driver = "hc".
+#   hc_socket = "/run/user/1000/herdr-core/default.sock"
+hc_socket = ""
