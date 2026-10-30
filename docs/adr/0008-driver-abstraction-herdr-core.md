@@ -1,7 +1,7 @@
 # ADR-0008: Driver abstraction over herdr and herdr-core
 
 Date: 2026-10-30
-Status: Proposed
+Status: Accepted (Esteban, 2026-10-30: both engines ship, herdr stays the default until hc reaches parity)
 Supersedes: the protocol-22 pin in ADR-0001 (adapt-on-change clause triggers).
 Amends: ADR-0001 (herdr-family stays the only driver). Related: ADR-0005, ADR-0007, docs/plan-herdr-core.md.
 
