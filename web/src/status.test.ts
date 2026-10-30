@@ -17,4 +17,8 @@ describe("isWaiting", () => {
 			expect(STATUS_DOT[s]).toMatch(/^bg-/);
 		}
 	});
+	it("hc's error state reads as an error and never waits", () => {
+		expect(STATUS_DOT.error).toBe("bg-error");
+		expect(isWaiting("error")).toBe(false);
+	});
 });

@@ -4,6 +4,7 @@
 export const STATUS_DOT: Record<string, string> = {
 	working: "bg-warning",
 	blocked: "bg-error",
+	error: "bg-error",
 	done: "bg-success",
 	idle: "bg-muted",
 	unknown: "bg-muted",

@@ -20,6 +20,7 @@ func TestVersionEndpoint(t *testing.T) {
 	var out struct {
 		Version string `json:"version"`
 		Home    string `json:"home"`
+		Driver  string `json:"driver"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatalf("decode: %v", err)
@@ -28,6 +29,10 @@ func TestVersionEndpoint(t *testing.T) {
 	// every card shows raw absolute paths.
 	if out.Home == "" {
 		t.Fatal("home missing from /api/version")
+	}
+	// The SPA hides herdr-only surfaces behind the driver name.
+	if out.Driver != "herdr" && out.Driver != "hc" {
+		t.Fatalf("driver %q, want herdr or hc", out.Driver)
 	}
 	// The phone confirms deploys by eye: the shape is the contract.
 	// Date-based releases: YYYYMMDD, same-day re-releases .1, .2, ...

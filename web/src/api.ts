@@ -156,10 +156,10 @@ export async function getSessions(limit?: number, q?: string): Promise<SessionsS
 	return (await res.json()) as SessionsSnapshot;
 }
 
-export async function getVersion(): Promise<{ version: string; home: string }> {
+export async function getVersion(): Promise<{ version: string; home: string; driver?: string }> {
 	const res = await fetch("/api/version");
 	if (!res.ok) throw new Error(`version ${res.status}`);
-	return (await res.json()) as { version: string; home: string };
+	return (await res.json()) as { version: string; home: string; driver?: string };
 }
 
 // Server home, fetched once; path tildify needs it.
