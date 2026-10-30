@@ -702,7 +702,7 @@ export const Composer = memo(function Composer(props: {
 
 			{/* quick actions: step 1 picks a kind, step 2 lists it */}
 			<Sheet
-				className="pb-safe-all rounded-t-3xl border-t border-base-content/10 bg-base-200/98 shadow-2xl backdrop-blur-xl"
+				className="pb-safe-all rounded-t-3xl border-t border-base-content/10 bg-base-200 shadow-2xl"
 				opened={sheet === "commands"}
 				onBackdropClick={closeQuick}
 			>
@@ -830,7 +830,7 @@ export const Composer = memo(function Composer(props: {
 
 			{/* attach sheet */}
 			<Sheet
-				className="pb-safe-all rounded-t-3xl border-t border-base-content/10 bg-base-200/98 shadow-2xl backdrop-blur-xl"
+				className="pb-safe-all rounded-t-3xl border-t border-base-content/10 bg-base-200 shadow-2xl"
 				opened={sheet === "attach"}
 				onBackdropClick={() => setSheet("none")}
 			>
@@ -918,7 +918,7 @@ export const Composer = memo(function Composer(props: {
 
 			{/* model sheet */}
 			<Sheet
-				className="pb-safe-all rounded-t-3xl border-t border-base-content/10 bg-base-200/98 shadow-2xl backdrop-blur-xl"
+				className="pb-safe-all rounded-t-3xl border-t border-base-content/10 bg-base-200 shadow-2xl"
 				opened={sheet === "model"}
 				onBackdropClick={() => setSheet("none")}
 			>
@@ -1006,7 +1006,7 @@ export const Composer = memo(function Composer(props: {
 
 			{/* thinking sheet */}
 			<Sheet
-				className="pb-safe-all rounded-t-3xl border-t border-base-content/10 bg-base-200/98 shadow-2xl backdrop-blur-xl"
+				className="pb-safe-all rounded-t-3xl border-t border-base-content/10 bg-base-200 shadow-2xl"
 				opened={sheet === "thinking"}
 				onBackdropClick={() => setSheet("none")}
 			>

@@ -80,7 +80,7 @@ export function DirBrowser({
 				className="min-h-[40px] rounded-2xl border border-base-content/10 bg-base-300/60 px-3.5 text-[15px] outline-none transition-all placeholder:text-muted/60 focus:border-primary/60 focus:shadow-[0_0_0_2px_rgba(64,157,212,0.18)]"
 			/>
 
-			<div className="flex max-h-48 min-h-24 flex-col gap-1 overflow-y-auto rounded-2xl border border-base-content/10 bg-base-300/50 p-1.5 shadow-surface-sm">
+			<div className="flex max-h-48 min-h-24 flex-col gap-1 overflow-y-auto rounded-2xl border border-base-content/10 bg-base-300 p-1.5 shadow-surface-sm">
 				{dirs.map((d) => (
 					<button
 						key={d.path}

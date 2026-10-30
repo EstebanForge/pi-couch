@@ -440,7 +440,11 @@
 	transform: scale(0.975);
 }
 
-/* Bottom sheets native elevation & rounding */
+/* Bottom sheets native elevation & rounding. Solid background: the
+   translucent+blur variant here broke sheet painting on the Android
+   WebView over Settings (content ghosted through, row text rendered as
+   fragments), and 96% over the dimmed page was visually identical to
+   solid anyway. */
 html body .k-sheet {
 	border-top-left-radius: 1.75rem;
 	border-top-right-radius: 1.75rem;
@@ -448,9 +452,7 @@ html body .k-sheet {
 	box-shadow:
 		0 -8px 32px rgba(0, 0, 0, 0.55),
 		0 -2px 8px rgba(0, 0, 0, 0.35);
-	background: color-mix(in srgb, var(--color-base-200) 96%, transparent);
-	backdrop-filter: blur(24px);
-	-webkit-backdrop-filter: blur(24px);
+	background: var(--color-base-200);
 }
 
 /* Glass header / navigation blur */
