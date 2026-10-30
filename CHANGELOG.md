@@ -2,6 +2,10 @@
 
 Started 2026-10-09 as a plan and a domain glossary. It grew into the phone I drive my work through. Dates below are approximate; the git log holds the precise trail.
 
+## 2026-10-30
+
+- The folder picker reads again. The phone rendered its sheet see-through with the folder names shattered into glyph shards; sheets now paint solid, and list rows keep their height when the list overflows instead of being squeezed into fragments. This round carries a fresh APK.
+
 ## 2026-10-29
 
 - The Android app walks itself back online when the server or the tunnel is down, no close and reopen needed, and links in model replies now open in my default handler instead of rendering github.com inside the app. This round carries a fresh APK.
