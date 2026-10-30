@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/EstebanForge/couch-pi/internal/hc"
 )
 
 // apiDialogAnswer answers a pi dialog from the phone. Confirm kinds
@@ -34,9 +36,6 @@ func (s *statusWriter) WriteHeader(code int) {
 }
 
 func (a *app) apiDialogAnswer(w http.ResponseWriter, r *http.Request) {
-	if !a.requireHerdr(w) {
-		return
-	}
 	key := r.PathValue("key")
 	var req struct {
 		ID     string `json:"id"`
@@ -108,6 +107,9 @@ func (a *app) apiDialogAnswer(w http.ResponseWriter, r *http.Request) {
 // the pane must still show: yes/no and escape verify the fresh parse
 // matches, not merely that some dialog is up.
 func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, text, path, expectID, expectTitle string) (bool, bool) {
+	if a.hcDrv != nil {
+		return a.answerDispatchHC(w, r, answer, text, path, expectID, expectTitle)
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
 	// stillUp reports whether the re-read shows the targeted dialog.
@@ -699,4 +701,265 @@ func editorChunks(s string) []string {
 		chunks = append(chunks, strings.Join(cur, "\n"))
 	}
 	return chunks
+}
+
+// answerDispatchHC is the hc twin of answerDispatch: terminal.read
+// screens instead of herdr pane reads, terminal.keys for keys, and
+// hc's forced send for typed text. Two hc facts shape it: terminal.send
+// always appends Enter (no type-then-verify-then-submit, and an editor
+// rewrite would early-submit a corrupted buffer), so the type verb
+// answers only real input widgets and refuses editors; everything else
+// keeps the verify-then-fire discipline.
+func (a *app) answerDispatchHC(w http.ResponseWriter, r *http.Request, answer, text, path, expectID, expectTitle string) (bool, bool) {
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	drv := a.hcDrv
+	addr, err := a.statusFor().TargetForPath(ctx, path)
+	if err != nil {
+		a.logger.Warn("dialog answer refused", "cause", "target unresolved", "session", path, "err", err.Error())
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+		return false, false
+	}
+	// stillUp reports whether the re-read shows the targeted dialog.
+	stillUp := func(screen string) bool {
+		p := parsePiDialog(screen)
+		if p == nil {
+			return false
+		}
+		if expectTitle != "" {
+			return p.Title == expectTitle
+		}
+		return paneParseID(path, p) == expectID
+	}
+	read := func() (string, bool) {
+		screen, err := drv.ReadScreen(ctx, addr, 60)
+		if err != nil {
+			select {
+			case <-ctx.Done():
+				return "", false
+			case <-time.After(300 * time.Millisecond):
+			}
+			screen, err = drv.ReadScreen(ctx, addr, 60)
+			if err != nil {
+				return "", false
+			}
+		}
+		return screen, true
+	}
+
+	switch {
+	case answer == "yes" || answer == "no":
+		screen, ok := read()
+		if !ok || !piConfirmOnScreen(screen) || !stillUp(screen) {
+			a.logger.Warn("dialog answer refused", "cause", "confirm off screen", "session", path, "driver", "hc")
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+			return false, true
+		}
+		keys := []string{"enter"}
+		if answer == "no" {
+			keys = []string{"down", "enter"}
+		}
+		return a.hcSend(w, ctx, drv, addr, "", keys), true
+
+	case answer == "type":
+		return a.answerFreeTextHC(w, ctx, drv, addr, path, text)
+
+	case answer == "escape":
+		screen, ok := read()
+		if !ok || !dialogOpen(screen) || !stillUp(screen) {
+			a.logger.Warn("dialog answer refused", "cause", "dialog off screen", "session", path, "driver", "hc")
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+			return false, true
+		}
+		return a.hcSend(w, ctx, drv, addr, "", []string{"esc"}), true
+
+	default:
+		return a.answerOptionHC(w, ctx, drv, addr, answer), false
+	}
+}
+
+// hcSend pushes one text-or-keys step and reports. Keys presses and
+// forced sends keep the bar on failure (502), the one refusal the
+// client retries.
+func (a *app) hcSend(w http.ResponseWriter, ctx context.Context, drv *hc.Driver, addr, text string, keys []string) bool {
+	var err error
+	if text != "" {
+		err = drv.TypeText(ctx, addr, text)
+	} else {
+		err = drv.PressKeys(ctx, addr, keys)
+	}
+	if err != nil {
+		a.logger.Error("dialog answer", "err", err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "send failed"})
+		return false
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	return true
+}
+
+// answerFreeTextHC answers input widgets with one forced send (hc
+// appends the Enter) and refuses editors: a chunked editor rewrite
+// would early-submit a corrupted buffer, and the send's single big
+// paste trips pi's paste guard. The post-send echo check only logs -
+// the answer already went out.
+func (a *app) answerFreeTextHC(w http.ResponseWriter, ctx context.Context, drv *hc.Driver, addr, sessionPath, text string) (bool, bool) {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
+		return false, false
+	}
+	var m *piDialog
+	for settle := 0; settle < 4; settle++ {
+		screen, err := drv.ReadScreen(ctx, addr, 60)
+		if err != nil {
+			select {
+			case <-ctx.Done():
+				writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+				return false, false
+			case <-time.After(250 * time.Millisecond):
+			}
+			continue
+		}
+		m = parsePiDialog(screen)
+		if m == nil && editorPaneEmpty(screen) {
+			// An emptied editor parses nil; it is unanswerable over hc.
+			m = &piDialog{Kind: "editor"}
+		}
+		if m != nil {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+			return false, false
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
+	if m == nil {
+		a.logger.Warn("dialog answer refused", "cause", "entry unparseable", "session", sessionPath, "driver", "hc")
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+		return false, false
+	}
+	if m.Kind == "editor" {
+		a.logger.Warn("dialog answer refused", "cause", "editor unsupported over hc", "session", sessionPath)
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+		return false, false
+	}
+	if !m.InputMode && m.Kind != "input" {
+		// A questionnaire row that needs selecting first: hc's send
+		// carries its own Enter, so typing here would answer the row
+		// selection, not fill the input. Refuse rather than guess.
+		a.logger.Warn("dialog answer refused", "cause", "input not active", "session", sessionPath, "driver", "hc")
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+		return false, false
+	}
+	one := strings.Join(strings.Fields(trimmed), " ")
+	ok := a.hcSend(w, ctx, drv, addr, one, nil)
+	if ok {
+		if screen, err := drv.ReadScreen(ctx, addr, 60); err == nil && !piEchoHit(screen, one) {
+			a.logger.Warn("typed answer echo missing", "session", sessionPath, "driver", "hc")
+		}
+	}
+	return ok, false
+}
+
+// answerOptionHC walks pi's dialog cursor to the option and confirms
+// it, settle-verified like the herdr walk: re-read, aim, verify the
+// cursor, then enter.
+func (a *app) answerOptionHC(w http.ResponseWriter, ctx context.Context, drv *hc.Driver, addr, want string) bool {
+	var m *piDialog
+	target := -1
+	for attempt := 0; attempt < 3; attempt++ {
+		screen, err := drv.ReadScreen(ctx, addr, 60)
+		if err != nil {
+			select {
+			case <-ctx.Done():
+				a.logger.Warn("dialog answer refused", "cause", "settle ctx done", "addr", addr)
+				writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+				return false
+			case <-time.After(250 * time.Millisecond):
+			}
+			continue
+		}
+		m = parsePiDialog(screen)
+		if m == nil || len(m.Options) == 0 {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+			return false
+		}
+		target = -1
+		for i, o := range m.Options {
+			if strings.TrimSpace(o.Label) == strings.TrimSpace(want) {
+				target = i
+				break
+			}
+		}
+		if target < 0 {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+			return false
+		}
+		if m.Cursor == target {
+			break
+		}
+		steps := aimSteps(m.Cursor, target, len(m.Options))
+		downs := make([]string, steps)
+		for i := range downs {
+			downs[i] = "down"
+		}
+		if err := drv.PressKeys(ctx, addr, downs); err != nil {
+			a.logger.Error("dialog answer", "err", err)
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "send failed"})
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+			return false
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
+	if m == nil || m.Cursor != target {
+		a.logger.Warn("dialog answer refused", "cause", "cursor never settled", "option", want)
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+		return false
+	}
+	ok := a.hcSend(w, ctx, drv, addr, "", []string{"enter"})
+	if ok {
+		a.maybeAutoSubmitHC(w, ctx, drv, addr)
+	}
+	return ok
+}
+
+// maybeAutoSubmitHC is the hc twin of maybeAutoSubmit: a multi-question
+// rpiv questionnaire parks on its submit review; one enter there
+// finishes it.
+func (a *app) maybeAutoSubmitHC(w http.ResponseWriter, ctx context.Context, drv *hc.Driver, addr string) {
+	for attempt := 0; attempt < 4; attempt++ {
+		screen, err := drv.ReadScreen(ctx, addr, 60)
+		if err != nil {
+			return
+		}
+		m := parsePiDialog(screen)
+		if m == nil {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(250 * time.Millisecond):
+			}
+			continue
+		}
+		if !m.MultiQuestion {
+			return
+		}
+		for _, o := range m.Options {
+			if strings.EqualFold(o.Label, "submit answers") {
+				_ = drv.PressKeys(ctx, addr, []string{"enter"})
+				return
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
 }

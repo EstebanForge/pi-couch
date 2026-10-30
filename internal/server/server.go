@@ -47,6 +47,7 @@ type app struct {
 	idx           *pi.Index
 	herdr         *herdr.Client
 	status        StatusReader // the active status surface; nil falls back to herdr
+	hcDrv         *hc.Driver   // hc dialog primitives; nil under herdr
 	watcher       *pi.Watcher  // nil: heartbeat-only updates
 	st            *store.Store
 	pusher        *push.Sender
@@ -123,17 +124,27 @@ func (a *app) requireHerdr(w http.ResponseWriter) bool {
 	return false
 }
 
-func Run(ctx context.Context, logger *slog.Logger, cfg *config.Config, idx *pi.Index, hc *herdr.Client, status StatusReader, w *pi.Watcher, st *store.Store, pusher *push.Sender) error {
+func Run(ctx context.Context, logger *slog.Logger, cfg *config.Config, idx *pi.Index, hr *herdr.Client, status StatusReader, w *pi.Watcher, st *store.Store, pusher *push.Sender) error {
 	home, _ := os.UserHomeDir()
 	if status == nil {
-		status = hc
+		status = hr
 	}
-	a := &app{logger: logger, idx: idx, herdr: hc, status: status, watcher: w, st: st, pusher: pusher, allowedOrigin: cfg.Origin, accessToken: cfg.AccessToken, uploadDir: cfg.UploadsDir, home: home, answered: newDialogMemos(), models: newModelsCache(filepath.Join(st.Dir(), "models.json")), memory: newMemoryProbe(cfg.MemoryURL, cfg.MemorySecret), dialogLatch: map[string]*dialogWire{}, quotas: quotas.NewService()}
-	if hc != nil {
-		// Pane watching and terminal mirroring stay herdr-only until
-		// their hc waves land.
-		a.observes = newObserveHub(hc.SocketPath())
-		a.awaiting = newAwaitingDetector(hc, time.Second)
+	a := &app{logger: logger, idx: idx, herdr: hr, status: status, watcher: w, st: st, pusher: pusher, allowedOrigin: cfg.Origin, accessToken: cfg.AccessToken, uploadDir: cfg.UploadsDir, home: home, answered: newDialogMemos(), models: newModelsCache(filepath.Join(st.Dir(), "models.json")), memory: newMemoryProbe(cfg.MemoryURL, cfg.MemorySecret), dialogLatch: map[string]*dialogWire{}, quotas: quotas.NewService()}
+	if hr != nil {
+		// Terminal mirroring stays herdr-only until its attach wave.
+		a.observes = newObserveHub(hr.SocketPath())
+	}
+	if drv, ok := status.(*hc.Driver); ok {
+		// hc keeps the pane watching too: the driver renders the labeled
+		// terminals as the detector's agent source (ADR-0008 wave 5).
+		// Only the observe hub waits for the attach wave.
+		a.hcDrv = drv
+		a.awaiting = newAwaitingDetector(drv, time.Second)
+		a.awaiting.onChange = a.wakeDialog
+		go a.awaiting.run(ctx)
+	}
+	if hr != nil && a.awaiting == nil {
+		a.awaiting = newAwaitingDetector(hr, time.Second)
 		a.awaiting.onChange = a.wakeDialog
 		go a.awaiting.run(ctx)
 	}

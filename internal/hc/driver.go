@@ -218,6 +218,68 @@ func (d *Driver) TargetForPath(_ context.Context, path string) (string, error) {
 	return addr, nil
 }
 
+// Agents renders the labeled live terminals as herdr agents, the shape
+// the awaiting detector polls. Status rides the terminal's own OSC
+// 7501 report, so hc blocks surface here without any regex.
+func (d *Driver) Agents(_ context.Context) ([]herdr.Agent, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	agents := make([]herdr.Agent, 0, len(d.byPath))
+	for path, addr := range d.byPath {
+		t := d.byAddr[addr]
+		st := ""
+		if t.Status != nil {
+			st = t.Status.State
+		}
+		agents = append(agents, herdr.Agent{
+			Name:          t.Title,
+			AgentStatus:   st,
+			PaneID:        addr,
+			TerminalTitle: t.Title,
+			Session:       &herdr.AgentSessionRef{Kind: "path", Value: path},
+		})
+	}
+	return agents, nil
+}
+
+// PaneRead maps hc's screen read onto herdr's read shape so the
+// detector and dialog parse run unchanged over both drivers. hc
+// headless terminals run 200x120, double the line budget the herdr
+// detection source needs.
+func (d *Driver) PaneRead(ctx context.Context, addr, _ string, lines int) (herdr.PaneRead, error) {
+	if lines < 30 {
+		lines = 30
+	}
+	res, err := d.c.Read(ctx, addr, lines*2)
+	if err != nil {
+		return herdr.PaneRead{}, err
+	}
+	return herdr.PaneRead{PaneID: addr, Text: res.Text}, nil
+}
+
+// ReadScreen returns the terminal's current screen text for the dialog
+// answer path's verify re-reads.
+func (d *Driver) ReadScreen(ctx context.Context, addr string, lines int) (string, error) {
+	res, err := d.c.Read(ctx, addr, lines)
+	if err != nil {
+		return "", err
+	}
+	return res.Text, nil
+}
+
+// PressKeys presses named keys on the terminal (enter, esc, down, ...).
+func (d *Driver) PressKeys(ctx context.Context, addr string, keys []string) error {
+	return d.c.Keys(ctx, addr, keys)
+}
+
+// TypeText pastes text and Enter in one step, forcing through a
+// blocked status: the answer path has already verified the dialog is
+// the one the request targeted.
+func (d *Driver) TypeText(ctx context.Context, addr, text string) error {
+	_, err := d.c.Send(ctx, addr, text, SendParams{Force: true})
+	return err
+}
+
 // reported waits until the terminal has filed its first status report
 // (bounded), so a Prompt never lands in the first-paint composer.
 func (d *Driver) reported(addr string) {

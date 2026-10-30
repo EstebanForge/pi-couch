@@ -385,3 +385,48 @@ func TestDriverCloseSkipsTheKillWhenPiExits(t *testing.T) {
 		t.Fatalf("rm calls = %d, want 1", n)
 	}
 }
+
+func TestDriverServesThePaneSource(t *testing.T) {
+	d, _, _ := startDriverReply(t, func(method string, params json.RawMessage) (any, *Error) {
+		if method == "events.subscribe" {
+			return map[string]any{"seq": 1, "terminals": []map[string]any{
+				record("t1", "/home/me/.pi/sessions/a.jsonl", "live", "working"),
+				record("t2", "", "live", "done"),
+			}}, nil
+		}
+		if method == "terminal.read" {
+			return map[string]any{"text": "screen text\n", "complete": true, "how": "screen"}, nil
+		}
+		return map[string]any{}, nil
+	})
+	waitFor(t, func() bool {
+		_, err := d.TargetForPath(context.Background(), "/home/me/.pi/sessions/a.jsonl")
+		return err == nil
+	})
+
+	agents, err := d.Agents(context.Background())
+	if err != nil {
+		t.Fatalf("agents: %v", err)
+	}
+	if len(agents) != 1 {
+		t.Fatalf("agents = %d, want the one labeled session", len(agents))
+	}
+	a := agents[0]
+	if a.Session == nil || a.Session.Value != "/home/me/.pi/sessions/a.jsonl" {
+		t.Fatalf("session = %+v, want a.jsonl", a.Session)
+	}
+	if a.PaneID != "t1" {
+		t.Fatalf("pane = %q, want t1", a.PaneID)
+	}
+	if a.AgentStatus != "working" {
+		t.Fatalf("status = %q, want working", a.AgentStatus)
+	}
+
+	pr, err := d.PaneRead(context.Background(), "t1", "detection", 30)
+	if err != nil {
+		t.Fatalf("pane read: %v", err)
+	}
+	if pr.PaneID != "t1" || pr.Text != "screen text\n" {
+		t.Fatalf("read = %q / %q, want t1 / screen text", pr.PaneID, pr.Text)
+	}
+}
