@@ -120,6 +120,53 @@ func TestLoadParsesToken(t *testing.T) {
 	}
 }
 
+func TestDriverParsesHCAndSocket(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "pi-couch")
+	if err := os.MkdirAll(sub, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(sub, "config.toml")
+	body := "driver = \"hc\"\nhc_socket = \"/tmp/x.sock\"\n"
+	if err := os.WriteFile(file, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Driver != "hc" || cfg.HCSocket != "/tmp/x.sock" {
+		t.Fatalf("cfg %+v", cfg)
+	}
+}
+
+func TestDriverDefaultsToHerdr(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "absent"))
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Driver != "herdr" {
+		t.Fatalf("driver %q", cfg.Driver)
+	}
+}
+
+func TestDriverJunkFailsLoud(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "pi-couch")
+	if err := os.MkdirAll(sub, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "config.toml"), []byte("driver = \"tmux\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	if _, err := Load(); err == nil {
+		t.Fatal("want error for unknown driver")
+	}
+}
+
 func TestLoadEnvTokenWins(t *testing.T) {
 	dir := t.TempDir()
 	sub := filepath.Join(dir, "pi-couch")

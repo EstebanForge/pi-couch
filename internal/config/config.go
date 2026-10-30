@@ -42,6 +42,13 @@ type Config struct {
 	// Check GitHub for a newer release once a day and self-update the
 	// running binary. True by default; set false to pin a version.
 	AutoUpdate bool `toml:"auto_update"`
+	// Which engine drives pi sessions: herdr (protocol 22) or hc
+	// (herdr-core, ADR-0008). Exactly one runs at a time; herdr stays
+	// the default until hc reaches parity.
+	Driver string `toml:"driver"`
+	// Override the hc socket path. Empty uses HC_SOCKET, else
+	// $XDG_RUNTIME_DIR/herdr-core/<HC_SESSION|default>.sock, like hc itself.
+	HCSocket string `toml:"hc_socket"`
 }
 
 // Defaults returns the config used when the file is absent or a key is
@@ -53,6 +60,7 @@ func Defaults() Config {
 		MemoryURL:    "http://localhost:3111",
 		EnforceToken: true,
 		AutoUpdate:   true,
+		Driver:       "herdr",
 	}
 }
 
@@ -84,6 +92,9 @@ func Load() (Config, error) {
 			cfg.SessionsDir = defaultSessions()
 		}
 		cfg.AccessToken = cmp.Or(os.Getenv("PICOUCH_ACCESS_TOKEN"), cfg.AccessToken)
+		if cfg.Driver != "herdr" && cfg.Driver != "hc" {
+			return Defaults(), fmt.Errorf("%s: unknown driver %q (want herdr or hc)", path, cfg.Driver)
+		}
 		return cfg, nil
 	}
 	if err != nil {
@@ -96,6 +107,9 @@ func Load() (Config, error) {
 		cfg.SessionsDir = defaultSessions()
 	}
 	cfg.AccessToken = cmp.Or(os.Getenv("PICOUCH_ACCESS_TOKEN"), cfg.AccessToken)
+	if cfg.Driver != "herdr" && cfg.Driver != "hc" {
+		return Defaults(), fmt.Errorf("%s: unknown driver %q (want herdr or hc)", path, cfg.Driver)
+	}
 	return cfg, nil
 }
 
