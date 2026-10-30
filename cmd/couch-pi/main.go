@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/EstebanForge/couch-pi/internal/config"
+	"github.com/EstebanForge/couch-pi/internal/hc"
 	"github.com/EstebanForge/couch-pi/internal/herdr"
 	"github.com/EstebanForge/couch-pi/internal/pi"
 	"github.com/EstebanForge/couch-pi/internal/push"
@@ -86,7 +87,7 @@ func main() {
 		watcher = nil
 	}
 
-	hc := herdr.New()
+	hr := herdr.New()
 
 	st, err := store.New()
 	if err != nil {
@@ -108,10 +109,27 @@ func main() {
 		TTL:        3600,
 		Timeout:    10 * time.Second,
 	}
-	onEvent := notifyFunc(logger, idx, st, pusher)
-	go (&push.Watcher{HC: hc, Reconcile: 15 * time.Second, Stability: 2 * time.Second, WaitMax: 15 * time.Minute, Rearm: 5 * time.Second, OnEvent: onEvent, Log: logger}).Run(ctx)
 
-	if err := server.Run(ctx, logger, &cfg, idx, hc, watcher, st, pusher); err != nil {
+	// hc driver (ADR-0008): the status quad comes from the hc session
+	// map and the push watcher waits for the events wave; herdr stays
+	// the default and keeps both.
+	var status server.StatusReader
+	if cfg.Driver == "hc" {
+		var hcc *hc.Client
+		if cfg.HCSocket != "" {
+			hcc = hc.NewAt(cfg.HCSocket)
+		} else {
+			hcc = hc.New()
+		}
+		drv := hc.NewDriver(hcc)
+		go drv.Run(ctx)
+		status = drv
+	} else {
+		onEvent := notifyFunc(logger, idx, st, pusher)
+		go (&push.Watcher{HC: hr, Reconcile: 15 * time.Second, Stability: 2 * time.Second, WaitMax: 15 * time.Minute, Rearm: 5 * time.Second, OnEvent: onEvent, Log: logger}).Run(ctx)
+	}
+
+	if err := server.Run(ctx, logger, &cfg, idx, hr, status, watcher, st, pusher); err != nil {
 		logger.Error("server exited", "err", err)
 		os.Exit(1)
 	}

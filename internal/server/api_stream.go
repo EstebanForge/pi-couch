@@ -299,7 +299,7 @@ func (a *app) apiStreamTranscript(w http.ResponseWriter, r *http.Request) {
 		}
 		cur := itemFps(items)
 		mem := a.memory.class(r.Context())
-		badges := a.herdr.Badges(r.Context())
+		badges := a.statusFor().Badges(r.Context())
 		st := badges[meta.Path]
 		awaiting := a.awaiting.isAwaiting(meta.Path)
 		queue := a.awaiting.queued(meta.Path)
@@ -492,7 +492,7 @@ func (a *app) stopAgent(key string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	target, err := a.herdr.TargetForPath(ctx, meta.Path)
+	target, err := a.statusFor().TargetForPath(ctx, meta.Path)
 	if err != nil {
 		return herdr.ErrNotDriven
 	}
@@ -512,7 +512,7 @@ func (a *app) closeWorkspace(key string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	paneID, err := a.herdr.TargetForPath(ctx, meta.Path)
+	paneID, err := a.statusFor().TargetForPath(ctx, meta.Path)
 	if err != nil {
 		return herdr.ErrNotDriven
 	}
@@ -541,12 +541,18 @@ var errNotFound = errors.New("session not found")
 var errClientGone = errors.New("client gone")
 
 func (a *app) apiStop(w http.ResponseWriter, r *http.Request) {
+	if !a.requireHerdr(w) {
+		return
+	}
 	a.writeOutcome(w, a.stopAgent(r.PathValue("key")))
 }
 
 // apiPrompt is the JSON twin of the templ steerPrompt: fetch cannot
 // read the 303 redirects, so the outcome is in-band.
 func (a *app) apiPrompt(w http.ResponseWriter, r *http.Request) {
+	if !a.requireHerdr(w) {
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var in struct {
 		Text     string `json:"text"`
@@ -582,6 +588,9 @@ func (a *app) apiPrompt(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) apiClose(w http.ResponseWriter, r *http.Request) {
+	if !a.requireHerdr(w) {
+		return
+	}
 	a.writeOutcome(w, a.closeWorkspace(r.PathValue("key")))
 }
 

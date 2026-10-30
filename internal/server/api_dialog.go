@@ -34,6 +34,9 @@ func (s *statusWriter) WriteHeader(code int) {
 }
 
 func (a *app) apiDialogAnswer(w http.ResponseWriter, r *http.Request) {
+	if !a.requireHerdr(w) {
+		return
+	}
 	key := r.PathValue("key")
 	var req struct {
 		ID     string `json:"id"`
@@ -118,7 +121,7 @@ func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, tex
 		}
 		return paneParseID(path, p) == expectID
 	}
-	paneID, err := a.herdr.TargetForPath(ctx, path)
+	paneID, err := a.statusFor().TargetForPath(ctx, path)
 	if err != nil {
 		a.logger.Warn("dialog answer refused", "cause", "target unresolved", "session", path, "err", err.Error())
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})

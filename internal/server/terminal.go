@@ -10,6 +10,9 @@ import (
 )
 
 func (a *app) streamTerminal(w http.ResponseWriter, r *http.Request) {
+	if !a.requireHerdr(w) {
+		return
+	}
 	key := r.PathValue("key")
 	meta, ok := a.idx.Meta(key)
 	if !ok {
@@ -21,7 +24,7 @@ func (a *app) streamTerminal(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 
 	ctx := r.Context()
-	target, err := a.herdr.TargetForPath(ctx, meta.Path)
+	target, err := a.statusFor().TargetForPath(ctx, meta.Path)
 	if err != nil {
 		writeSSE(w, "gone", "{}")
 		flusher.Flush()
@@ -140,6 +143,9 @@ func writeSSE(w http.ResponseWriter, event, data string) bool {
 
 // terminalInput forwards wheel input: text runs, or named keys.
 func (a *app) terminalInput(w http.ResponseWriter, r *http.Request) {
+	if !a.requireHerdr(w) {
+		return
+	}
 	key := r.PathValue("key")
 	meta, ok := a.idx.Meta(key)
 	if !ok {
@@ -157,7 +163,7 @@ func (a *app) terminalInput(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
-	target, err := a.herdr.TargetForPath(ctx, meta.Path)
+	target, err := a.statusFor().TargetForPath(ctx, meta.Path)
 	if err != nil {
 		http.Error(w, "no driver", http.StatusConflict)
 		return

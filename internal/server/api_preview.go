@@ -54,7 +54,7 @@ func (a *app) apiSessionPreview(w http.ResponseWriter, r *http.Request) {
 	for i, j := 0, len(lines)-1; i < j; i, j = i+1, j-1 {
 		lines[i], lines[j] = lines[j], lines[i]
 	}
-	badges, _ := a.herdr.DriveStatus(r.Context())
+	badges, _ := a.statusFor().DriveStatus(r.Context())
 	status := badges[meta.Path]
 	if status == "" {
 		status = "unknown"

@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/EstebanForge/couch-pi/internal/config"
+	"github.com/EstebanForge/couch-pi/internal/hc"
 	"github.com/EstebanForge/couch-pi/internal/herdr"
 	"github.com/EstebanForge/couch-pi/internal/pi"
 	"github.com/EstebanForge/couch-pi/internal/push"
@@ -45,7 +46,8 @@ type app struct {
 	logger        *slog.Logger
 	idx           *pi.Index
 	herdr         *herdr.Client
-	watcher       *pi.Watcher // nil: heartbeat-only updates
+	status        StatusReader // the active status surface; nil falls back to herdr
+	watcher       *pi.Watcher  // nil: heartbeat-only updates
 	st            *store.Store
 	pusher        *push.Sender
 	vapidPublic   string
@@ -67,17 +69,53 @@ type app struct {
 	quotas        *quotas.Service            // provider quotas & limits tracker
 }
 
-func Run(ctx context.Context, logger *slog.Logger, cfg *config.Config, idx *pi.Index, hc *herdr.Client, w *pi.Watcher, st *store.Store, pusher *push.Sender) error {
+var _ StatusReader = (*hc.Driver)(nil)
+
+// StatusReader is the per-tick status surface both drivers serve
+// (ADR-0008): herdr.Client satisfies it with socket dials, hc.Driver
+// from its label map without dials.
+type StatusReader interface {
+	Badges(ctx context.Context) map[string]string
+	Driven(ctx context.Context) map[string]herdr.DrivenInfo
+	DriveStatus(ctx context.Context) (map[string]string, map[string]herdr.DrivenInfo)
+	TargetForPath(ctx context.Context, path string) (string, error)
+}
+
+func (a *app) statusFor() StatusReader {
+	if a.status != nil {
+		return a.status
+	}
+	return a.herdr
+}
+
+// requireHerdr gates the herdr-only surfaces while the hc waves land:
+// the hc state is herdr==nil with an explicit status driver wired.
+// Literals with neither (tests) keep exercising the herdr paths.
+func (a *app) requireHerdr(w http.ResponseWriter) bool {
+	if a.herdr != nil || a.status == nil {
+		return true
+	}
+	writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "unsupported-driver"})
+	return false
+}
+
+func Run(ctx context.Context, logger *slog.Logger, cfg *config.Config, idx *pi.Index, hc *herdr.Client, status StatusReader, w *pi.Watcher, st *store.Store, pusher *push.Sender) error {
 	home, _ := os.UserHomeDir()
-	a := &app{logger: logger, idx: idx, herdr: hc, watcher: w, st: st, pusher: pusher, allowedOrigin: cfg.Origin, accessToken: cfg.AccessToken, uploadDir: cfg.UploadsDir, home: home, answered: newDialogMemos(), models: newModelsCache(filepath.Join(st.Dir(), "models.json")), memory: newMemoryProbe(cfg.MemoryURL, cfg.MemorySecret), dialogLatch: map[string]*dialogWire{}, observes: newObserveHub(hc.SocketPath()), quotas: quotas.NewService()}
+	if status == nil {
+		status = hc
+	}
+	a := &app{logger: logger, idx: idx, herdr: hc, status: status, watcher: w, st: st, pusher: pusher, allowedOrigin: cfg.Origin, accessToken: cfg.AccessToken, uploadDir: cfg.UploadsDir, home: home, answered: newDialogMemos(), models: newModelsCache(filepath.Join(st.Dir(), "models.json")), memory: newMemoryProbe(cfg.MemoryURL, cfg.MemorySecret), dialogLatch: map[string]*dialogWire{}, quotas: quotas.NewService()}
+	if hc != nil {
+		// Pane watching and terminal mirroring stay herdr-only until
+		// their hc waves land.
+		a.observes = newObserveHub(hc.SocketPath())
+		a.awaiting = newAwaitingDetector(hc, time.Second)
+		a.awaiting.onChange = a.wakeDialog
+		go a.awaiting.run(ctx)
+	}
 	if pusher != nil {
 		a.vapidPublic = pusher.Public
 	}
-	// Dialog awareness: poll working panes for pi-tui chrome and expose
-	// per-session "waiting for input" state on the wire.
-	a.awaiting = newAwaitingDetector(hc, time.Second)
-	a.awaiting.onChange = a.wakeDialog
-	go a.awaiting.run(ctx)
 	srv := &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           a.guard(a.auth(a.routes())),
@@ -318,7 +356,7 @@ func (a *app) snapshot(r *http.Request) ([]pi.SessionMeta, map[string]string, ma
 		a.logger.Error("session list", "err", err)
 		sessions = nil
 	}
-	badges, driven := a.herdr.DriveStatus(r.Context())
+	badges, driven := a.statusFor().DriveStatus(r.Context())
 	return sessions, badges, driven, a.awaiting.snapshot()
 }
 
@@ -335,7 +373,7 @@ func (a *app) promptAgent(key, text string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	target, err := a.herdr.TargetForPath(ctx, meta.Path)
+	target, err := a.statusFor().TargetForPath(ctx, meta.Path)
 	if err != nil {
 		return herdr.ErrNotDriven
 	}

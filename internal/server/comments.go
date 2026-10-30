@@ -29,6 +29,9 @@ type sendAllInput struct {
 // herdr prompt, and only then records it as sent. A failed or undriven
 // send persists nothing, so the device tray stays the source of truth.
 func (a *app) apiSendAll(w http.ResponseWriter, r *http.Request) {
+	if !a.requireHerdr(w) {
+		return
+	}
 	key := r.PathValue("key")
 	meta, ok := a.idx.Meta(key)
 	if !ok {
@@ -59,7 +62,7 @@ func (a *app) apiSendAll(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
-	target, err := a.herdr.TargetForPath(ctx, meta.Path)
+	target, err := a.statusFor().TargetForPath(ctx, meta.Path)
 	if err != nil {
 		if errors.Is(err, herdr.ErrNotDriven) {
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "notdriven"})

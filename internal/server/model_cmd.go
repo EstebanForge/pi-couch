@@ -38,6 +38,9 @@ var (
 // apiModel and apiThinking are the JSON twins of modelSet/thinkingSet:
 // fetch cannot read their 303 redirects, so outcomes are in-band.
 func (a *app) apiModel(w http.ResponseWriter, r *http.Request) {
+	if !a.requireHerdr(w) {
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
 	var in struct {
 		Pattern string `json:"pattern"`
@@ -50,6 +53,9 @@ func (a *app) apiModel(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) apiThinking(w http.ResponseWriter, r *http.Request) {
+	if !a.requireHerdr(w) {
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<10)
 	var in struct {
 		Level string `json:"level"`
@@ -88,7 +94,7 @@ func (a *app) modelAgent(key, pattern string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	target, err := a.herdr.TargetForPath(ctx, meta.Path)
+	target, err := a.statusFor().TargetForPath(ctx, meta.Path)
 	if err != nil {
 		return herdr.ErrNotDriven
 	}
@@ -128,7 +134,7 @@ func (a *app) thinkingAgent(key, level string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	target, err := a.herdr.TargetForPath(ctx, meta.Path)
+	target, err := a.statusFor().TargetForPath(ctx, meta.Path)
 	if err != nil {
 		return herdr.ErrNotDriven
 	}

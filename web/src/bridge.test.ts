@@ -45,8 +45,9 @@ async function fakeCore() {
 		let buf = "";
 		socket.on("data", (chunk: Buffer) => {
 			buf += chunk.toString();
-			let i: number;
-			while ((i = buf.indexOf("\n")) >= 0) {
+			for (;;) {
+				const i = buf.indexOf("\n");
+				if (i < 0) break;
 				const line = buf.slice(0, i);
 				buf = buf.slice(i + 1);
 				lines.push(line);
@@ -71,7 +72,13 @@ async function fakeCore() {
 async function labelRequests(core: Awaited<ReturnType<typeof fakeCore>>) {
 	return vi.waitFor(() => {
 		expect(core.lines.length).toBeGreaterThan(0);
-		return core.lines.map((l) => JSON.parse(l) as { method: string; params: { terminal: string; labels: Record<string, string> } });
+		return core.lines.map(
+			(l) =>
+				JSON.parse(l) as {
+					method: string;
+					params: { terminal: string; labels: Record<string, string> };
+				},
+		);
 	});
 }
 
@@ -230,10 +237,14 @@ describe("couch-pi bridge extension", () => {
 			const { pi, fire } = fakePi();
 			factory(pi);
 			fire("session_start", {}, sessionCtx);
-			fire("session_start", {}, {
-				mode: "tui",
-				sessionManager: { getSessionFile: () => "/home/me/.pi/sessions/other.jsonl" },
-			});
+			fire(
+				"session_start",
+				{},
+				{
+					mode: "tui",
+					sessionManager: { getSessionFile: () => "/home/me/.pi/sessions/other.jsonl" },
+				},
+			);
 
 			const reqs = await labelRequests(core);
 			expect(reqs).toHaveLength(2);

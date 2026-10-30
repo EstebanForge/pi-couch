@@ -41,7 +41,10 @@ describe("couch-pi bridge: unreachable hc socket", () => {
 		vi.stubEnv("HERDR_PANE_ID", "");
 		vi.stubEnv("HC_TERMINAL_ID", "t9");
 		vi.stubEnv("HC_TERMINAL_SOCKET", join(mkdtempSync(join(tmpdir(), "hc-none-")), "absent.sock"));
-		vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, status: 200 })));
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => ({ ok: true, status: 200 })),
+		);
 		vi.resetModules();
 		const mod = await import("../../extensions/couch-pi-bridge");
 		const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});

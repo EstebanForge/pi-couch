@@ -19,6 +19,10 @@ type fakeCore struct {
 	requests []request
 	// handler answers method calls; nil means {} with no error.
 	handler func(method string, params json.RawMessage) (any, *Error)
+	// afterReply receives the raw connection after the reply is
+	// written; returning true holds the connection open (events
+	// subscriptions) until the client or test closes it.
+	afterReply func(conn net.Conn, method string) bool
 }
 
 type request struct {
@@ -85,6 +89,13 @@ func (f *fakeCore) handle(conn net.Conn) {
 		return
 	}
 	_, _ = conn.Write(append(out, '\n'))
+	f.mu.Lock()
+	after := f.afterReply
+	f.mu.Unlock()
+	if after != nil && after(conn, req.Method) {
+		// Hold the connection: reads drain client closes.
+		_, _ = bufio.NewReader(conn).ReadString('\n')
+	}
 }
 
 // seen returns the requests served for method, parsed.

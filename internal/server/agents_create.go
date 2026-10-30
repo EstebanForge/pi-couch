@@ -115,6 +115,9 @@ func waitAgentActive(ctx context.Context, hc *herdr.Client, paneID string) error
 // existing workspace), label (reuse the labeled workspace or create
 // it at cwd — the Quick flow).
 func (a *app) apiAgents(w http.ResponseWriter, r *http.Request) {
+	if !a.requireHerdr(w) {
+		return
+	}
 	var req struct {
 		Cwd         string `json:"cwd"`
 		WorkspaceID string `json:"workspace_id"`
@@ -247,6 +250,9 @@ func (a *app) homeDir(raw string) (string, error) {
 // apiWorkspaces lists herdr workspaces for the new-agent sheet. An
 // action surface fails loudly, unlike the passive home badges.
 func (a *app) apiWorkspaces(w http.ResponseWriter, r *http.Request) {
+	if !a.requireHerdr(w) {
+		return
+	}
 	ws, err := a.herdr.Workspaces(r.Context())
 	if err != nil {
 		a.logger.Error("workspace list failed", slog.String("error", err.Error()))
@@ -351,6 +357,9 @@ func (a *app) resumeSession(ctx context.Context, label, cwd, path, text string) 
 // rides along as the first prompt. The jsonl already exists, so the
 // answer needs no session discovery — the requested key is the key.
 func (a *app) apiSessionResume(w http.ResponseWriter, r *http.Request) {
+	if !a.requireHerdr(w) {
+		return
+	}
 	key := r.PathValue("key")
 	var req struct {
 		Text string `json:"text"`
@@ -366,7 +375,7 @@ func (a *app) apiSessionResume(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), agentCreateTimeout)
 	defer cancel()
-	if _, err := a.herdr.TargetForPath(ctx, meta.Path); err == nil {
+	if _, err := a.statusFor().TargetForPath(ctx, meta.Path); err == nil {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "running"})
 		return
 	}
