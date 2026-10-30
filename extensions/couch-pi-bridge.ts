@@ -167,7 +167,9 @@ export default function couchPiBridge(pi: ExtensionAPI) {
 		// ui_prompt_end must not mute every later dialog in the pane
 		depth = 0;
 		dialogID = undefined;
-		if (underHC) {
+		// A non-TUI child inherits HC_TERMINAL_*: it must not steal
+		// the parent's session label.
+		if (underHC && tui) {
 			labelTerminal(sessionPath);
 		}
 	});

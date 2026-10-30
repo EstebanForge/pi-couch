@@ -49,6 +49,9 @@ func (d *Driver) Run(ctx context.Context) {
 		if err == nil {
 			d.reseed(stream.Terminals)
 			d.consume(ctx, stream)
+			// The stream is gone: stale badges and dead addresses must
+			// not keep answering while the core is unreachable.
+			d.reseed(nil)
 		} else if ctx.Err() != nil {
 			return
 		}

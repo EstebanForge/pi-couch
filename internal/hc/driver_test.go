@@ -202,6 +202,11 @@ func TestDriverResubscribesAfterStreamLoss(t *testing.T) {
 
 	// The core dies under us and comes back with the terminal moved.
 	(<-conns).Close()
+	// While the core is unreachable the map must not answer stale.
+	waitFor(t, func() bool {
+		_, err := d.TargetForPath(context.Background(), "/home/me/.pi/sessions/a.jsonl")
+		return err != nil
+	})
 	mu.Lock()
 	snap = []map[string]any{
 		record("t1", "/home/me/.pi/sessions/moved.jsonl", "live", "working"),

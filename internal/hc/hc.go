@@ -394,6 +394,12 @@ func (c *Client) Subscribe(ctx context.Context) (*EventStream, error) {
 		_ = conn.Close()
 		return nil, err
 	}
+	// The handshake is bounded; the stream itself must not be.
+	if err := conn.SetDeadline(time.Now().Add(c.timeout)); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	defer func() { _ = conn.SetDeadline(time.Time{}) }()
 	if _, err := conn.Write(append(req, '\n')); err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("hc: write: %w", err)

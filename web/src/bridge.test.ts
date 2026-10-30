@@ -229,6 +229,19 @@ describe("couch-pi bridge extension", () => {
 			core.close();
 		});
 
+		it("never labels a non-tui child over its parent session", async () => {
+			const core = await fakeCore();
+			vi.stubEnv("HC_TERMINAL_ID", "t9");
+			vi.stubEnv("HC_TERMINAL_SOCKET", core.path);
+			const factory = await loadFactory();
+			const { pi, fire } = fakePi();
+			factory(pi);
+			fire("session_start", {}, { ...sessionCtx, mode: "print" });
+			await new Promise((r) => setTimeout(r, 50));
+			expect(core.lines).toHaveLength(0);
+			core.close();
+		});
+
 		it("relabels when a new session owns the terminal", async () => {
 			const core = await fakeCore();
 			vi.stubEnv("HC_TERMINAL_ID", "t9");

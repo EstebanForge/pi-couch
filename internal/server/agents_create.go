@@ -23,6 +23,18 @@ import (
 
 const agentCreateTimeout = 20 * time.Second
 
+// hc spawns need more runway: terminal.run, the first status report,
+// and the send pipeline's quiet/settle windows stack well past 20s.
+const agentCreateTimeoutHC = 45 * time.Second
+
+// createBudget is the create/resume deadline for the active driver.
+func (a *app) createBudget() time.Duration {
+	if a.hcDrv != nil {
+		return agentCreateTimeoutHC
+	}
+	return agentCreateTimeout
+}
+
 // herdrRetry rides out herdr's transient socket stalls: under load
 // the unix socket intermittently answers dial timeouts while the
 // process is fine moments later, and one timeout must not abort a
@@ -153,7 +165,7 @@ func (a *app) apiAgents(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "exactly one of cwd, workspace_id, or label with cwd"})
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), agentCreateTimeout)
+	ctx, cancel := context.WithTimeout(r.Context(), a.createBudget())
 	defer cancel()
 	var key, name string
 	homeErr := false
@@ -387,7 +399,7 @@ func (a *app) apiSessionResume(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "notfound"})
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), agentCreateTimeout)
+	ctx, cancel := context.WithTimeout(r.Context(), a.createBudget())
 	defer cancel()
 	if _, err := a.statusFor().TargetForPath(ctx, meta.Path); err == nil {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "running"})
@@ -574,7 +586,7 @@ func (a *app) sessionAppeared(ctx context.Context, paneID string, d time.Duratio
 // agent once it exists. Poll rather than guessing the munged sessions
 // dir.
 func (a *app) sessionKeyForPane(ctx context.Context, paneID string, undo func()) (string, error) {
-	deadline := time.Now().Add(agentCreateTimeout - 5*time.Second)
+	deadline := time.Now().Add(a.createBudget() - 5*time.Second)
 	for {
 		agents, err := a.herdr.Agents(ctx)
 		if err == nil {
@@ -685,7 +697,7 @@ func (a *app) sessionAppearedHC(ctx context.Context, addr string, d time.Duratio
 // sessionKeyForAddrHC waits for the spawned pi's session file and
 // returns the phone's key for it.
 func (a *app) sessionKeyForAddrHC(ctx context.Context, addr string, undo func()) (string, error) {
-	deadline := time.Now().Add(agentCreateTimeout - 5*time.Second)
+	deadline := time.Now().Add(a.createBudget() - 5*time.Second)
 	for {
 		if p, ok := a.hcDrv.SessionLabel(addr); ok {
 			if _, err := os.Stat(p); err == nil {
