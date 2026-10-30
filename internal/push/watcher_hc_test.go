@@ -292,3 +292,18 @@ func waitForReconnect(t *testing.T, f *hcWatchFake, want int) {
 	f.mu.Unlock()
 	t.Fatalf("subscribe conns = %d, want %d", n, want)
 }
+
+// Production wires the watcher as a struct literal (main.go), not the
+// constructor. Run must still be safe: no nil-map panic, no dial spin.
+func TestHCWatcherStructLiteralIsSafe(t *testing.T) {
+	f := startHCWatchFake(t, map[string]string{"t1": "/x/s1.jsonl"}, func() []map[string]any {
+		return []map[string]any{recordSnapshot("t1", "/x/s1.jsonl", "working")}
+	})
+	pushes := &[]Event{}
+	w := &HCWatcher{Client: hc.NewAt(f.sock), OnEvent: func(e Event) { *pushes = append(*pushes, e) }}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go w.Run(ctx)
+	f.notify("turn", "t1", map[string]any{"turn": 1, "state": "done"})
+	waitForPush(t, pushes, 1)
+}

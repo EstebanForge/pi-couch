@@ -104,6 +104,11 @@ var _ CommandDriver = (*hc.Driver)(nil)
 // cmdFor returns the command surface: herdr when wired, else the hc
 // driver. Nil means no driver can take commands.
 func (a *app) cmdFor() CommandDriver {
+	// hc wins even when a herdr client is also non-nil: an hc address
+	// must never reach the herdr socket.
+	if a.hcDrv != nil {
+		return a.hcDrv
+	}
 	if a.herdr != nil {
 		return a.herdr
 	}

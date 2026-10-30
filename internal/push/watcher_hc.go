@@ -41,6 +41,14 @@ func NewHCWatcher(c *hc.Client) *HCWatcher {
 // dedupe state without buzzing: old news must not replay after a
 // reconnect.
 func (w *HCWatcher) Run(ctx context.Context) {
+	// main wires this as a struct literal: never trust the constructor
+	// to have run.
+	if w.seen == nil {
+		w.seen = map[string]hcSeen{}
+	}
+	if w.Retry <= 0 {
+		w.Retry = time.Second
+	}
 	for ctx.Err() == nil {
 		stream, err := w.Client.Subscribe(ctx)
 		if err != nil {

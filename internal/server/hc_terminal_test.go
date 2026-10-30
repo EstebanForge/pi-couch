@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/EstebanForge/couch-pi/internal/hc"
+	"github.com/EstebanForge/couch-pi/internal/herdr"
 	"github.com/EstebanForge/couch-pi/internal/pi"
 )
 
@@ -303,8 +304,30 @@ func TestHCTerminalInputSendsKeysAndRefusesRawText(t *testing.T) {
 	}
 }
 
+func (f *hcStreamFake) sendParams() []map[string]any {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]map[string]any(nil), f.sends...)
+}
+
 func (f *hcStreamFake) keyLog() [][]string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([][]string(nil), f.keys...)
+}
+
+// Regression for the main.go wiring bug: even if a herdr client is
+// non-nil under hc, commands must route to the hc driver, never to
+// the herdr socket with an hc address.
+func TestHCCommandsNeverDialHerdr(t *testing.T) {
+	a, f := hcStreamApp(t)
+	a.herdr = herdr.New() // live default socket; a dial here fails the test
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/s1/prompt", strings.NewReader(`{"text":"hi"}`))
+	req.SetPathValue("key", "s1")
+	w := httptest.NewRecorder()
+	a.apiPrompt(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("prompt: code=%d body=%s", w.Code, w.Body.String())
+	}
+	waitForServer(t, func() bool { return len(f.sendParams()) == 1 })
 }

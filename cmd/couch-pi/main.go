@@ -125,7 +125,12 @@ func main() {
 		go drv.Run(ctx)
 		status = drv
 		// One events connection replaces the per-agent waits (ADR-0008).
-		go (&push.HCWatcher{Client: hcc, OnEvent: notifyFunc(logger, idx, st, pusher), Log: logger}).Run(ctx)
+		hcw := push.NewHCWatcher(hcc)
+		hcw.OnEvent = notifyFunc(logger, idx, st, pusher)
+		hcw.Log = logger
+		go hcw.Run(ctx)
+		// Commands must never dial the herdr socket with an hc address.
+		hr = nil
 	} else {
 		onEvent := notifyFunc(logger, idx, st, pusher)
 		go (&push.Watcher{HC: hr, Reconcile: 15 * time.Second, Stability: 2 * time.Second, WaitMax: 15 * time.Minute, Rearm: 5 * time.Second, OnEvent: onEvent, Log: logger}).Run(ctx)
