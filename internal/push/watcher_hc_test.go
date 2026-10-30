@@ -307,3 +307,28 @@ func TestHCWatcherStructLiteralIsSafe(t *testing.T) {
 	f.notify("turn", "t1", map[string]any{"turn": 1, "state": "done"})
 	waitForPush(t, pushes, 1)
 }
+
+func TestHCMissedResyncsWithoutBuzzing(t *testing.T) {
+	snap := []map[string]any{recordSnapshot("t1", "/x/a.jsonl", "done")}
+	f := startHCWatchFake(t, map[string]string{"t1": "/x/a.jsonl"}, func() []map[string]any { return snap })
+	pushes := startHCWatcher(t, f)
+	time.Sleep(150 * time.Millisecond)
+	if len(*pushes) != 0 {
+		t.Fatalf("pushes = %+v, want none from the seed snapshot", *pushes)
+	}
+
+	// A dropped backlog arrives as missed: the watcher must resubscribe
+	// and re-prime from the fresh snapshot, not replay the done.
+	f.mu.Lock()
+	subs := f.subs
+	f.subs = nil
+	f.mu.Unlock()
+	for _, c := range subs {
+		_, _ = c.Write([]byte(`{"jsonrpc":"2.0","method":"missed","params":{"seq":9,"terminals":[]}}` + "\n"))
+	}
+	waitForReconnect(t, f, 1)
+	time.Sleep(150 * time.Millisecond)
+	if len(*pushes) != 0 {
+		t.Fatalf("pushes = %+v, want none after a missed resync", *pushes)
+	}
+}

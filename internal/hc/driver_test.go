@@ -573,3 +573,56 @@ func TestDriverDiscardKillsThenRemoves(t *testing.T) {
 		t.Fatalf("discard calls = %v, want kill then rm", order)
 	}
 }
+
+// A subscriber that falls behind gets `missed` plus a fresh snapshot,
+// not a backlog. Treat it as a stream loss: resubscribe and reseed.
+func TestDriverReseedsOnMissed(t *testing.T) {
+	snap := []map[string]any{
+		record("t1", "/home/me/.pi/sessions/a.jsonl", "live", "working"),
+	}
+	mu := sync.Mutex{}
+	handler := func(method string, _ json.RawMessage) (any, *Error) {
+		if method == "events.subscribe" {
+			mu.Lock()
+			defer mu.Unlock()
+			return map[string]any{"seq": 1, "terminals": snap}, nil
+		}
+		return map[string]any{}, nil
+	}
+	conns := make(chan net.Conn, 4)
+	f := startFakeCore(t, handler)
+	f.afterReply = func(conn net.Conn, method string) bool {
+		if method == "events.subscribe" {
+			conns <- conn
+			return true
+		}
+		return false
+	}
+	d := NewDriver(NewAt(f.socket()))
+	d.retry = 20 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go d.Run(ctx)
+
+	waitFor(t, func() bool {
+		_, err := d.TargetForPath(context.Background(), "/home/me/.pi/sessions/a.jsonl")
+		return err == nil
+	})
+
+	// The core drops our backlog and offers a fresh snapshot instead.
+	mu.Lock()
+	snap = []map[string]any{
+		record("t1", "/home/me/.pi/sessions/moved.jsonl", "live", "working"),
+	}
+	mu.Unlock()
+	conn := <-conns
+	_, _ = conn.Write([]byte(`{"jsonrpc":"2.0","method":"missed","params":{"seq":9,"terminals":[]}}` + "\n"))
+
+	waitFor(t, func() bool {
+		addr, err := d.TargetForPath(context.Background(), "/home/me/.pi/sessions/moved.jsonl")
+		return err == nil && addr == "t1"
+	})
+	if _, err := d.TargetForPath(context.Background(), "/home/me/.pi/sessions/a.jsonl"); err == nil {
+		t.Fatal("stale path must drop after a missed resync")
+	}
+}

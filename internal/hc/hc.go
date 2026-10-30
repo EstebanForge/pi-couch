@@ -443,7 +443,15 @@ func (s *EventStream) read(reader *bufio.Reader) {
 				Event
 			} `json:"params"`
 		}
-		if json.Unmarshal(scanner.Bytes(), &note) != nil || note.Method != "event" {
+		if json.Unmarshal(scanner.Bytes(), &note) != nil {
+			continue
+		}
+		if note.Method == "missed" {
+			// The core dropped our backlog: the only safe resync is a
+			// fresh snapshot, so end the stream and let Run resubscribe.
+			return
+		}
+		if note.Method != "event" {
 			continue
 		}
 		select {
