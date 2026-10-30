@@ -507,7 +507,7 @@ func TestDriverSpawnRunsPiAndWaitsForTheFirstReport(t *testing.T) {
 }
 
 func TestDriverSpawnTimesOutWhenPiNeverReports(t *testing.T) {
-	d, _, conns := startDriverReply(t, func(method string, params json.RawMessage) (any, *Error) {
+	d, f, conns := startDriverReply(t, func(method string, params json.RawMessage) (any, *Error) {
 		if method == "events.subscribe" {
 			return map[string]any{"seq": 1, "terminals": []map[string]any{}}, nil
 		}
@@ -522,8 +522,16 @@ func TestDriverSpawnTimesOutWhenPiNeverReports(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("no held subscribe conn")
 	}
-	if _, err := d.Spawn(context.Background(), "/home/me", "pi-x", nil); err == nil {
+	rec, err := d.Spawn(context.Background(), "/home/me", "pi-x", nil)
+	if err == nil {
 		t.Fatal("spawn without a first report must fail")
+	}
+	if rec.Address != "" {
+		t.Fatalf("failed spawn returned live record %+v: callers must not have to clean up", rec)
+	}
+	// The failed spawn must not leak a live pi for the retry to shadow.
+	if len(f.seen("terminal.kill")) != 1 || len(f.seen("terminal.rm")) != 1 {
+		t.Fatalf("kill=%d rm=%d, want the failed spawn discarded", len(f.seen("terminal.kill")), len(f.seen("terminal.rm")))
 	}
 }
 

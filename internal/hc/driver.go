@@ -355,6 +355,14 @@ func (d *Driver) Spawn(ctx context.Context, dir, name string, argv []string) (Te
 		return t, err
 	}
 	deadline := time.Now().Add(d.spawnReadyWait)
+	fail := func(err error) (Terminal, error) {
+		// A failed spawn must not leak a live pi for a name retry to
+		// shadow. Clean up on a fresh context: the caller's may be done.
+		cctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		d.Discard(cctx, res.Address)
+		return Terminal{}, err
+	}
 	for {
 		d.mu.RLock()
 		rec, ok := d.byAddr[res.Address]
@@ -364,11 +372,11 @@ func (d *Driver) Spawn(ctx context.Context, dir, name string, argv []string) (Te
 			return res, nil
 		}
 		if time.Now().After(deadline) {
-			return res, errors.New("hc: pi never filed its first status report")
+			return fail(errors.New("hc: pi never filed its first status report"))
 		}
 		select {
 		case <-ctx.Done():
-			return res, ctx.Err()
+			return fail(ctx.Err())
 		case <-time.After(25 * time.Millisecond):
 		}
 	}
