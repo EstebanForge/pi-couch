@@ -15,6 +15,7 @@
 // Install: symlink this file into ~/.pi/agent/extensions/.
 
 import { readFileSync } from "node:fs";
+import { connect } from "node:net";
 
 declare const process: { env: Record<string, string | undefined> };
 declare const crypto: { randomUUID?: () => string };
@@ -41,6 +42,12 @@ interface ExtensionAPI {
 
 const HERDR_ENV = process.env.HERDR_ENV;
 const PANE_ID = process.env.HERDR_PANE_ID;
+// herdr-core (hc) presents itself through a different gate: the
+// terminal's id and socket ride the environment instead (ADR-0008).
+const HC_TERMINAL_ID = process.env.HC_TERMINAL_ID;
+const HC_TERMINAL_SOCKET = process.env.HC_TERMINAL_SOCKET;
+const underHerdr = HERDR_ENV === "1" && !!PANE_ID;
+const underHC = !!HC_TERMINAL_ID && !!HC_TERMINAL_SOCKET;
 // Couch Pi's loopback listener. Fire-and-forget: dialogs surface when
 // the server is up, and vanish by TTL when it is not.
 const COUCHPI_URL = process.env.COUCHPI_URL || "http://127.0.0.1:8090";
@@ -109,10 +116,43 @@ function dial(phase: "start" | "end", kind: string, title: string | undefined, s
 	}
 }
 
+let labelWarned = false;
+function warnLabel(): void {
+	if (labelWarned) return;
+	labelWarned = true;
+	console.error("couch-pi bridge: cannot reach the hc socket; the pi.session label stays stale until the next session start");
+}
+
+// Under hc the terminal finds its session by the pi.session label (the
+// pane-id scheme does not exist there), so every session_start
+// relabels, covering /new and /resume too.
+function labelTerminal(sessionPath: string | undefined): void {
+	if (!sessionPath || !HC_TERMINAL_SOCKET || !HC_TERMINAL_ID) return;
+	try {
+		const socket = connect(HC_TERMINAL_SOCKET);
+		const payload = `${JSON.stringify({
+			jsonrpc: "2.0",
+			id: 1,
+			method: "terminal.label",
+			params: { terminal: HC_TERMINAL_ID, labels: { "pi.session": sessionPath } },
+		})}\n`;
+		let buf = "";
+		socket.setTimeout(2000, () => socket.destroy());
+		socket.on("connect", () => socket.write(payload));
+		socket.on("data", (chunk: Buffer) => {
+			buf += chunk.toString();
+			if (buf.includes("\n")) socket.destroy();
+		});
+		socket.on("error", warnLabel);
+	} catch {
+		warnLabel();
+	}
+}
+
 export default function couchPiBridge(pi: ExtensionAPI) {
-	// Sensor only for herdr-driven TUI sessions: herdr's extension owns
+	// Sensor only for driver-run TUI sessions: herdr's extension owns
 	// the same gate, and dialogs never fire without a UI anyway.
-	if (HERDR_ENV !== "1" || !PANE_ID) {
+	if (!underHerdr && !underHC) {
 		return;
 	}
 	let tui = false;
@@ -127,6 +167,9 @@ export default function couchPiBridge(pi: ExtensionAPI) {
 		// ui_prompt_end must not mute every later dialog in the pane
 		depth = 0;
 		dialogID = undefined;
+		if (underHC) {
+			labelTerminal(sessionPath);
+		}
 	});
 	pi.on("ui_prompt_start", (event) => {
 		if (!tui) {
@@ -134,10 +177,14 @@ export default function couchPiBridge(pi: ExtensionAPI) {
 		}
 		depth += 1;
 		if (depth === 1) {
-			pi.events.emit("herdr:blocked", {
-				active: true,
-				label: event.title || event.kind,
-			});
+			// herdr's managed integration is the only herdr:blocked
+			// consumer; hc learns blocked from pi's own OSC 7501
+			if (underHerdr) {
+				pi.events.emit("herdr:blocked", {
+					active: true,
+					label: event.title || event.kind,
+				});
+			}
 			// pi enforces one dialog at a time, so the id belongs to the
 			// outermost prompt - the one the server's entry describes.
 			dialogID = newDialogID();
@@ -150,7 +197,9 @@ export default function couchPiBridge(pi: ExtensionAPI) {
 		}
 		depth -= 1;
 		if (depth === 0) {
-			pi.events.emit("herdr:blocked", { active: false });
+			if (underHerdr) {
+				pi.events.emit("herdr:blocked", { active: false });
+			}
 			dial("end", "", undefined, sessionPath, dialogID);
 			dialogID = undefined;
 		}

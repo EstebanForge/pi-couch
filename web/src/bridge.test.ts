@@ -1,4 +1,5 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import net from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -34,6 +35,45 @@ async function loadFactory() {
 }
 
 const startEvent = { type: "ui_prompt_start" as const, kind: "confirm" as const, title: "Commit?" };
+
+// A real unix-socket stand-in for the hc core, recording every JSON-RPC
+// line it receives.
+async function fakeCore() {
+	const path = join(mkdtempSync(join(tmpdir(), "hc-core-")), "core.sock");
+	const lines: string[] = [];
+	const server = net.createServer((socket) => {
+		let buf = "";
+		socket.on("data", (chunk: Buffer) => {
+			buf += chunk.toString();
+			let i: number;
+			while ((i = buf.indexOf("\n")) >= 0) {
+				const line = buf.slice(0, i);
+				buf = buf.slice(i + 1);
+				lines.push(line);
+				// reply like the real core so label sockets close in-test
+				try {
+					const id = (JSON.parse(line) as { id: unknown }).id;
+					socket.write(`${JSON.stringify({ jsonrpc: "2.0", id, result: {} })}\n`);
+				} catch {
+					// malformed line: recording is enough
+				}
+			}
+		});
+	});
+	await new Promise<void>((resolve) => server.listen(path, resolve));
+	return {
+		path,
+		lines,
+		close: () => server.close(),
+	};
+}
+
+async function labelRequests(core: Awaited<ReturnType<typeof fakeCore>>) {
+	return vi.waitFor(() => {
+		expect(core.lines.length).toBeGreaterThan(0);
+		return core.lines.map((l) => JSON.parse(l) as { method: string; params: { terminal: string; labels: Record<string, string> } });
+	});
+}
 
 async function postBodies() {
 	const calls = vi.mocked(fetch).mock.calls;
@@ -145,5 +185,76 @@ describe("couch-pi bridge extension", () => {
 		await vi.waitFor(() => expect(errSpy).toHaveBeenCalledTimes(1));
 		expect(errSpy.mock.calls[0][0]).toContain("401");
 		errSpy.mockRestore();
+	});
+
+	describe("under herdr-core", () => {
+		beforeEach(() => {
+			vi.stubEnv("HERDR_ENV", "");
+			vi.stubEnv("HERDR_PANE_ID", "");
+		});
+
+		it("labels its terminal with the session path", async () => {
+			const core = await fakeCore();
+			vi.stubEnv("HC_TERMINAL_ID", "t9");
+			vi.stubEnv("HC_TERMINAL_SOCKET", core.path);
+			const factory = await loadFactory();
+			const { pi, fire } = fakePi();
+			factory(pi);
+			fire("session_start", {}, sessionCtx);
+
+			const reqs = await labelRequests(core);
+			expect(reqs[0].method).toBe("terminal.label");
+			expect(reqs[0].params.terminal).toBe("t9");
+			expect(reqs[0].params.labels["pi.session"]).toBe("/home/me/.pi/sessions/s.jsonl");
+			core.close();
+		});
+
+		it("does not dial the hc socket outside hc", async () => {
+			const core = await fakeCore();
+			vi.stubEnv("HC_TERMINAL_ID", "");
+			vi.stubEnv("HC_TERMINAL_SOCKET", "");
+			const factory = await loadFactory();
+			const { pi, fire } = fakePi();
+			factory(pi);
+			fire("session_start", {}, sessionCtx);
+			await new Promise((r) => setTimeout(r, 50));
+			expect(core.lines).toHaveLength(0);
+			core.close();
+		});
+
+		it("relabels when a new session owns the terminal", async () => {
+			const core = await fakeCore();
+			vi.stubEnv("HC_TERMINAL_ID", "t9");
+			vi.stubEnv("HC_TERMINAL_SOCKET", core.path);
+			const factory = await loadFactory();
+			const { pi, fire } = fakePi();
+			factory(pi);
+			fire("session_start", {}, sessionCtx);
+			fire("session_start", {}, {
+				mode: "tui",
+				sessionManager: { getSessionFile: () => "/home/me/.pi/sessions/other.jsonl" },
+			});
+
+			const reqs = await labelRequests(core);
+			expect(reqs).toHaveLength(2);
+			expect(reqs[1].params.labels["pi.session"]).toBe("/home/me/.pi/sessions/other.jsonl");
+			core.close();
+		});
+
+		it("still POSTs dialogs and skips the herdr-only emit", async () => {
+			const core = await fakeCore();
+			vi.stubEnv("HC_TERMINAL_ID", "t9");
+			vi.stubEnv("HC_TERMINAL_SOCKET", core.path);
+			const factory = await loadFactory();
+			const { pi, fire, emitted } = fakePi();
+			factory(pi);
+			fire("session_start", {}, sessionCtx);
+			fire("ui_prompt_start", startEvent);
+
+			await postBodies();
+			expect(fetch).toHaveBeenCalledTimes(1);
+			expect(emitted.filter((e) => e.name === "herdr:blocked")).toHaveLength(0);
+			core.close();
+		});
 	});
 });
