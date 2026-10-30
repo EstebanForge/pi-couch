@@ -931,7 +931,7 @@ export const Composer = memo(function Composer(props: {
 						<div className="h-px bg-base-content/10" />
 						<div className="flex items-center gap-2">
 							{props.model && (
-								<span className="min-w-0 flex-1 truncate rounded-md bg-primary/15 px-2 py-0.5 font-mono text-[11.5px] font-semibold text-primary">
+								<span className="h-7 min-w-0 flex-1 truncate rounded-md bg-primary/15 px-2 font-mono text-[11.5px] font-semibold leading-7 text-primary">
 									current: {props.model}
 								</span>
 							)}
