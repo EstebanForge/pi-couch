@@ -24,6 +24,17 @@ Pi Couch: phone-first web client for the pi coding agents on this server. Shows 
 
 ## Commands
 
+### Quick Commands (`just` recipes)
+
+```bash
+just            # List all available targets
+just build      # Build React SPA and Go binary to bin/couch-pi
+just ci         # Run all local CI gates (vet, gofmt, go test, tsc, biome, vitest)
+just test-go    # Run Go tests only
+just check-web  # Run web checks only (tsc + biome)
+just apk        # Build Android debug APK
+```
+
 Verified (M0):
 
 - `./scripts/build.sh`: builds the React SPA (when npm is present), then `go build` to `bin/couch-pi`.
