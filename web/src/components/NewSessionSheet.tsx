@@ -1,6 +1,6 @@
 import { Sheet } from "konsta/react";
 import { useEffect, useState } from "react";
-import { createAgent } from "../api";
+import { createQuickAgent } from "../api";
 import { navigate, useSheetBack } from "../nav";
 import { DirBrowser } from "./DirBrowser";
 import { Spinner } from "./Spinner";
@@ -11,19 +11,23 @@ import { Spinner } from "./Spinner";
 export function NewSessionSheet({ opened, onClose }: { opened: boolean; onClose: () => void }) {
 	useSheetBack(opened, onClose);
 	const [pickedPath, setPickedPath] = useState("");
+	const [workspaceName, setWorkspaceName] = useState("");
 	const [prompt, setPrompt] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState("");
 
 	useEffect(() => {
-		if (!opened) setPickedPath("");
+		if (!opened) {
+			setPickedPath("");
+			setWorkspaceName("");
+		}
 	}, [opened]);
 
 	const create = (cwd: string) => {
-		if (!prompt.trim() || busy) return;
+		if (!prompt.trim() || !workspaceName.trim() || busy) return;
 		setBusy(true);
 		setError("");
-		createAgent(cwd, prompt)
+		createQuickAgent(workspaceName.trim(), cwd, prompt)
 			.then(({ key }) => {
 				navigate(`/sessions/${encodeURIComponent(key)}`);
 				onClose();
@@ -42,7 +46,16 @@ export function NewSessionSheet({ opened, onClose }: { opened: boolean; onClose:
 		>
 			<div className="flex max-h-[80dvh] flex-col gap-2 p-3">
 				<div className="mx-auto mb-1 h-1.5 w-12 rounded-full bg-base-content/25" />
-				<div className="text-[13px] font-bold tracking-wider text-muted uppercase">New agent</div>
+				<div className="text-[13px] font-bold tracking-wider text-muted uppercase">
+					New workspace
+				</div>
+
+				<input
+					value={workspaceName}
+					onChange={(e) => setWorkspaceName(e.target.value)}
+					placeholder="Workspace name"
+					className="min-h-[44px] rounded-2xl border border-base-content/10 bg-base-300/70 px-3 text-[15px] outline-none placeholder:text-muted/60 focus:border-primary/60"
+				/>
 
 				<DirBrowser onPathChange={setPickedPath} disabled={busy} />
 
@@ -58,12 +71,12 @@ export function NewSessionSheet({ opened, onClose }: { opened: boolean; onClose:
 
 				<button
 					type="button"
-					disabled={busy || !pickedPath || !prompt.trim()}
+					disabled={busy || !pickedPath || !workspaceName.trim() || !prompt.trim()}
 					onClick={() => create(pickedPath)}
 					className="press-scale flex min-h-[48px] items-center justify-center gap-2 rounded-2xl bg-primary text-[15px] font-semibold text-primary-content shadow-[0_2px_12px_rgba(64,157,212,0.4)] disabled:opacity-50"
 				>
 					{busy && <Spinner size={14} />}
-					{busy ? "Creating…" : "Create agent here"}
+					{busy ? "Creating…" : "Create workspace"}
 				</button>
 			</div>
 		</Sheet>
