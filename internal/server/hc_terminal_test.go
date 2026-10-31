@@ -28,10 +28,12 @@ type hcStreamFake struct {
 	t    *testing.T
 	sock string
 
-	mu     sync.Mutex
-	keys   [][]string
-	sends  []map[string]any
-	paints [][]byte
+	mu             sync.Mutex
+	keys           [][]string
+	sends          []map[string]any
+	paints         [][]byte
+	attachFinish   bool
+	closeAfterData bool
 }
 
 func startHCStreamFake(t *testing.T, sessionPath string) *hcStreamFake {
@@ -92,15 +94,13 @@ func (f *hcStreamFake) serve(conn net.Conn, sessionPath string) {
 		switch req.Method {
 		case "events.subscribe":
 			f.reply(conn, req.ID, map[string]any{"seq": 1, "terminals": []any{f.record("t1", sessionPath)}})
-			// Hold the events connection open so the driver stays seeded.
-			go func() {
-				for {
-					if _, err := br.ReadString('\n'); err != nil {
-						return
-					}
+			// Hold the events connection open in THIS goroutine:
+			// returning closes it and the driver drops the session.
+			for {
+				if _, err := br.ReadString('\n'); err != nil {
+					return
 				}
-			}()
-			return
+			}
 		case "hello":
 			f.reply(conn, req.ID, map[string]any{"generation": 1, "framed": true})
 			f.framed(conn, br, req)
@@ -156,6 +156,11 @@ func (f *hcStreamFake) framed(conn net.Conn, br *bufio.Reader, hello struct {
 		if json.Unmarshal(payload, &call) != nil || call.Method != "terminal.attach" {
 			continue
 		}
+		if f.attachFinish {
+			out, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": call.ID, "error": map[string]any{"code": -32000, "message": "finished", "data": map[string]any{"kind": "finished"}}})
+			_, _ = conn.Write(encodeFrame(0, 0, out))
+			return
+		}
 		out, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": call.ID, "result": map[string]any{"channel": 9, "terminal": map[string]any{"address": "t1"}}})
 		if _, err := conn.Write(encodeFrame(0, 0, out)); err != nil {
 			return
@@ -167,6 +172,10 @@ func (f *hcStreamFake) framed(conn net.Conn, br *bufio.Reader, hello struct {
 			if _, err := conn.Write(encodeFrame(9, 0, p)); err != nil {
 				return
 			}
+		}
+		if f.closeAfterData {
+			_, _ = conn.Write(encodeFrame(9, 2, []byte{0}))
+			return
 		}
 		// Hold the stream open; the test's Close ends it.
 		for {
@@ -330,4 +339,34 @@ func TestHCCommandsNeverDialHerdr(t *testing.T) {
 		t.Fatalf("prompt: code=%d body=%s", w.Code, w.Body.String())
 	}
 	waitForServer(t, func() bool { return len(f.sendParams()) == 1 })
+}
+
+func TestHCTerminalFinishedAttachIsGone(t *testing.T) {
+	a, f := hcStreamApp(t)
+	f.attachFinish = true
+	req := httptest.NewRequest(http.MethodGet, "/stream/terminal/s1?cols=100&rows=30", nil)
+	req.SetPathValue("key", "s1")
+	w := httptest.NewRecorder()
+	a.streamTerminal(w, req)
+	if !strings.Contains(w.Body.String(), "event: gone") {
+		t.Fatalf("a finished terminal must end as gone, got %q", w.Body.String())
+	}
+}
+
+func TestHCTerminalCleanCloseResets(t *testing.T) {
+	a, f := hcStreamApp(t)
+	f.closeAfterData = true
+	req := httptest.NewRequest(http.MethodGet, "/stream/terminal/s1?cols=100&rows=30", nil)
+	req.SetPathValue("key", "s1")
+	w := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() { a.streamTerminal(w, req); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("stream never ended")
+	}
+	if !strings.Contains(w.Body.String(), "event: reset") {
+		t.Fatalf("a clean close must reconnect as reset, got %q", w.Body.String())
+	}
 }

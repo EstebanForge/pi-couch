@@ -22,6 +22,9 @@ const (
 
 const frameHeader = 9
 
+// maxFramePayload mirrors the core's own 16 MiB wire cap.
+const maxFramePayload = 16 << 20
+
 // AttachFrame is one chunk of terminal output.
 type AttachFrame struct {
 	Bytes []byte
@@ -169,6 +172,9 @@ func readFrame(br *bufio.Reader) (uint32, byte, []byte, error) {
 	channel := binary.LittleEndian.Uint32(head[0:4])
 	kind := head[4]
 	length := binary.LittleEndian.Uint32(head[5:9])
+	if length > maxFramePayload {
+		return 0, 0, nil, fmt.Errorf("hc: frame of %d bytes exceeds the wire cap", length)
+	}
 	payload := make([]byte, length)
 	if _, err := io.ReadFull(br, payload); err != nil {
 		return 0, 0, nil, err

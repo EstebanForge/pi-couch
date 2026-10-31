@@ -2,6 +2,7 @@ package hc
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/json"
@@ -261,5 +262,17 @@ func TestAttachStallsOutOnAnUnreadStream(t *testing.T) {
 			return
 		}
 		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func TestReadFrameRefusesOversizedPayloads(t *testing.T) {
+	var head [9]byte
+	binary.LittleEndian.PutUint32(head[0:4], 9)
+	head[4] = 0
+	binary.LittleEndian.PutUint32(head[5:9], 16<<20+1)
+	// A complete over-cap frame: without a cap this parses fine.
+	buf := append(head[:], make([]byte, 16<<20+1)...)
+	if _, _, _, err := readFrame(bufio.NewReader(bytes.NewReader(buf))); err == nil {
+		t.Fatal("an over-cap frame must be refused")
 	}
 }

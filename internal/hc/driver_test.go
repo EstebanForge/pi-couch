@@ -1,6 +1,7 @@
 package hc
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -638,4 +639,73 @@ func TestDriverReseedsOnMissed(t *testing.T) {
 	if _, err := d.TargetForPath(context.Background(), "/home/me/.pi/sessions/a.jsonl"); err == nil {
 		t.Fatal("stale path must drop after a missed resync")
 	}
+}
+
+func termFromRecord(t *testing.T, rec map[string]any) Terminal {
+	t.Helper()
+	b, err := json.Marshal(rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var term Terminal
+	if err := json.Unmarshal(b, &term); err != nil {
+		t.Fatal(err)
+	}
+	return term
+}
+
+func TestDriverLabelRemovalUnmaps(t *testing.T) {
+	d := NewDriver(nil)
+	d.reseed([]Terminal{termFromRecord(t, record("t1", "/x/a.jsonl", "live", "working"))})
+	d.apply(Event{Type: "labels", Terminal: "t1", Data: map[string]any{"labels": map[string]any{}}})
+	if _, err := d.TargetForPath(context.Background(), "/x/a.jsonl"); err == nil {
+		t.Fatal("a removed pi.session label must unmap the session")
+	}
+}
+
+func TestDriverLostStaysLostAcrossReseed(t *testing.T) {
+	d := NewDriver(nil)
+	d.reseed([]Terminal{termFromRecord(t, record("t1", "/x/a.jsonl", "live", "working"))})
+	d.apply(Event{Type: "lost", Terminal: "t1"})
+	// A snapshot still shows the pending-lost terminal as live.
+	d.reseed([]Terminal{termFromRecord(t, record("t1", "/x/a.jsonl", "live", "working"))})
+	if _, err := d.TargetForPath(context.Background(), "/x/a.jsonl"); err == nil {
+		t.Fatal("a lost terminal must not resurrect from a snapshot")
+	}
+	// A real restart clears the mark.
+	d.apply(Event{Type: "created", Terminal: "t1", Data: record("t1", "/x/a.jsonl", "live", "working")})
+	if _, err := d.TargetForPath(context.Background(), "/x/a.jsonl"); err != nil {
+		t.Fatal("a recreated terminal must map again")
+	}
+}
+
+func TestDriverDuplicatePathFallsBackToTheSurvivor(t *testing.T) {
+	d := NewDriver(nil)
+	d.reseed([]Terminal{
+		termFromRecord(t, record("t1", "/x/a.jsonl", "live", "working")),
+		termFromRecord(t, record("t2", "/x/a.jsonl", "live", "working")),
+	})
+	if addr, _ := d.TargetForPath(context.Background(), "/x/a.jsonl"); addr != "t2" {
+		t.Fatalf("newest claim should win, got %q", addr)
+	}
+	d.apply(Event{Type: "finished", Terminal: "t2"})
+	if addr, err := d.TargetForPath(context.Background(), "/x/a.jsonl"); err != nil || addr != "t1" {
+		t.Fatalf("survivor must reclaim the path, got %q err=%v", addr, err)
+	}
+}
+
+func TestEventStreamCloseUnblocksAFullReader(t *testing.T) {
+	c1, c2 := net.Pipe()
+	s := &EventStream{events: make(chan Event), conn: c1, done: make(chan struct{}), stop: make(chan struct{})}
+	go s.read(bufio.NewReader(c1))
+	// Nobody consumes: the reader parks on a full events channel.
+	_, _ = c2.Write([]byte(`{"jsonrpc":"2.0","method":"event","params":{"type":"title","terminal":"t1","data":{"title":"x"},"seq":1}}` + "\n"))
+	time.Sleep(20 * time.Millisecond)
+	s.Close()
+	select {
+	case <-s.Done():
+	case <-time.After(time.Second):
+		t.Fatal("Close must unblock a reader parked on a full channel")
+	}
+	_ = c2.Close()
 }

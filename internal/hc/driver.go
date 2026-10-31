@@ -34,11 +34,12 @@ type Driver struct {
 	mu     sync.RWMutex
 	byAddr map[string]Terminal
 	byPath map[string]string // pi.session path -> live terminal address
+	lost   map[string]bool   // lost terminals: snapshots still show them live
 }
 
 // NewDriver wraps a client with the session map. Run drives it.
 func NewDriver(c *Client) *Driver {
-	return &Driver{c: c, retry: time.Second, reportWait: 3 * time.Second, sendRetry: time.Second, finishWait: 3 * time.Second, spawnReadyWait: 15 * time.Second, byAddr: map[string]Terminal{}, byPath: map[string]string{}}
+	return &Driver{c: c, retry: time.Second, reportWait: 3 * time.Second, sendRetry: time.Second, finishWait: 3 * time.Second, spawnReadyWait: 15 * time.Second, byAddr: map[string]Terminal{}, byPath: map[string]string{}, lost: map[string]bool{}}
 }
 
 // Run subscribes until the context ends, re-subscribing with backoff
@@ -84,14 +85,36 @@ func (d *Driver) unkey(addr string) {
 }
 
 // add installs one live terminal; finished records never drive a
-// session, so they stay out of both maps.
+// session, so they stay out of both maps. A lost terminal stays out
+// even when a snapshot still shows it live.
 func (d *Driver) add(t Terminal) {
-	if t.State != "live" {
+	if t.State != "live" || d.lost[t.Address] {
 		return
 	}
 	d.byAddr[t.Address] = t
 	if path := t.Labels["pi.session"]; path != "" {
 		d.byPath[path] = t.Address
+	}
+}
+
+// drop removes one terminal and lets a surviving live claimant take
+// its paths over (a newer terminal may have shadowed an older one).
+func (d *Driver) drop(addr string) {
+	var paths []string
+	for path, a := range d.byPath {
+		if a == addr {
+			paths = append(paths, path)
+		}
+	}
+	d.unkey(addr)
+	delete(d.byAddr, addr)
+	for _, path := range paths {
+		for _, t := range d.byAddr {
+			if t.Labels["pi.session"] == path {
+				d.byPath[path] = t.Address
+				break
+			}
+		}
 	}
 }
 
@@ -124,6 +147,7 @@ func (d *Driver) apply(ev Event) {
 		if err != nil || json.Unmarshal(b, &t) != nil {
 			return
 		}
+		delete(d.lost, ev.Terminal)
 		// A restarted keep-terminal may come back finished; add drops it.
 		d.unkey(ev.Terminal)
 		d.add(t)
@@ -133,6 +157,9 @@ func (d *Driver) apply(ev Event) {
 			return
 		}
 		d.unkey(ev.Terminal)
+		// The event carries the complete label map: replace, or a
+		// removed pi.session would linger forever.
+		t.Labels = map[string]string{}
 		if raw, ok := ev.Data["labels"]; ok && raw != nil {
 			b, err := json.Marshal(raw)
 			if err == nil {
@@ -180,9 +207,12 @@ func (d *Driver) apply(ev Event) {
 				d.byAddr[ev.Terminal] = t
 			}
 		}
-	case "lost", "finished", "removed":
-		d.unkey(ev.Terminal)
-		delete(d.byAddr, ev.Terminal)
+	case "lost":
+		d.lost[ev.Terminal] = true
+		d.drop(ev.Terminal)
+	case "finished", "removed":
+		delete(d.lost, ev.Terminal)
+		d.drop(ev.Terminal)
 	}
 }
 

@@ -490,7 +490,7 @@ func (a *app) stopAgent(key string) error {
 	if !ok {
 		return errNotFound
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), a.cmdBudget(15*time.Second, 10*time.Second))
 	defer cancel()
 	target, err := a.statusFor().TargetForPath(ctx, meta.Path)
 	if err != nil {
@@ -515,7 +515,7 @@ func (a *app) closeWorkspace(key string) error {
 		return errNotFound
 	}
 	// hc's graceful wait wants room before the kill escalation.
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), a.cmdBudget(20*time.Second, 10*time.Second))
 	defer cancel()
 	target, err := a.statusFor().TargetForPath(ctx, meta.Path)
 	if err != nil {

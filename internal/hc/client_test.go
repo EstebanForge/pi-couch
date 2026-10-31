@@ -291,3 +291,38 @@ func TestSubscribeStreamsNotifications(t *testing.T) {
 		t.Fatalf("event data %v", got[0].Data)
 	}
 }
+
+func TestCallAbortsOnContextCancel(t *testing.T) {
+	// A core that accepts and never answers: only the caller's cancel
+	// can end the read.
+	ln, err := net.Listen("unix", filepath.Join(t.TempDir(), "hc.sock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() { _, _ = conn.Read(make([]byte, 4096)) }()
+		}
+	}()
+	c := NewAt(ln.Addr().String())
+	// No deadline: a manual cancel must still interrupt the read.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		time.Sleep(60 * time.Millisecond)
+		cancel()
+	}()
+	start := time.Now()
+	_, err = c.call(ctx, "terminal.list", map[string]any{}, 0)
+	if err == nil {
+		t.Fatal("a cancelled call must fail")
+	}
+	if time.Since(start) > 3*time.Second {
+		t.Fatal("cancel did not abort the blocked read")
+	}
+}

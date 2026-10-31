@@ -57,7 +57,7 @@ func (a *app) apiSendAll(w http.ResponseWriter, r *http.Request) {
 	}
 	b.WriteString("Please address these items.")
 
-	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), a.cmdBudget(25*time.Second, 15*time.Second))
 	defer cancel()
 	target, err := a.statusFor().TargetForPath(ctx, meta.Path)
 	if err != nil {

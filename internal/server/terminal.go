@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"github.com/EstebanForge/couch-pi/internal/hc"
 	"net/http"
 	"strconv"
 	"time"
@@ -197,7 +199,14 @@ func (a *app) terminalInput(w http.ResponseWriter, r *http.Request) {
 func (a *app) streamTerminalHC(w http.ResponseWriter, r *http.Request, target string, cols, rows int) {
 	stream, err := a.hcDrv.Attach(r.Context(), target, cols, rows)
 	if err != nil {
-		writeSSE(w, "gone", "{}")
+		// Only a finished terminal is gone for good; a transient dial
+		// or handshake failure must reconnect, not end the view.
+		event := "reset"
+		var hcErr *hc.Error
+		if errors.As(err, &hcErr) && hcErr.Data.Kind == "finished" {
+			event = "gone"
+		}
+		writeSSE(w, event, "{}")
 		http.NewResponseController(w).Flush()
 		return
 	}
@@ -209,10 +218,11 @@ func (a *app) streamTerminalHC(w http.ResponseWriter, r *http.Request, target st
 		select {
 		case f, ok := <-stream.Frames():
 			if !ok {
-				if stream.Stalled() {
-					writeSSE(w, "reset", "{}")
-					flusher.Flush()
-				}
+				// A clean close leaves the terminal's fate unknown:
+				// reconnect into a fresh paint; a finished terminal
+				// then refuses the attach with gone above.
+				writeSSE(w, "reset", "{}")
+				flusher.Flush()
 				return
 			}
 			frame, err := json.Marshal(map[string]string{"bytes": base64.StdEncoding.EncodeToString(f.Bytes)})

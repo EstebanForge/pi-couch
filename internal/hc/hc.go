@@ -368,6 +368,7 @@ type EventStream struct {
 	conn      net.Conn
 	closeOnce sync.Once
 	done      chan struct{}
+	stop      chan struct{} // closed by Close: unblocks a full-channel reader
 }
 
 // Events yields notifications as they arrive.
@@ -378,7 +379,12 @@ func (s *EventStream) Events() <-chan Event { return s.events }
 func (s *EventStream) Done() <-chan struct{} { return s.done }
 
 // Close drops the subscription connection.
-func (s *EventStream) Close() { s.closeOnce.Do(func() { _ = s.conn.Close() }) }
+func (s *EventStream) Close() {
+	s.closeOnce.Do(func() {
+		close(s.stop)
+		_ = s.conn.Close()
+	})
+}
 
 // Subscribe opens the events connection. The context bounds only the
 // handshake; the stream lives until Close or socket loss.
@@ -387,7 +393,7 @@ func (c *Client) Subscribe(ctx context.Context) (*EventStream, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &EventStream{events: make(chan Event, 64), conn: conn, done: make(chan struct{})}
+	s := &EventStream{events: make(chan Event, 64), conn: conn, done: make(chan struct{}), stop: make(chan struct{})}
 	id := fmt.Sprintf("couch-pi-%d", c.seq.Add(1))
 	req, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "method": "events.subscribe", "params": map[string]any{}})
 	if err != nil {
@@ -462,7 +468,7 @@ func (s *EventStream) read(reader *bufio.Reader) {
 		}
 		select {
 		case s.events <- note.Params.Event:
-		case <-s.done:
+		case <-s.stop:
 			return
 		}
 	}
@@ -498,6 +504,9 @@ func (c *Client) call(ctx context.Context, method string, params any, slack time
 	if !deadline.IsZero() {
 		_ = conn.SetDeadline(deadline)
 	}
+	// A cancel with no deadline must still interrupt a blocked read.
+	stop := context.AfterFunc(ctx, func() { _ = conn.SetDeadline(time.Now()) })
+	defer stop()
 
 	id := fmt.Sprintf("couch-pi-%d", c.seq.Add(1))
 	req, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params})

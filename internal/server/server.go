@@ -103,6 +103,14 @@ var _ CommandDriver = (*hc.Driver)(nil)
 
 // cmdFor returns the command surface: herdr when wired, else the hc
 // driver. Nil means no driver can take commands.
+// cmdBudget keeps hc's raised handler deadlines off the herdr path.
+func (a *app) cmdBudget(hcBudget, herdrBudget time.Duration) time.Duration {
+	if a.hcDrv != nil {
+		return hcBudget
+	}
+	return herdrBudget
+}
+
 func (a *app) cmdFor() CommandDriver {
 	// hc wins even when a herdr client is also non-nil: an hc address
 	// must never reach the herdr socket.
@@ -413,7 +421,7 @@ func (a *app) promptAgent(key, text string) error {
 	}
 	// hc's send pipeline paces itself (quiet, settle, first-paint
 	// retry), so the ceiling is generous; herdr answers in milliseconds.
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), a.cmdBudget(25*time.Second, 10*time.Second))
 	defer cancel()
 	target, err := a.statusFor().TargetForPath(ctx, meta.Path)
 	if err != nil {
