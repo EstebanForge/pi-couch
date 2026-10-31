@@ -159,6 +159,12 @@ func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, tex
 	case answer == "type":
 		return a.answerFreeText(w, r, ctx, paneID, path, text)
 
+	case answer == "toggle":
+		if !a.settleWalk(w, r, ctx, paneID, text) {
+			return false, false
+		}
+		return a.answerSend(w, ctx, paneID, []string{"space"}), false
+
 	case answer == "escape":
 		pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 30)
 		if err != nil {
@@ -764,6 +770,9 @@ func (a *app) answerDispatchHC(w http.ResponseWriter, r *http.Request, answer, t
 	case answer == "type":
 		return a.answerFreeTextHC(w, ctx, drv, addr, path, text)
 
+	case answer == "toggle":
+		return a.answerOptionHC(w, ctx, drv, addr, text, false), false
+
 	case answer == "escape":
 		screen, ok := read()
 		if !ok || !dialogOpen(screen) || !stillUp(screen) {
@@ -774,7 +783,7 @@ func (a *app) answerDispatchHC(w http.ResponseWriter, r *http.Request, answer, t
 		return a.hcSend(w, ctx, drv, addr, "", []string{"esc"}), true
 
 	default:
-		return a.answerOptionHC(w, ctx, drv, addr, answer), false
+		return a.answerOptionHC(w, ctx, drv, addr, answer, true), false
 	}
 }
 
@@ -866,7 +875,7 @@ func (a *app) answerFreeTextHC(w http.ResponseWriter, ctx context.Context, drv *
 // answerOptionHC walks pi's dialog cursor to the option and confirms
 // it, settle-verified like the herdr walk: re-read, aim, verify the
 // cursor, then enter.
-func (a *app) answerOptionHC(w http.ResponseWriter, ctx context.Context, drv *hc.Driver, addr, want string) bool {
+func (a *app) answerOptionHC(w http.ResponseWriter, ctx context.Context, drv *hc.Driver, addr, want string, submit bool) bool {
 	var m *piDialog
 	target := -1
 	for attempt := 0; attempt < 3; attempt++ {
@@ -922,8 +931,12 @@ func (a *app) answerOptionHC(w http.ResponseWriter, ctx context.Context, drv *hc
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
 		return false
 	}
-	ok := a.hcSend(w, ctx, drv, addr, "", []string{"enter"})
-	if ok {
+	key := "enter"
+	if !submit {
+		key = "space"
+	}
+	ok := a.hcSend(w, ctx, drv, addr, "", []string{key})
+	if ok && submit {
 		a.maybeAutoSubmitHC(w, ctx, drv, addr)
 	}
 	return ok

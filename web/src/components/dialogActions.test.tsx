@@ -1,6 +1,6 @@
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { DialogActions, dialogServedSignature } from "./DialogActions";
+import { DialogActions, dialogAnswerVerb, dialogServedSignature } from "./DialogActions";
 
 // JSX interpolations render with comment markers between segments.
 const flat = (html: string) => html.replace(/<!--.*?-->/g, "");
@@ -87,6 +87,27 @@ describe("DialogActions", () => {
 		expect(dialogServedSignature({ ...base, input_mode: true })).not.toBe(
 			dialogServedSignature(base),
 		);
+	});
+
+	it("handles checkbox custom rows and toggle verbs", () => {
+		const html = flat(
+			renderToString(
+				<DialogActions
+					k="k"
+					dialog={{
+						id: "d1",
+						kind: "custom",
+						title: "Colors",
+						options: [{ label: "[ ] Red" }, { label: "[ ] Type something." }, { label: "Submit" }],
+						cursor: 0,
+					}}
+				/>,
+			),
+		);
+		expect(html).not.toContain("Type something.");
+		expect(html).toContain('placeholder="Type your answer…"');
+		expect(dialogAnswerVerb("[ ] Red", true)).toBe("toggle");
+		expect(dialogAnswerVerb("Submit", true)).toBe("option");
 	});
 
 	it("renders an editor draft with Submit and Cancel", () => {

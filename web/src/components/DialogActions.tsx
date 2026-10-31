@@ -3,6 +3,7 @@ import { answerDialog, type BridgeDialog } from "../api";
 import { Spinner } from "./Spinner";
 
 const piOwnAnswerRe = /^(?:type something.*|\d+[.)]\s*)$/i;
+const checkboxPrefixRe = /^\[[ xX]\]\s*/;
 
 /** The inline dialog card: whatever pi waits on, read off the pane by
  * the server's parser and answered from the chat - no Terminal trip.
@@ -16,6 +17,10 @@ const piOwnAnswerRe = /^(?:type something.*|\d+[.)]\s*)$/i;
  * three keep the card. The tapped control keeps its spinner until
  * the keys land, so the seconds before pi's end event never read as a
  * dead tap. */
+export function dialogAnswerVerb(label: string, multi: boolean): string {
+	return multi && label !== "Submit" ? "toggle" : "option";
+}
+
 export function dialogServedSignature(dialog: BridgeDialog): string {
 	return `${dialog.title}\n${(dialog.options ?? []).map((o) => o.label).join("\n")}\n${dialog.input_mode === true}`;
 }
@@ -65,7 +70,8 @@ export function DialogActions({ k, dialog }: { k: string; dialog: BridgeDialog }
 	// truly moved on.
 	if (!id) return null;
 	const options = dialog.options ?? [];
-	const ownAnswer = options.find((o) => piOwnAnswerRe.test(o.label));
+	const multi = options.some((o) => checkboxPrefixRe.test(o.label));
+	const ownAnswer = options.find((o) => piOwnAnswerRe.test(o.label.replace(checkboxPrefixRe, "")));
 	const tappable = options.filter((o) => o !== ownAnswer);
 	const isEditor = dialog.kind === "editor";
 	const freeText = Boolean(ownAnswer) || dialog.kind === "input";
@@ -123,7 +129,14 @@ export function DialogActions({ k, dialog }: { k: string; dialog: BridgeDialog }
 							key={`${o.label}-${i}`}
 							type="button"
 							disabled={busy}
-							onClick={() => answer(o.label, o.label)}
+							onClick={() => {
+								const verb = dialogAnswerVerb(o.label, multi);
+								answer(
+									verb === "toggle" ? "toggle" : o.label,
+									o.label,
+									verb === "toggle" ? o.label : undefined,
+								);
+							}}
 							className={
 								"flex min-h-[48px] items-center gap-2 rounded-xl px-3.5 py-2 text-left active:scale-[0.99] disabled:opacity-50 " +
 								(i === dialog.cursor

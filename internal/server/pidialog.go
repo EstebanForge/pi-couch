@@ -9,7 +9,8 @@ import (
 // rpiv paints the appended free-text row as its bare number ("3.")
 // instead of "Type something." on some versions. Both mean custom input.
 func piOwnAnswerLabel(label string) bool {
-	return piOwnAnswerRe.MatchString(label) || piNumericOwnAnswerRe.MatchString(strings.TrimSpace(label))
+	label = piCheckboxPrefixRe.ReplaceAllString(strings.TrimSpace(label), "")
+	return piOwnAnswerRe.MatchString(label) || piNumericOwnAnswerRe.MatchString(label)
 }
 
 // parsePiDialog reads one blocking pi dialog off a pane screen: the
@@ -67,6 +68,7 @@ var (
 	// widget, so the card renders a text field in its place.
 	piOwnAnswerRe        = regexp.MustCompile(`(?i)^type something`)
 	piNumericOwnAnswerRe = regexp.MustCompile(`^\d+[.)]$`)
+	piCheckboxPrefixRe   = regexp.MustCompile(`^\[[ xX]\]\s*`)
 
 	// The same questionnaire once the cursor reaches that row: the row
 	// label is replaced by the live draft and the hint gains the
