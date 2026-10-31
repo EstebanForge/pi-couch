@@ -188,8 +188,13 @@ export async function getDirs(path?: string): Promise<DirsResponse> {
 	return (await res.json()) as DirsResponse;
 }
 
-export async function createAgent(cwd: string, prompt: string): Promise<{ key: string }> {
-	return postAgent({ cwd, prompt });
+export async function createAgent(
+	cwd: string,
+	prompt: string,
+	model?: string,
+	thinking?: string,
+): Promise<{ key: string }> {
+	return postAgent({ cwd, prompt, model, thinking });
 }
 
 export async function createAgentInWorkspace(

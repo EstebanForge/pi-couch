@@ -1,8 +1,8 @@
 import { Sheet } from "konsta/react";
 import { useEffect, useState } from "react";
 import {
+	createAgent,
 	createAgentInWorkspace,
-	createQuickAgent,
 	getVersion,
 	getWorkspaces,
 	type Workspace,
@@ -13,12 +13,9 @@ import { DirBrowser } from "./DirBrowser";
 import { FaCaretDown } from "./fa";
 import { Spinner } from "./Spinner";
 
-// The FAB speed dial's "New agent" step: pick an existing workspace,
-// write the first prompt with attachments and an optional
-// model/thinking pin, and the server splits a pane in it and starts
-// the agent there. Fields are shared with the quick sheet. Under the
-// hc driver there are no workspaces: a jailed folder browser takes
-// the picker's place and the create is a plain cwd spawn.
+// The FAB speed dial's "New agent" step: split an existing workspace
+// or browse any folder for a fresh one. A picked folder wins. Fields
+// are shared with the quick sheet. Under hc only the folder remains.
 export function NewAgentSheet({ opened, onClose }: { opened: boolean; onClose: () => void }) {
 	useSheetBack(opened, onClose);
 	const [workspaces, setWorkspaces] = useState<Workspace[] | null>(null);
@@ -53,11 +50,11 @@ export function NewAgentSheet({ opened, onClose }: { opened: boolean; onClose: (
 
 	const create = () => {
 		if (!fields.body.trim() || fields.uploading || busy) return;
-		if (hc ? !folder : !picked) return;
+		if (!picked && !folder) return;
 		setBusy(true);
 		setError("");
-		const req = hc
-			? createQuickAgent("Quick", folder, fields.body, fields.model, fields.thinking)
+		const req = folder
+			? createAgent(folder, fields.body, fields.model, fields.thinking)
 			: createAgentInWorkspace(picked, fields.body, fields.model, fields.thinking);
 		req
 			.then(({ key }) => {
@@ -76,11 +73,9 @@ export function NewAgentSheet({ opened, onClose }: { opened: boolean; onClose: (
 			}}
 			className="pb-safe-all bg-base-200"
 		>
-			<div className="flex max-h-[85dvh] flex-col gap-2.5 p-4">
+			<div className="flex max-h-[85dvh] flex-col gap-2.5 overflow-y-auto p-4">
 				<div className="mx-auto mb-1 h-1.5 w-12 rounded-full bg-base-content/25" />
-				<div className="text-[13px] font-bold tracking-wider text-muted uppercase">
-					{hc ? "New agent in folder" : "New agent in workspace"}
-				</div>
+				<div className="text-[13px] font-bold tracking-wider text-muted uppercase">New agent</div>
 
 				{hc && <DirBrowser onPathChange={setFolder} disabled={busy} />}
 
@@ -130,15 +125,21 @@ export function NewAgentSheet({ opened, onClose }: { opened: boolean; onClose: (
 					</div>
 				)}
 
+				{!hc && (
+					<div className="pt-1 text-[11px] font-semibold tracking-wide text-muted uppercase">
+						Or browse any folder. A picked folder overrides the workspace.
+					</div>
+				)}
+
+				{!hc && <DirBrowser onPathChange={setFolder} disabled={busy} />}
+
 				<AgentLauncherFields opened={opened} busy={busy} onChange={setFields} />
 
 				{error && <div className="text-[12px] text-error">{error}</div>}
 
 				<button
 					type="button"
-					disabled={
-						busy || (!hc && !picked) || (hc && !folder) || !fields.body.trim() || fields.uploading
-					}
+					disabled={busy || (!picked && !folder) || !fields.body.trim() || fields.uploading}
 					onClick={create}
 					className="press-scale flex min-h-[48px] items-center justify-center gap-2 rounded-2xl bg-primary text-[15px] font-semibold text-primary-content shadow-[0_2px_12px_rgba(64,157,212,0.4)] disabled:opacity-50"
 				>
