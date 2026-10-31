@@ -4,6 +4,7 @@ Started 2026-10-09 as a plan and a domain glossary. It grew into the phone I dri
 
 ## 2026-10-30
 
+- Pi Couch can now drive sessions through herdr-core as an opt-in alternative to herdr. Set driver = "hc" to get the same home list, prompts, dialogs, push alerts, create and resume flows, and live terminal over the new core; herdr stays the default. Two hardening rounds followed, covering attach paints, resyncs, prompt recovery, spawn cleanup, and a pile of small edge cases. The native shell is unchanged, so this round needs no fresh APK.
 - The folder picker reads again. The phone rendered its sheet see-through with the folder names shattered into glyph shards; sheets now paint solid, and list rows keep their height when the list overflows instead of being squeezed into fragments. This round carries a fresh APK.
 
 ## 2026-10-29
