@@ -165,7 +165,7 @@ export function AgentLauncherFields({
 			<textarea
 				value={prompt}
 				onChange={(e) => setPrompt(e.target.value)}
-				rows={3}
+				rows={4}
 				placeholder="First prompt for the agent…"
 				className="rounded-xl border border-muted/40 bg-base-300 px-3 py-2 text-[16px] outline-none focus:border-primary/60"
 			/>

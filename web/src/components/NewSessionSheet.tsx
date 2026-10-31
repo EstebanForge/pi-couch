@@ -63,19 +63,24 @@ export function NewSessionSheet({ opened, onClose }: { opened: boolean; onClose:
 				<div className="text-[13px] font-bold tracking-wider text-muted uppercase">New agent</div>
 
 				{recent.length > 0 && (
-					<div className="flex flex-wrap gap-1.5 py-1">
-						{recent.map((c) => (
-							<button
-								key={c}
-								type="button"
-								disabled={busy}
-								onClick={() => create(c)}
-								className="press-scale max-w-full truncate rounded-full border border-base-content/10 bg-base-300/80 px-3 py-1 text-[12px] font-medium text-base-content shadow-surface-sm active:bg-base-300"
-								title={c}
-							>
-								{c.replace(/^\/home\/[^/]+/, "~")}
-							</button>
-						))}
+					<div className="flex flex-col gap-1 py-1">
+						<div className="text-[11px] font-semibold tracking-wide text-muted uppercase">
+							Recent folders. Tap to create here.
+						</div>
+						<div className="flex flex-wrap gap-1.5">
+							{recent.map((c) => (
+								<button
+									key={c}
+									type="button"
+									disabled={busy}
+									onClick={() => create(c)}
+									className="press-scale max-w-full truncate rounded-full border border-base-content/10 bg-base-300/80 px-3 py-1 text-[12px] font-medium text-base-content shadow-surface-sm active:bg-base-300"
+									title={c}
+								>
+									{c.replace(/^\/home\/[^/]+/, "~")}
+								</button>
+							))}
+						</div>
 					</div>
 				)}
 
@@ -84,7 +89,7 @@ export function NewSessionSheet({ opened, onClose }: { opened: boolean; onClose:
 				<textarea
 					value={prompt}
 					onChange={(e) => setPrompt(e.target.value)}
-					rows={2}
+					rows={4}
 					placeholder="First prompt for the agent…"
 					className="rounded-2xl border border-base-content/10 bg-base-300/70 p-3 text-[15px] outline-none transition-all placeholder:text-muted/60 focus:border-primary/60 focus:shadow-[0_0_0_2px_rgba(64,157,212,0.18)]"
 				/>
