@@ -121,6 +121,9 @@ export function DialogActions({ k, dialog }: { k: string; dialog: BridgeDialog }
 					{dialog.body}
 				</p>
 			)}
+			{multi && (
+				<p className="mt-2 text-[13px] text-muted">Select one or more options, then Submit.</p>
+			)}
 			{tappable.length > 0 && (
 				<div className="mt-3 flex flex-col gap-1.5">
 					{tappable.map((o, i) => (
@@ -139,7 +142,7 @@ export function DialogActions({ k, dialog }: { k: string; dialog: BridgeDialog }
 							}}
 							className={
 								"flex min-h-[48px] items-center gap-2 rounded-xl px-3.5 py-2 text-left active:scale-[0.99] disabled:opacity-50 " +
-								(i === dialog.cursor
+								(i === dialog.cursor && !multi
 									? // Subtle tint, not solid primary: rows carry long
 										// descriptions and a solid fill reads as a slab.
 										"bg-primary/20 font-medium text-base-content"

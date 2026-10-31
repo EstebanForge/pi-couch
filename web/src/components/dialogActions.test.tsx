@@ -101,7 +101,7 @@ describe("DialogActions", () => {
 						options: [
 							{ label: "Red", checkbox: true, checked: false },
 							{ label: "Type something.", checkbox: true },
-							{ label: "Submit" },
+							{ label: "Submit", next: true },
 						],
 						cursor: 0,
 					}}
@@ -109,6 +109,8 @@ describe("DialogActions", () => {
 			),
 		);
 		expect(html).not.toContain("Type something.");
+		expect(html).toContain("Select one or more options, then Submit.");
+		expect(html).not.toContain("bg-primary/20");
 		expect(html).toContain('placeholder="Type your answer…"');
 		expect(dialogAnswerVerb("Red", true)).toBe("toggle");
 		expect(dialogAnswerVerb("Submit", true, true)).toBe("option");

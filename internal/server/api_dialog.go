@@ -136,6 +136,12 @@ func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, tex
 		return false, false
 	}
 
+	if answer == "option" || answer == "toggle" {
+		if _, ok := toggleOption(a.awaiting.parsed(path), text); ok {
+			return a.answerToggle(w, ctx, paneID, text), false
+		}
+	}
+
 	switch {
 	case answer == "yes" || answer == "no":
 		pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 30)
@@ -819,6 +825,12 @@ func (a *app) answerDispatchHC(w http.ResponseWriter, r *http.Request, answer, t
 			}
 		}
 		return screen, true
+	}
+
+	if answer == "option" || answer == "toggle" {
+		if _, ok := toggleOption(a.awaiting.parsed(path), text); ok {
+			return a.answerToggleHC(w, ctx, drv, addr, text), false
+		}
 	}
 
 	switch {
