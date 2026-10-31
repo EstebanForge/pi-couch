@@ -462,6 +462,11 @@ html body .k-sheet {
 	-webkit-backdrop-filter: blur(16px);
 }
 
+/* Column scrollers size children by content, never compress text. */
+.flex-col.overflow-y-auto > * {
+	flex-shrink: 0;
+}
+
 /* Elevation shadows tuned for dark theme depth */
 .shadow-surface-sm {
 	box-shadow:
