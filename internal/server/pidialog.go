@@ -6,6 +6,12 @@ import (
 	"strings"
 )
 
+// rpiv paints the appended free-text row as its bare number ("3.")
+// instead of "Type something." on some versions. Both mean custom input.
+func piOwnAnswerLabel(label string) bool {
+	return piOwnAnswerRe.MatchString(label) || piNumericOwnAnswerRe.MatchString(strings.TrimSpace(label))
+}
+
 // parsePiDialog reads one blocking pi dialog off a pane screen: the
 // hint bar at the end (above pi's own footer) names the widget kind,
 // the rows above it are what its arrows move through, and the lines
@@ -59,7 +65,9 @@ var (
 	piTabBarRe     = regexp.MustCompile(`(?m)^\s*←.*✓ Submit.*→\s*$\n?`)
 	// The questionnaire's free-text row: selecting it opens pi's input
 	// widget, so the card renders a text field in its place.
-	piOwnAnswerRe = regexp.MustCompile(`(?i)^type something`)
+	piOwnAnswerRe        = regexp.MustCompile(`(?i)^type something`)
+	piNumericOwnAnswerRe = regexp.MustCompile(`^\d+[.)]$`)
+
 	// The same questionnaire once the cursor reaches that row: the row
 	// label is replaced by the live draft and the hint gains the
 	// newline/clear segments. Captured live 2026-10-17.

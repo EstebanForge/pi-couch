@@ -1,6 +1,6 @@
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { DialogActions } from "./DialogActions";
+import { DialogActions, dialogServedSignature } from "./DialogActions";
 
 // JSX interpolations render with comment markers between segments.
 const flat = (html: string) => html.replace(/<!--.*?-->/g, "");
@@ -56,6 +56,37 @@ describe("DialogActions", () => {
 		expect(html).toContain('placeholder="Type your answer…"');
 		expect(html).toContain(">Send<");
 		expect(html).toContain(">Cancel<");
+	});
+
+	it("uses a numbered custom row as a text input, not an option", () => {
+		const html = flat(
+			renderToString(
+				<DialogActions
+					k="k"
+					dialog={{
+						id: "d1",
+						kind: "custom",
+						title: "Color",
+						options: [{ label: "Red" }, { label: "Blue" }, { label: "3." }],
+						cursor: 0,
+					}}
+				/>,
+			),
+		);
+		expect(html).not.toContain(">3.<");
+		expect(html).toContain('placeholder="Type your answer…"');
+	});
+
+	it("re-arms when the same dialog enters input mode", () => {
+		const base = {
+			id: "d1",
+			kind: "custom",
+			title: "Color",
+			options: [{ label: "Red" }, { label: "3." }],
+		};
+		expect(dialogServedSignature({ ...base, input_mode: true })).not.toBe(
+			dialogServedSignature(base),
+		);
 	});
 
 	it("renders an editor draft with Submit and Cancel", () => {

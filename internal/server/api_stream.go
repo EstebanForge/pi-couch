@@ -108,12 +108,13 @@ type dialogOptionWire struct {
 }
 
 type dialogWire struct {
-	ID      string             `json:"id,omitempty"`
-	Kind    string             `json:"kind"`
-	Title   string             `json:"title"`
-	Body    string             `json:"body,omitempty"`
-	Options []dialogOptionWire `json:"options,omitempty"`
-	Cursor  int                `json:"cursor"`
+	ID        string             `json:"id,omitempty"`
+	Kind      string             `json:"kind"`
+	Title     string             `json:"title"`
+	Body      string             `json:"body,omitempty"`
+	Options   []dialogOptionWire `json:"options,omitempty"`
+	Cursor    int                `json:"cursor"`
+	InputMode bool               `json:"input_mode,omitempty"`
 	// Scrolled marks an editor whose buffer outgrew pi's viewport: the
 	// body is the painted tail only, so the card must not prefill from
 	// it - the hidden head would be silently lost on a rewrite.
@@ -138,6 +139,7 @@ func (a *app) dialogWireFor(path string, d BridgeDialog, ok bool) *dialogWire {
 		}
 		w.Body = p.Body
 		w.Cursor = p.Cursor
+		w.InputMode = p.InputMode
 		w.Scrolled = p.Scrolled
 		if p.Scrolled && p.Kind == "editor" {
 			// The pane only paints a window of the buffer, but the tool

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { answerDialog, type BridgeDialog } from "../api";
 import { Spinner } from "./Spinner";
 
-const piOwnAnswerRe = /^type something/i;
+const piOwnAnswerRe = /^(?:type something.*|\d+[.)]\s*)$/i;
 
 /** The inline dialog card: whatever pi waits on, read off the pane by
  * the server's parser and answered from the chat - no Terminal trip.
@@ -16,6 +16,10 @@ const piOwnAnswerRe = /^type something/i;
  * three keep the card. The tapped control keeps its spinner until
  * the keys land, so the seconds before pi's end event never read as a
  * dead tap. */
+export function dialogServedSignature(dialog: BridgeDialog): string {
+	return `${dialog.title}\n${(dialog.options ?? []).map((o) => o.label).join("\n")}\n${dialog.input_mode === true}`;
+}
+
 export function DialogActions({ k, dialog }: { k: string; dialog: BridgeDialog }) {
 	const [busy, setBusy] = useState(false);
 	const [active, setActive] = useState<string>("");
@@ -37,14 +41,14 @@ export function DialogActions({ k, dialog }: { k: string; dialog: BridgeDialog }
 	// permanently disabled.
 	const servedSig = useRef("");
 	useEffect(() => {
-		const sig = `${dialog.title}\n${(dialog.options ?? []).map((o) => o.label).join("\n")}`;
+		const sig = dialogServedSignature(dialog);
 		if (servedSig.current !== "" && sig !== servedSig.current) {
 			setBusy(false);
 			setActive("");
 			setFailed(null);
 		}
 		servedSig.current = sig;
-	}, [dialog.title, dialog.options]);
+	}, [dialog]);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: dialog.id re-runs the resync when a new dialog replaces the old, even if the body text is identical.
 	useEffect(() => {
 		const next = dialog.scrolled ? "" : (dialog.body ?? "");

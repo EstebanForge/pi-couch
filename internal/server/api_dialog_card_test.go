@@ -473,6 +473,38 @@ func TestDialogAnswerFreeText(t *testing.T) {
 	}
 }
 
+func TestDialogAnswerNumericFreeTextRow(t *testing.T) {
+	before := strings.Replace(askUserScreen, "3. Type something.", "3.", 1)
+	onType := " Color\n Which flavor?\n  1. Red\n     Pick red.\n  2. Blue\n     Pick blue.\n❯ 3.\n" +
+		" Enter to select · ↑/↓ to navigate · Esc to cancel · Ctrl+] to collapse · Shift+Enter for newline · Ctrl+U to clear"
+	inputEcho := " Color\n Which flavor?\n  1. Red\n     Pick red.\n  2. Blue\n     Pick blue.\n❯ 3. pizza\n" +
+		" Enter to select · ↑/↓ to navigate · Esc to cancel · Ctrl+] to collapse · Shift+Enter for newline · Ctrl+U to clear"
+	var sends int32
+	var sessPath string
+	sock := herdrFake(t, fakeHerdrOpts{
+		sessPath: &sessPath, sends: &sends, paneText: &before,
+		paneSeq: []string{onType, onType, inputEcho},
+	})
+	a, sub, _ := streamTestAppWithHerdr(t, sock)
+	sessPath = filepath.Join(sub, "s1.jsonl")
+	a.bridgeMu.Lock()
+	a.bridge = map[string]bridgeEntry{}
+	a.bridge[sessPath] = bridgeEntry{
+		dialog:  BridgeDialog{ID: "dn", Kind: "custom", Title: "Color"},
+		expires: time.Now().Add(time.Minute),
+	}
+	a.bridgeMu.Unlock()
+	a.awaiting = newAwaitingDetector(a.herdr, time.Hour)
+	a.awaiting.tick(context.Background())
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/s1/dialog/answer", strings.NewReader(`{"id":"dn","answer":"type","text":"pizza"}`))
+	req.Host = "127.0.0.1:8090"
+	rec := httptest.NewRecorder()
+	a.guard(a.routes()).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("numeric free-text row code=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 // A phone-width pane wraps a long draft across rows; the echo check
 // must be whitespace-insensitive, not a raw contains.
 func TestDialogAnswerFreeTextWrappedEcho(t *testing.T) {

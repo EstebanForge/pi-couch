@@ -370,7 +370,7 @@ func (a *app) answerFreeText(w http.ResponseWriter, r *http.Request, ctx context
 		}
 		own := -1
 		for i := range m.Options {
-			if piOwnAnswerRe.MatchString(m.Options[i].Label) {
+			if piOwnAnswerLabel(m.Options[i].Label) {
 				own = i
 				break
 			}
