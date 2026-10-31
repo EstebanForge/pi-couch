@@ -194,7 +194,7 @@ export default function TerminalScreen({ sessionKey }: { sessionKey: string }) {
 			stream = connectStream(
 				`/stream/terminal/${encodeURIComponent(sessionKey)}?cols=${dims.cols}&rows=${dims.rows}`,
 				{
-					events: ["delta", "term", "gone", "reset", "ping"],
+					events: ["delta", "term", "gone", "reset", "size", "ping"],
 					onStatus: (status) => {
 						if (status === "connecting") first = true;
 					},
@@ -206,6 +206,17 @@ export default function TerminalScreen({ sessionKey }: { sessionKey: string }) {
 						}
 						const term = termRef.current;
 						if (!term) return;
+						if (name === "size") {
+							// hc observe paints at the core's grid, not ours.
+							let grid: { cols?: number; rows?: number };
+							try {
+								grid = JSON.parse(data) as typeof grid;
+							} catch {
+								return;
+							}
+							if (grid.cols && grid.rows) term.resize(grid.cols, grid.rows);
+							return;
+						}
 						if (name === "reset") {
 							// Evicted for stalling: clear and let the
 							// reconnect's frame 0 repaint cleanly.

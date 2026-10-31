@@ -5,10 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 )
@@ -204,20 +204,26 @@ func TestMachineAddressesAreRefusedWithoutDialing(t *testing.T) {
 func TestSocketDiscoveryOrder(t *testing.T) {
 	// HC_SOCKET wins over everything.
 	t.Setenv("HC_SOCKET", "/tmp/hc-override.sock")
-	t.Setenv("XDG_RUNTIME_DIR", "/tmp/runtime")
+	runtime := t.TempDir()
+	t.Setenv("XDG_RUNTIME_DIR", runtime)
 	t.Setenv("HC_SESSION", "probe")
 	if got := SocketPath(); got != "/tmp/hc-override.sock" {
 		t.Fatalf("HC_SOCKET must win, got %q", got)
 	}
 	// XDG_RUNTIME_DIR + session naming without HC_SOCKET.
 	os.Unsetenv("HC_SOCKET")
-	if got := SocketPath(); got != "/tmp/runtime/herdr-core/probe.sock" {
-		t.Fatalf("default path %q", got)
+	want := filepath.Join(runtime, "herdr-core", "probe.sock")
+	if got := SocketPath(); got != want {
+		t.Fatalf("default path %q, want %q", got, want)
 	}
-	// No XDG_RUNTIME_DIR: /run/user/$UID.
+	// No runtime dir: the core falls back beside its state.
 	os.Unsetenv("XDG_RUNTIME_DIR")
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
 	got := SocketPath()
-	if !filepath.IsAbs(got) || !strings.Contains(got, filepath.Join("herdr-core", "probe.sock")) {
+	statePath := filepath.Join(state, "herdr-core", "probe", "probe.sock")
+	runtimePath := filepath.Join(fmt.Sprintf("/run/user/%d", os.Getuid()), "herdr-core", "probe.sock")
+	if got != statePath && got != runtimePath {
 		t.Fatalf("fallback path %q", got)
 	}
 }

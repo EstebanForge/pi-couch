@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/EstebanForge/couch-pi/internal/hc"
 	"github.com/EstebanForge/couch-pi/internal/herdr"
 )
 
@@ -622,17 +623,34 @@ func hcSpawnName(label string) string {
 	return name
 }
 
+// hcNameTaken is the only spawn error worth a rename-and-retry.
+func hcNameTaken(err error) bool {
+	var hcErr *hc.Error
+	return errors.As(err, &hcErr) && hcErr.Data.Kind == "name_taken"
+}
+
+// hcSpawnRetryName keeps the suffix inside the core's 32-char cap.
+func hcSpawnRetryName(label string) string {
+	suffix := fmt.Sprintf("-%04x", time.Now().UnixNano()&0xffff)
+	base := hcSpawnName(label)
+	if len(base) > 32-len(suffix) {
+		base = base[:32-len(suffix)]
+	}
+	return base + suffix
+}
+
 // createAgentSessionHC spawns pi in a fresh hc terminal, submits the
 // first prompt and waits for the bridge's pi.session label plus the
 // file itself. A name conflict retries once with a suffix.
 func (a *app) createAgentSessionHC(ctx context.Context, label, cwd, prompt string, piArgs []string) (string, string, error) {
 	name := hcSpawnName(label)
 	t9, err := a.hcDrv.Spawn(ctx, cwd, name, piArgs)
+	if err != nil && hcNameTaken(err) {
+		name = hcSpawnRetryName(label)
+		t9, err = a.hcDrv.Spawn(ctx, cwd, name, piArgs)
+	}
 	if err != nil {
-		name = hcSpawnName(label + fmt.Sprintf("-%04x", time.Now().UnixNano()&0xffff))
-		if t9, err = a.hcDrv.Spawn(ctx, cwd, name, piArgs); err != nil {
-			return "", "", fmt.Errorf("hc spawn: %w", err)
-		}
+		return "", "", fmt.Errorf("hc spawn: %w", err)
 	}
 	addr := t9.Address
 	undo := func() { _ = a.hcDrv.Discard(context.Background(), addr) }
@@ -656,11 +674,12 @@ func (a *app) createAgentSessionHC(ctx context.Context, label, cwd, prompt strin
 func (a *app) resumeSessionHC(ctx context.Context, label, cwd, path, text string) (string, error) {
 	name := hcSpawnName(label)
 	t9, err := a.hcDrv.Spawn(ctx, cwd, name, []string{"--session", path})
+	if err != nil && hcNameTaken(err) {
+		name = hcSpawnRetryName(label)
+		t9, err = a.hcDrv.Spawn(ctx, cwd, name, []string{"--session", path})
+	}
 	if err != nil {
-		name = hcSpawnName(label + fmt.Sprintf("-%04x", time.Now().UnixNano()&0xffff))
-		if t9, err = a.hcDrv.Spawn(ctx, cwd, name, []string{"--session", path}); err != nil {
-			return "", fmt.Errorf("hc spawn: %w", err)
-		}
+		return "", fmt.Errorf("hc spawn: %w", err)
 	}
 	addr := t9.Address
 	if text != "" {
@@ -694,15 +713,15 @@ func (a *app) sessionAppearedHC(ctx context.Context, addr string, d time.Duratio
 	}
 }
 
-// sessionKeyForAddrHC waits for the spawned pi's session file and
-// returns the phone's key for it.
+// sessionKeyForAddrHC waits for the bridge's session label and
+// returns the phone's key for it. The label is enough: the jsonl can
+// lag a recovered first prompt, and killing a healthy agent for that
+// is worse than returning before the file lands.
 func (a *app) sessionKeyForAddrHC(ctx context.Context, addr string, undo func()) (string, error) {
 	deadline := time.Now().Add(a.createBudget() - 5*time.Second)
 	for {
 		if p, ok := a.hcDrv.SessionLabel(addr); ok {
-			if _, err := os.Stat(p); err == nil {
-				return strings.TrimSuffix(filepath.Base(p), ".jsonl"), nil
-			}
+			return strings.TrimSuffix(filepath.Base(p), ".jsonl"), nil
 		}
 		if time.Now().After(deadline) {
 			undo()

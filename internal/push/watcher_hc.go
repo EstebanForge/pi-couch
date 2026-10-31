@@ -68,6 +68,12 @@ func (w *HCWatcher) Run(ctx context.Context) {
 			}
 		}
 		w.consume(ctx, stream)
+		// A core that accepts and immediately drops must not spin.
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(w.Retry):
+		}
 	}
 }
 

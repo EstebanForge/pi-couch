@@ -206,7 +206,7 @@ func TestDriverResubscribesAfterStreamLoss(t *testing.T) {
 	// While the core is unreachable the map must not answer stale.
 	waitFor(t, func() bool {
 		_, err := d.TargetForPath(context.Background(), "/home/me/.pi/sessions/a.jsonl")
-		return err != nil
+		return errors.Is(err, ErrUnsynced)
 	})
 	mu.Lock()
 	snap = []map[string]any{
@@ -280,6 +280,9 @@ func TestDriverPromptNudgesEnterWhenFirstPaintEatsIt(t *testing.T) {
 			// sitting in the composer, so a resend would double it.
 			return map[string]any{"started": false, "turn": 0}, nil
 		}
+		if method == "terminal.read" {
+			return map[string]any{"text": "composer: hi", "complete": true, "how": "screen"}, nil
+		}
 		return map[string]any{}, nil
 	})
 	d.reportWait = 50 * time.Millisecond
@@ -299,6 +302,35 @@ func TestDriverPromptNudgesEnterWhenFirstPaintEatsIt(t *testing.T) {
 	}
 	if n := len(f.seen("terminal.keys")); n != 1 {
 		t.Fatalf("keys calls = %d, want 1 enter nudge", n)
+	}
+}
+
+func TestDriverPromptDoesNotNudgeAnExecutedCommand(t *testing.T) {
+	d, f, _ := startDriverReply(t, func(method string, params json.RawMessage) (any, *Error) {
+		if method == "events.subscribe" {
+			return map[string]any{"seq": 1, "terminals": []map[string]any{
+				record("t1", "/home/me/.pi/sessions/a.jsonl", "live", "idle"),
+			}}, nil
+		}
+		if method == "terminal.send" {
+			return map[string]any{"started": false, "turn": 0}, nil
+		}
+		if method == "terminal.read" {
+			// The command ran and opened the selector: its text is gone.
+			return map[string]any{"text": "Select model\n > first", "complete": true, "how": "screen"}, nil
+		}
+		return map[string]any{}, nil
+	})
+	d.sendRetry = 20 * time.Millisecond
+	waitFor(t, func() bool {
+		_, err := d.TargetForPath(context.Background(), "/home/me/.pi/sessions/a.jsonl")
+		return err == nil
+	})
+	if err := d.Prompt(context.Background(), "t1", "/model nope"); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(f.seen("terminal.keys")); n != 0 {
+		t.Fatalf("keys = %d, an executed command must not get an Enter", n)
 	}
 }
 
@@ -667,15 +699,28 @@ func TestDriverLostStaysLostAcrossReseed(t *testing.T) {
 	d := NewDriver(nil)
 	d.reseed([]Terminal{termFromRecord(t, record("t1", "/x/a.jsonl", "live", "working"))})
 	d.apply(Event{Type: "lost", Terminal: "t1"})
-	// A snapshot still shows the pending-lost terminal as live.
-	d.reseed([]Terminal{termFromRecord(t, record("t1", "/x/a.jsonl", "live", "working"))})
+	// The core marks a pending-lost record: still live, reason set,
+	// no pid. That record, not a local sticky map, is the truth.
+	lost := termFromRecord(t, record("t1", "/x/a.jsonl", "live", "working"))
+	reason := "holder_lost"
+	lost.Reason = &reason
+	lost.Pid = nil
+	d.reseed([]Terminal{lost})
 	if _, err := d.TargetForPath(context.Background(), "/x/a.jsonl"); err == nil {
 		t.Fatal("a lost terminal must not resurrect from a snapshot")
 	}
-	// A real restart clears the mark.
+	// A real restart clears the record's reason and maps again.
 	d.apply(Event{Type: "created", Terminal: "t1", Data: record("t1", "/x/a.jsonl", "live", "working")})
 	if _, err := d.TargetForPath(context.Background(), "/x/a.jsonl"); err != nil {
 		t.Fatal("a recreated terminal must map again")
+	}
+}
+
+func TestDriverSkipsRemoteMachineTerminals(t *testing.T) {
+	d := NewDriver(nil)
+	d.reseed([]Terminal{termFromRecord(t, record("box/t1", "/x/a.jsonl", "live", "working"))})
+	if _, err := d.TargetForPath(context.Background(), "/x/a.jsonl"); err == nil {
+		t.Fatal("a remote terminal must never become a local pane")
 	}
 }
 
@@ -708,4 +753,40 @@ func TestEventStreamCloseUnblocksAFullReader(t *testing.T) {
 		t.Fatal("Close must unblock a reader parked on a full channel")
 	}
 	_ = c2.Close()
+}
+
+func TestDriverReportsResyncInsteadOfGone(t *testing.T) {
+	d := NewDriver(nil)
+	if _, err := d.TargetForPath(context.Background(), "/x/a.jsonl"); !errors.Is(err, ErrUnsynced) {
+		t.Fatalf("before the first snapshot: err=%v, want ErrUnsynced", err)
+	}
+}
+
+func TestDriverSpawnFailsFastWhenPiExits(t *testing.T) {
+	d, f, conns := startDriverReply(t, func(method string, params json.RawMessage) (any, *Error) {
+		if method == "events.subscribe" {
+			return map[string]any{"seq": 1, "terminals": []map[string]any{}}, nil
+		}
+		if method == "terminal.run" {
+			return map[string]any{"address": "t9", "state": "live"}, nil
+		}
+		return map[string]any{}, nil
+	})
+	d.spawnReadyWait = 2 * time.Second
+	conn := <-conns
+	_, _ = conn.Write(eventLine("created", "t9", record("t9", "", "live", "")))
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		_, _ = conn.Write(eventLine("finished", "t9", map[string]any{}))
+	}()
+	start := time.Now()
+	if _, err := d.Spawn(context.Background(), "/home/me", "pi-x", nil); err == nil {
+		t.Fatal("a dead pi must fail the spawn")
+	}
+	if time.Since(start) > time.Second {
+		t.Fatal("spawn waited for the full timeout after pi exited")
+	}
+	if len(f.seen("terminal.kill")) != 1 || len(f.seen("terminal.rm")) != 1 {
+		t.Fatal("the exited spawn must still be discarded")
+	}
 }

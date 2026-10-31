@@ -24,6 +24,7 @@ type framedFake struct {
 	paint  []byte
 	deltas [][]byte
 	finish bool // reply to attach with a JSON-RPC error instead
+	early  bool // send the first paint before the attach reply
 
 	mu       sync.Mutex
 	credits  []int
@@ -105,7 +106,12 @@ func (f *framedFake) serve(conn net.Conn) {
 				_, _ = conn.Write(encodeFrame(0, 0, out))
 				return
 			}
-			out, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": call.ID, "result": map[string]any{"channel": 9, "terminal": map[string]any{"address": "t1", "state": "live"}}})
+			if f.early {
+				if _, err := conn.Write(encodeFrame(9, 0, f.paint)); err != nil {
+					return
+				}
+			}
+			out, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": call.ID, "result": map[string]any{"channel": 9, "terminal": map[string]any{"address": "t1", "state": "live", "cols": 200, "rows": 120}}})
 			if _, err := conn.Write(encodeFrame(0, 0, out)); err != nil {
 				return
 			}
@@ -274,5 +280,37 @@ func TestReadFrameRefusesOversizedPayloads(t *testing.T) {
 	buf := append(head[:], make([]byte, 16<<20+1)...)
 	if _, _, _, err := readFrame(bufio.NewReader(bytes.NewReader(buf))); err == nil {
 		t.Fatal("an over-cap frame must be refused")
+	}
+}
+
+func TestAttachKeepsThePaintSentBeforeTheReply(t *testing.T) {
+	f := startFramedFake(t, []byte("EARLY"), nil, false)
+	f.early = true
+	c := NewAt(f.sock)
+	stream, err := c.Attach(context.Background(), "t1", 100, 30, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Close()
+	select {
+	case frame := <-stream.Frames():
+		if string(frame.Bytes) != "EARLY" {
+			t.Fatalf("first frame = %q, want the early paint", frame.Bytes)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the early paint was dropped")
+	}
+}
+
+func TestAttachReportsTheCoreGrid(t *testing.T) {
+	f := startFramedFake(t, []byte("P"), nil, false)
+	c := NewAt(f.sock)
+	stream, err := c.Attach(context.Background(), "t1", 100, 30, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Close()
+	if stream.Cols != 200 || stream.Rows != 120 {
+		t.Fatalf("grid = %dx%d, want the core's 200x120", stream.Cols, stream.Rows)
 	}
 }

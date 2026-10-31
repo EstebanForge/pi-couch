@@ -15,6 +15,10 @@ import (
 // pi.session-keyed view of live hc terminals. One events subscription
 // feeds it, so the per-tick status quad answers from memory; a lost
 // stream re-subscribes and re-seeds from the subscribe snapshot.
+// ErrUnsynced marks a temporary core resync; callers must retry,
+// not treat the session as gone.
+var ErrUnsynced = errors.New("hc: core resyncing")
+
 type Driver struct {
 	c *Client
 
@@ -32,14 +36,15 @@ type Driver struct {
 	spawnReadyWait time.Duration
 
 	mu     sync.RWMutex
+	synced bool
+	exited map[string]bool // finished terminals: lets Spawn fail before its timeout
 	byAddr map[string]Terminal
 	byPath map[string]string // pi.session path -> live terminal address
-	lost   map[string]bool   // lost terminals: snapshots still show them live
 }
 
 // NewDriver wraps a client with the session map. Run drives it.
 func NewDriver(c *Client) *Driver {
-	return &Driver{c: c, retry: time.Second, reportWait: 3 * time.Second, sendRetry: time.Second, finishWait: 3 * time.Second, spawnReadyWait: 15 * time.Second, byAddr: map[string]Terminal{}, byPath: map[string]string{}, lost: map[string]bool{}}
+	return &Driver{c: c, retry: time.Second, reportWait: 3 * time.Second, sendRetry: time.Second, finishWait: 3 * time.Second, spawnReadyWait: 15 * time.Second, exited: map[string]bool{}, byAddr: map[string]Terminal{}, byPath: map[string]string{}}
 }
 
 // Run subscribes until the context ends, re-subscribing with backoff
@@ -50,9 +55,11 @@ func (d *Driver) Run(ctx context.Context) {
 		if err == nil {
 			d.reseed(stream.Terminals)
 			d.consume(ctx, stream)
-			// The stream is gone: stale badges and dead addresses must
-			// not keep answering while the core is unreachable.
-			d.reseed(nil)
+			// The stream is gone: readers must say resyncing, not
+			// answer stale or mistake live sessions for gone ones.
+			d.mu.Lock()
+			d.synced = false
+			d.mu.Unlock()
 		} else if ctx.Err() != nil {
 			return
 		}
@@ -67,8 +74,14 @@ func (d *Driver) Run(ctx context.Context) {
 func (d *Driver) reseed(terminals []Terminal) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	d.reseedLocked(terminals)
+}
+
+func (d *Driver) reseedLocked(terminals []Terminal) {
+	d.exited = map[string]bool{}
 	d.byAddr = map[string]Terminal{}
 	d.byPath = map[string]string{}
+	d.synced = true
 	for _, t := range terminals {
 		d.add(t)
 	}
@@ -88,7 +101,15 @@ func (d *Driver) unkey(addr string) {
 // session, so they stay out of both maps. A lost terminal stays out
 // even when a snapshot still shows it live.
 func (d *Driver) add(t Terminal) {
-	if t.State != "live" || d.lost[t.Address] {
+	if t.State != "live" || strings.Contains(t.Address, "/") {
+		// Remote machine terminals are not local panes and cannot be
+		// read through this socket's terminal.* methods.
+		return
+	}
+	if t.Reason != nil && t.Pid == nil {
+		// A lost terminal stays live in snapshots, with a reason and
+		// no pid. Do not resurrect it on a resync; a real restart
+		// clears both fields.
 		return
 	}
 	d.byAddr[t.Address] = t
@@ -147,7 +168,7 @@ func (d *Driver) apply(ev Event) {
 		if err != nil || json.Unmarshal(b, &t) != nil {
 			return
 		}
-		delete(d.lost, ev.Terminal)
+		delete(d.exited, ev.Terminal)
 		// A restarted keep-terminal may come back finished; add drops it.
 		d.unkey(ev.Terminal)
 		d.add(t)
@@ -200,6 +221,21 @@ func (d *Driver) apply(ev Event) {
 			t.Status.State = state
 		}
 		d.byAddr[ev.Terminal] = t
+	case "missed":
+		// The core's missed notification carries the replacement
+		// snapshot: reseed in place, without a reconnect gap.
+		raw, ok := ev.Data["terminals"]
+		if !ok {
+			return
+		}
+		b, err := json.Marshal(raw)
+		if err != nil {
+			return
+		}
+		var terms []Terminal
+		if json.Unmarshal(b, &terms) == nil {
+			d.reseedLocked(terms)
+		}
 	case "title":
 		if t, ok := d.byAddr[ev.Terminal]; ok {
 			if title, ok := ev.Data["title"].(string); ok {
@@ -207,11 +243,8 @@ func (d *Driver) apply(ev Event) {
 				d.byAddr[ev.Terminal] = t
 			}
 		}
-	case "lost":
-		d.lost[ev.Terminal] = true
-		d.drop(ev.Terminal)
-	case "finished", "removed":
-		delete(d.lost, ev.Terminal)
+	case "lost", "finished", "removed":
+		d.exited[ev.Terminal] = true
 		d.drop(ev.Terminal)
 	}
 }
@@ -235,6 +268,9 @@ func (d *Driver) DriveStatus(_ context.Context) (map[string]string, map[string]h
 	defer d.mu.RUnlock()
 	badges := map[string]string{}
 	driven := map[string]herdr.DrivenInfo{}
+	if !d.synced {
+		return badges, driven
+	}
 	for path, addr := range d.byPath {
 		t, ok := d.byAddr[addr]
 		if !ok || t.Status == nil || t.Status.State == "" {
@@ -250,6 +286,9 @@ func (d *Driver) DriveStatus(_ context.Context) (map[string]string, map[string]h
 func (d *Driver) TargetForPath(_ context.Context, path string) (string, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
+	if !d.synced {
+		return "", ErrUnsynced
+	}
 	addr, ok := d.byPath[path]
 	if !ok {
 		return "", herdr.ErrNotDriven
@@ -267,6 +306,9 @@ func (d *Driver) Agents(_ context.Context) ([]herdr.Agent, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	agents := make([]herdr.Agent, 0, len(d.byPath))
+	if !d.synced {
+		return agents, nil
+	}
 	for path, addr := range d.byPath {
 		t := d.byAddr[addr]
 		st := ""
@@ -348,21 +390,47 @@ func (d *Driver) Prompt(ctx context.Context, addr, text string) error {
 	if err != nil {
 		return err
 	}
-	if res.Started != nil && !*res.Started {
+	if res.Started == nil || !*res.Started {
 		// started:false means the turn did not begin in the send
-		// window. The first-paint race leaves the draft pasted in the
-		// composer with its Enter lost, so resending would double the
-		// text: nudge Enter instead, same as the create flow.
+		// window; null means no report arrived at all. Only nudge
+		// when the unsent draft is still visible: /model and
+		// /thinking never start a turn, and a blind Enter could pick
+		// the first row of pi's selector.
 		select {
 		case <-time.After(d.sendRetry):
 		case <-ctx.Done():
 			return ctx.Err()
 		}
-		if err := d.c.Keys(ctx, addr, []string{"enter"}); err != nil {
+		visible, err := d.draftVisible(ctx, addr, text)
+		if err != nil {
 			return err
+		}
+		if visible {
+			if err := d.c.Keys(ctx, addr, []string{"enter"}); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
+}
+
+// draftVisible reports whether the exact prompt still sits on screen
+// as an unsent draft. The collapsed prefix matches the create flow's
+// recovery probe.
+func (d *Driver) draftVisible(ctx context.Context, addr, text string) (bool, error) {
+	read, err := d.c.Read(ctx, addr, 60)
+	if err != nil {
+		return false, err
+	}
+	frag := []rune(strings.Join(strings.Fields(text), " "))
+	if len(frag) > 40 {
+		frag = frag[:40]
+	}
+	if len(frag) == 0 {
+		return false, nil
+	}
+	screen := strings.Join(strings.Fields(read.Text), " ")
+	return strings.Contains(screen, string(frag)), nil
 }
 
 // Stop aborts the terminal's current turn: hc presses esc for
@@ -400,9 +468,13 @@ func (d *Driver) Spawn(ctx context.Context, dir, name string, argv []string) (Te
 		d.mu.RLock()
 		rec, ok := d.byAddr[res.Address]
 		reported := ok && rec.Reported
+		exited := d.exited[res.Address]
 		d.mu.RUnlock()
 		if reported {
 			return res, nil
+		}
+		if exited || (ok && rec.State != "live") {
+			return fail(errors.New("hc: pi exited before its first status report"))
 		}
 		if time.Now().After(deadline) {
 			return fail(errors.New("hc: pi never filed its first status report"))

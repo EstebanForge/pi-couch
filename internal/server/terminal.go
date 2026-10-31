@@ -26,7 +26,13 @@ func (a *app) streamTerminal(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	target, err := a.statusFor().TargetForPath(ctx, meta.Path)
 	if err != nil {
-		writeSSE(w, "gone", "{}")
+		// A resync is temporary: reconnect, never declare the session
+		// gone while the core is reseeding.
+		event := "gone"
+		if errors.Is(err, hc.ErrUnsynced) {
+			event = "reset"
+		}
+		writeSSE(w, event, "{}")
 		flusher.Flush()
 		return
 	}
@@ -212,6 +218,12 @@ func (a *app) streamTerminalHC(w http.ResponseWriter, r *http.Request, target st
 	}
 	defer stream.Close()
 	flusher := http.NewResponseController(w)
+	// Observe viewers never set the core's grid: tell xterm the real
+	// size before the first paint, or cursor-addressed output lands
+	// on the wrong cells.
+	size, _ := json.Marshal(map[string]int{"cols": stream.Cols, "rows": stream.Rows})
+	writeSSE(w, "size", string(size))
+	flusher.Flush()
 	ticker := time.NewTicker(keepaliveEvery)
 	defer ticker.Stop()
 	for {

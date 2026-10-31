@@ -25,6 +25,12 @@ const frameHeader = 9
 // maxFramePayload mirrors the core's own 16 MiB wire cap.
 const maxFramePayload = 16 << 20
 
+type attachPending struct {
+	channel uint32
+	kind    byte
+	payload []byte
+}
+
 // AttachFrame is one chunk of terminal output.
 type AttachFrame struct {
 	Bytes []byte
@@ -40,6 +46,10 @@ type AttachStream struct {
 	conn      net.Conn
 	closeOnce sync.Once
 	stalled   atomic.Bool
+	// Cols and Rows are the core's real grid, not the requested one:
+	// observe viewers never set the terminal size.
+	Cols int
+	Rows int
 }
 
 // Frames returns the output stream.
@@ -98,18 +108,26 @@ func (c *Client) Attach(ctx context.Context, addr string, cols, rows int, observ
 	if err := conn.SetDeadline(time.Time{}); err != nil {
 		return fail(err)
 	}
-	// The attach reply is the next channel-0 data frame.
+	// The reply stays bounded and cancellable; only the live stream
+	// after it is unbounded.
+	stop := context.AfterFunc(ctx, func() { _ = conn.SetDeadline(time.Now()) })
+	defer stop()
+	// The core queues the first paint BEFORE the attach reply. Keep
+	// those frames and replay them, or the screen starts blank.
+	var early []attachPending
 	for {
 		channel, kind, payload, err := readFrame(br)
 		if err != nil {
 			return fail(fmt.Errorf("hc: attach reply: %w", err))
 		}
 		if channel != 0 || kind != frameData {
+			early = append(early, attachPending{channel, kind, payload})
 			continue
 		}
 		var resp struct {
 			Result *struct {
-				Channel uint32 `json:"channel"`
+				Channel  uint32   `json:"channel"`
+				Terminal Terminal `json:"terminal"`
 			} `json:"result"`
 			Error *Error `json:"error"`
 		}
@@ -122,46 +140,63 @@ func (c *Client) Attach(ctx context.Context, addr string, cols, rows int, observ
 		if resp.Result == nil || resp.Result.Channel == 0 {
 			return fail(fmt.Errorf("hc: empty attach result"))
 		}
-		go s.read(br, resp.Result.Channel)
+		s.Cols, s.Rows = resp.Result.Terminal.Cols, resp.Result.Terminal.Rows
+		if err := conn.SetDeadline(time.Time{}); err != nil {
+			return fail(err)
+		}
+		go s.read(br, resp.Result.Channel, early)
 		return s, nil
 	}
 }
 
 // read fans the attach channel out and credits every consumed byte.
-func (s *AttachStream) read(br *bufio.Reader, channel uint32) {
+func (s *AttachStream) read(br *bufio.Reader, channel uint32, early []attachPending) {
 	defer close(s.frames)
+	for _, f := range early {
+		if !s.deliver(channel, f.channel, f.kind, f.payload) {
+			return
+		}
+	}
 	for {
 		channelIn, kind, payload, err := readFrame(br)
 		if err != nil {
 			s.Close()
 			return
 		}
-		if channelIn != channel {
-			continue
-		}
-		switch kind {
-		case frameData:
-			credit := make([]byte, 4)
-			binary.LittleEndian.PutUint32(credit, uint32(len(payload)))
-			if _, err := s.conn.Write(encodeFrame(channel, frameCredit, credit)); err != nil {
-				s.Close()
-				return
-			}
-			select {
-			case s.frames <- AttachFrame{Bytes: payload}:
-			default:
-				// A stalled SSE consumer: a repaint behind this point
-				// would double-paint the screen, so end the stream as a
-				// reset and let the client reconnect into a fresh paint.
-				s.stalled.Store(true)
-				s.Close()
-				return
-			}
-		case frameClose:
-			s.Close()
+		if !s.deliver(channel, channelIn, kind, payload) {
 			return
 		}
 	}
+}
+
+// deliver handles one frame; false ends the stream.
+func (s *AttachStream) deliver(channel, channelIn uint32, kind byte, payload []byte) bool {
+	if channelIn != channel {
+		return true
+	}
+	switch kind {
+	case frameData:
+		credit := make([]byte, 4)
+		binary.LittleEndian.PutUint32(credit, uint32(len(payload)))
+		if _, err := s.conn.Write(encodeFrame(channel, frameCredit, credit)); err != nil {
+			s.Close()
+			return false
+		}
+		select {
+		case s.frames <- AttachFrame{Bytes: payload}:
+		default:
+			// A stalled SSE consumer: a repaint behind this point
+			// would double-paint the screen, so end the stream as a
+			// reset and let the client reconnect into a fresh paint.
+			s.stalled.Store(true)
+			s.Close()
+			return false
+		}
+	case frameClose:
+		s.Close()
+		return false
+	}
+	return true
 }
 
 func readFrame(br *bufio.Reader) (uint32, byte, []byte, error) {

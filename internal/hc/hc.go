@@ -181,7 +181,20 @@ func SocketPath() string {
 	if session == "" {
 		session = "default"
 	}
-	return filepath.Join(base, "herdr-core", session+".sock")
+	if info, err := os.Stat(base); err == nil && info.IsDir() {
+		return filepath.Join(base, "herdr-core", session+".sock")
+	}
+	// The core falls back beside its state when no runtime dir exists
+	// (macOS and some ssh logins).
+	state := os.Getenv("XDG_STATE_HOME")
+	if state == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return filepath.Join(base, "herdr-core", session+".sock")
+		}
+		state = filepath.Join(home, ".local", "state")
+	}
+	return filepath.Join(state, "herdr-core", session, session+".sock")
 }
 
 // New points the client at the discovered hc socket.
@@ -448,19 +461,28 @@ func (s *EventStream) read(reader *bufio.Reader) {
 	defer close(s.done)
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	// Heartbeats arrive every 15s; silence past three of them is a
+	// dead connection, so force the reconnect path.
+	_ = s.conn.SetReadDeadline(time.Now().Add(45 * time.Second))
 	for scanner.Scan() {
+		_ = s.conn.SetReadDeadline(time.Now().Add(45 * time.Second))
 		var note struct {
 			Method string `json:"method"`
 			Params struct {
 				Event
+				Terminals []Terminal `json:"terminals"`
 			} `json:"params"`
 		}
 		if json.Unmarshal(scanner.Bytes(), &note) != nil {
 			continue
 		}
 		if note.Method == "missed" {
-			// The core dropped our backlog: the only safe resync is a
-			// fresh snapshot, so end the stream and let Run resubscribe.
+			// The notification carries the fresh snapshot. Hand it to
+			// the consumer before ending the stream for resubscribe.
+			select {
+			case s.events <- Event{Type: "missed", Data: map[string]any{"terminals": note.Params.Terminals}}:
+			case <-s.stop:
+			}
 			return
 		}
 		if note.Method != "event" {

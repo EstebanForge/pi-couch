@@ -161,7 +161,7 @@ func (f *hcStreamFake) framed(conn net.Conn, br *bufio.Reader, hello struct {
 			_, _ = conn.Write(encodeFrame(0, 0, out))
 			return
 		}
-		out, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": call.ID, "result": map[string]any{"channel": 9, "terminal": map[string]any{"address": "t1"}}})
+		out, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": call.ID, "result": map[string]any{"channel": 9, "terminal": map[string]any{"address": "t1", "cols": 200, "rows": 120}}})
 		if _, err := conn.Write(encodeFrame(0, 0, out)); err != nil {
 			return
 		}
