@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -71,11 +70,16 @@ func (a *app) apiDialogAnswer(w http.ResponseWriter, r *http.Request) {
 		// id even after the entry expired; the dispatch re-reads and
 		// re-parses the pane before any key goes out.
 		if req.ID == "" || req.ID != a.paneDialogID(meta.Path) {
-			a.logger.Warn("dialog answer refused", "cause", "id gate",
-				"session", meta.Path, "req_id", req.ID, "bridge_id", dialog.ID, "has_bridge", has,
-				"pane_id_computed", a.paneDialogID(meta.Path), "pane_parsed", a.awaiting.parsed(meta.Path) != nil)
-			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-			return
+			// Esc dismisses whatever is open, so a stale id must not
+			// strand a cancel; dispatch still refuses when no dialog
+			// is on screen, protecting pi's idle editor.
+			if !(req.Answer == "escape" && a.awaiting.parsed(meta.Path) != nil) {
+				a.logger.Warn("dialog answer refused", "cause", "id gate",
+					"session", meta.Path, "req_id", req.ID, "bridge_id", dialog.ID, "has_bridge", has,
+					"pane_id_computed", a.paneDialogID(meta.Path), "pane_parsed", a.awaiting.parsed(meta.Path) != nil)
+				writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+				return
+			}
 		}
 	}
 	// Identity target for the dispatch's re-read: a matched bridge
@@ -138,7 +142,7 @@ func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, tex
 
 	if answer == "option" || answer == "toggle" {
 		if _, ok := toggleOption(a.awaiting.parsed(path), text); ok {
-			return a.answerToggle(w, ctx, paneID, text), false
+			return a.answerToggle(w, r, ctx, paneID, text), false
 		}
 	}
 
@@ -172,7 +176,7 @@ func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, tex
 		return a.answerFreeText(w, r, ctx, paneID, path, text)
 
 	case answer == "toggle":
-		return a.answerToggle(w, ctx, paneID, text), false
+		return a.answerToggle(w, r, ctx, paneID, text), false
 
 	case answer == "escape":
 		pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 30)
@@ -185,7 +189,10 @@ func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, tex
 			}
 			pr, err = a.herdr.PaneRead(ctx, paneID, "detection", 30)
 		}
-		if err != nil || !dialogOpen(pr.Text) || !stillUp(pr.Text) {
+		// Esc dismisses whatever dialog is open; stranding the card on
+		// an identity mismatch is worse than a redundant esc. Only a
+		// dialog-less screen refuses, protecting pi's idle editor.
+		if err != nil || !dialogOpen(pr.Text) {
 			a.logger.Warn("dialog answer refused", "cause", "dialog off screen", "session", path)
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
 			return false, true
@@ -403,10 +410,17 @@ func (a *app) answerFreeText(w http.ResponseWriter, r *http.Request, ctx context
 			return false, false
 		}
 		if m.Cursor == own {
-			// On the row yet not in input mode: the dialog changed under
-			// us; refuse rather than guess.
-			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-			return false, false
+			// Parked on the row yet no input line: one enter opens it.
+			if !a.paneSend(w, ctx, paneID, "", []string{"enter"}) {
+				return false, false
+			}
+			select {
+			case <-ctx.Done():
+				writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+				return false, false
+			case <-time.After(300 * time.Millisecond):
+			}
+			continue
 		}
 		steps := aimSteps(m.Cursor, own, len(m.Options))
 		downs := make([]string, steps)
@@ -440,41 +454,40 @@ func toggleOption(m *piDialog, want string) (piDialogOption, bool) {
 	return piDialogOption{}, false
 }
 
-// answerToggle uses rpiv's number hotkey, not a cursor walk. Checkbox
-// labels change when toggled, but row numbers and clean labels do not.
-func (a *app) answerToggle(w http.ResponseWriter, ctx context.Context, paneID, want string) bool {
-	for settle := 0; settle < 4; settle++ {
-		pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 30)
-		if err == nil {
-			if o, ok := toggleOption(parsePiDialog(pr.Text), want); ok {
-				if !a.paneSend(w, ctx, paneID, strconv.Itoa(o.Number), nil) {
-					return false
-				}
-				for attempt := 0; attempt < 4; attempt++ {
-					select {
-					case <-ctx.Done():
-						writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-						return false
-					case <-time.After(200 * time.Millisecond):
-					}
-					after, err := a.herdr.PaneRead(ctx, paneID, "detection", 30)
-					if err != nil {
-						continue
-					}
-					if now, ok := toggleOption(parsePiDialog(after.Text), want); ok && now.Checked != o.Checked {
-						writeJSON(w, http.StatusOK, map[string]any{"ok": true})
-						return true
-					}
-				}
-				writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-				return false
-			}
-		}
+// answerToggle walks the cursor to the row and presses space. rpiv
+// has no number hotkeys, and checkbox state changes the label paint,
+// so the flip itself is verified before answering 200.
+func (a *app) answerToggle(w http.ResponseWriter, r *http.Request, ctx context.Context, paneID, want string) bool {
+	if !a.settleWalk(w, r, ctx, paneID, want) {
+		return false
+	}
+	pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 30)
+	if err != nil {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+		return false
+	}
+	o, ok := toggleOption(parsePiDialog(pr.Text), want)
+	if !ok {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+		return false
+	}
+	if !a.paneSend(w, ctx, paneID, "", []string{"space"}) {
+		return false
+	}
+	for attempt := 0; attempt < 4; attempt++ {
 		select {
 		case <-ctx.Done():
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
 			return false
 		case <-time.After(200 * time.Millisecond):
+		}
+		after, err := a.herdr.PaneRead(ctx, paneID, "detection", 30)
+		if err != nil {
+			continue
+		}
+		if now, ok := toggleOption(parsePiDialog(after.Text), want); ok && now.Checked != o.Checked {
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+			return true
 		}
 	}
 	writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
@@ -855,7 +868,8 @@ func (a *app) answerDispatchHC(w http.ResponseWriter, r *http.Request, answer, t
 
 	case answer == "escape":
 		screen, ok := read()
-		if !ok || !dialogOpen(screen) || !stillUp(screen) {
+		// Esc dismisses whatever dialog is open (see the herdr path).
+		if !ok || !dialogOpen(screen) {
 			a.logger.Warn("dialog answer refused", "cause", "dialog off screen", "session", path, "driver", "hc")
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
 			return false, true
@@ -953,43 +967,9 @@ func (a *app) answerFreeTextHC(w http.ResponseWriter, ctx context.Context, drv *
 }
 
 func (a *app) answerToggleHC(w http.ResponseWriter, ctx context.Context, drv *hc.Driver, addr, want string) bool {
-	for settle := 0; settle < 4; settle++ {
-		screen, err := drv.ReadScreen(ctx, addr, 60)
-		if err == nil {
-			if o, ok := toggleOption(parsePiDialog(screen), want); ok {
-				if err := drv.PressKeys(ctx, addr, []string{strconv.Itoa(o.Number)}); err != nil {
-					writeJSON(w, http.StatusBadGateway, map[string]string{"error": "send failed"})
-					return false
-				}
-				for attempt := 0; attempt < 4; attempt++ {
-					select {
-					case <-ctx.Done():
-						writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-						return false
-					case <-time.After(200 * time.Millisecond):
-					}
-					after, err := drv.ReadScreen(ctx, addr, 60)
-					if err != nil {
-						continue
-					}
-					if now, ok := toggleOption(parsePiDialog(after), want); ok && now.Checked != o.Checked {
-						writeJSON(w, http.StatusOK, map[string]any{"ok": true})
-						return true
-					}
-				}
-				writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-				return false
-			}
-		}
-		select {
-		case <-ctx.Done():
-			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-			return false
-		case <-time.After(200 * time.Millisecond):
-		}
-	}
-	writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-	return false
+	// The hc option walk with submit=false is the toggle: aim, space,
+	// and no auto-submit; the upstream stillUp gate bounds drift.
+	return a.answerOptionHC(w, ctx, drv, addr, want, false)
 }
 
 // answerOptionHC walks pi's dialog cursor to the option and confirms

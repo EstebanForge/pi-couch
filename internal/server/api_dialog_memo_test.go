@@ -53,6 +53,7 @@ type fakeHerdrOpts struct {
 	paneAfterSend            *string     // pane.read text once a send_input landed
 	paneSeq                  []string    // per-send states: after send n, serve paneSeq[min(n-1, len-1)]
 	lastText                 *string     // last send_input text param
+	lastTexts                *[]string   // every send_input text param
 	keysLog                  *[][]string // every non-empty send_input keys call
 	paneCloses               *int32      // pane.close count
 	wsCloses                 *int32      // workspace.close count
@@ -218,6 +219,15 @@ func herdrFake(t *testing.T, o fakeHerdrOpts) string {
 						_ = json.Unmarshal(m.Params, &p)
 						if len(p.Keys) > 0 {
 							*o.keysLog = append(*o.keysLog, p.Keys)
+						}
+					}
+					if o.lastTexts != nil {
+						var pt struct {
+							Text string `json:"text"`
+						}
+						_ = json.Unmarshal(m.Params, &pt)
+						if pt.Text != "" {
+							*o.lastTexts = append(*o.lastTexts, pt.Text)
 						}
 					}
 					if o.lastText != nil {

@@ -46,19 +46,12 @@ func TestDialogAnswerTargetsTheShownDialog(t *testing.T) {
 		t.Fatalf("yes sent %d key batches into the wrong dialog", n)
 	}
 
-	if code := post(`{"id":"old","answer":"escape"}`); code != http.StatusConflict {
-		t.Fatalf("escape on a replaced confirm: code=%d, want 409", code)
-	}
-	if n := atomic.LoadInt32(&sends); n != 0 {
-		t.Fatalf("escape sent %d key batches into the wrong dialog", n)
-	}
-
-	// The shown dialog answers: same id, title back on screen.
-	pane = confirmPaint("Allow edit?")
-	if code := post(`{"id":"old","answer":"yes"}`); code != http.StatusOK {
-		t.Fatalf("yes on the shown confirm: code=%d", code)
+	// Esc is dismiss-safe: it goes out even when the shown dialog is
+	// not the one the card minted, so a cancel can never strand.
+	if code := post(`{"id":"old","answer":"escape"}`); code != http.StatusOK {
+		t.Fatalf("escape on a replaced confirm: code=%d, want 200", code)
 	}
 	if n := atomic.LoadInt32(&sends); n != 1 {
-		t.Fatalf("sends=%d, want 1", n)
+		t.Fatalf("sends=%d, want the one esc", n)
 	}
 }

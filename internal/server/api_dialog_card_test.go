@@ -564,8 +564,8 @@ func TestDialogAnswerToggleMultiSelect(t *testing.T) {
 			if rec.Code != http.StatusOK {
 				t.Fatalf("toggle code=%d body=%s", rec.Code, rec.Body.String())
 			}
-			if lastText != "1" || len(keys) != 0 {
-				t.Fatalf("text=%q keys=%v, want only the row-1 hotkey", lastText, keys)
+			if lastText != "" || len(keys) == 0 || keys[len(keys)-1][0] != "space" {
+				t.Fatalf("text=%q keys=%v, want a walk ending in space", lastText, keys)
 			}
 		})
 	}
@@ -923,4 +923,108 @@ func (s *syncBuffer) String() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.buf.String()
+}
+
+// Toggling walks the cursor to the row and presses space; rpiv has no
+// number hotkeys, so digit sends would answer nothing.
+func TestDialogAnswerToggleWalksAndSpaces(t *testing.T) {
+	before := " Colors\n Choose colors\n❯ 1. [ ] Red\n  Include red.\n  2. [ ] Green\n  Include green.\n  3. [ ] Blue\n  Include blue.\n  4. [ ] Type something.\n  Submit\n" +
+		" Enter to select · ↑/↓ to navigate · space to toggle · Esc to cancel"
+	onBlue := strings.Replace(before, "❯ 1. [ ] Red", "  1. [ ] Red", 1)
+	onBlue = strings.Replace(onBlue, "  3. [ ] Blue", "❯ 3. [ ] Blue", 1)
+	blueOn := strings.Replace(onBlue, "3. [ ] Blue", "3. [✔] Blue", 1)
+	var sends int32
+	var keys [][]string
+	var texts []string
+	var sessPath string
+	sock := herdrFake(t, fakeHerdrOpts{
+		sessPath: &sessPath, sends: &sends, keysLog: &keys, lastTexts: &texts, paneText: &before,
+		paneSeq: []string{onBlue, blueOn},
+	})
+	a, sub, _ := streamTestAppWithHerdr(t, sock)
+	sessPath = filepath.Join(sub, "s1.jsonl")
+	a.bridgeMu.Lock()
+	a.bridge = map[string]bridgeEntry{}
+	a.bridge[sessPath] = bridgeEntry{dialog: BridgeDialog{ID: "dm", Kind: "custom", Title: "Colors"}, expires: time.Now().Add(time.Minute)}
+	a.bridgeMu.Unlock()
+	a.awaiting = newAwaitingDetector(a.herdr, time.Hour)
+	a.awaiting.tick(context.Background())
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/s1/dialog/answer", strings.NewReader(`{"id":"dm","answer":"toggle","text":"Blue"}`))
+	req.Host = "127.0.0.1:8090"
+	rec := httptest.NewRecorder()
+	a.guard(a.routes()).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("toggle code=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, keys := range keys {
+		if len(keys) == 1 && (keys[0] == "1" || keys[0] == "3") {
+			t.Fatalf("digit key sent: %v", keys)
+		}
+	}
+	if len(keys) == 0 || keys[len(keys)-1][0] != "space" {
+		t.Fatalf("final send=%v, want one space key", keys)
+	}
+}
+
+// Escape only needs an open dialog on the fresh read: stranding the
+// card on an identity mismatch is worse than a redundant esc.
+func TestDialogAnswerEscapeDifferentDialogStillCancels(t *testing.T) {
+	before := " Colors\n Choose colors\n❯ 1. [ ] Red\n  2. [ ] Green\n  Submit\n" +
+		" Enter to select · ↑/↓ to navigate · space to toggle · Esc to cancel"
+	other := " Sizes\n Pick a size\n❯ 1. Small\n  2. Large\n  Submit\n" +
+		" Enter to select · ↑/↓ to navigate · Esc to cancel"
+	var sends int32
+	var keys [][]string
+	var sessPath string
+	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath, sends: &sends, keysLog: &keys, paneText: &other})
+	a, sub, _ := streamTestAppWithHerdr(t, sock)
+	sessPath = filepath.Join(sub, "s1.jsonl")
+	a.bridgeMu.Lock()
+	a.bridge = map[string]bridgeEntry{}
+	a.bridgeMu.Unlock()
+	a.awaiting = newAwaitingDetector(a.herdr, time.Hour)
+	a.awaiting.tick(context.Background())
+	// The card was minted for the Colors paint; the pane now shows a
+	// different dialog. Esc must still go out.
+	stale := paneParseID(sessPath, parsePiDialog(before))
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/s1/dialog/answer", strings.NewReader(`{"id":"`+stale+`","answer":"escape"}`))
+	req.Host = "127.0.0.1:8090"
+	rec := httptest.NewRecorder()
+	a.guard(a.routes()).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("escape code=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// A cursor resting on the type row without input mode needs one enter
+// to open the line, not a refusal.
+func TestDialogAnswerTypeActivatesInputOnTheRow(t *testing.T) {
+	before := " Color\n Which flavor?\n  1. Chili\n  2.plain\n❯ 3. Type something.\n" +
+		" Enter to select · ↑/↓ to navigate · Esc to cancel · Shift+Enter for newline · Ctrl+U to clear"
+	chiliEcho := strings.Replace(before, "❯ 3. Type something.", "❯ 3. chili", 1)
+	var sends int32
+	var texts []string
+	var sessPath string
+	sock := herdrFake(t, fakeHerdrOpts{
+		sessPath: &sessPath, sends: &sends, lastTexts: &texts, paneText: &before,
+		paneSeq: []string{chiliEcho},
+	})
+	a, sub, _ := streamTestAppWithHerdr(t, sock)
+	sessPath = filepath.Join(sub, "s1.jsonl")
+	a.bridgeMu.Lock()
+	a.bridge = map[string]bridgeEntry{}
+	a.bridge[sessPath] = bridgeEntry{dialog: BridgeDialog{ID: "dw", Kind: "custom", Title: "Color"}, expires: time.Now().Add(time.Minute)}
+	a.bridgeMu.Unlock()
+	a.awaiting = newAwaitingDetector(a.herdr, time.Hour)
+	a.awaiting.tick(context.Background())
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/s1/dialog/answer", strings.NewReader(`{"id":"dw","answer":"type","text":"chili"}`))
+	req.Host = "127.0.0.1:8090"
+	rec := httptest.NewRecorder()
+	a.guard(a.routes()).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("type code=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(texts) == 0 || texts[len(texts)-1] != "chili" {
+		t.Fatalf("texts=%v, want the typed answer", texts)
+	}
 }
