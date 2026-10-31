@@ -98,7 +98,11 @@ describe("DialogActions", () => {
 						id: "d1",
 						kind: "custom",
 						title: "Colors",
-						options: [{ label: "[ ] Red" }, { label: "[ ] Type something." }, { label: "Submit" }],
+						options: [
+							{ label: "Red", checkbox: true, checked: false },
+							{ label: "Type something.", checkbox: true },
+							{ label: "Submit" },
+						],
 						cursor: 0,
 					}}
 				/>,
@@ -106,8 +110,8 @@ describe("DialogActions", () => {
 		);
 		expect(html).not.toContain("Type something.");
 		expect(html).toContain('placeholder="Type your answer…"');
-		expect(dialogAnswerVerb("[ ] Red", true)).toBe("toggle");
-		expect(dialogAnswerVerb("Submit", true)).toBe("option");
+		expect(dialogAnswerVerb("Red", true)).toBe("toggle");
+		expect(dialogAnswerVerb("Submit", true, true)).toBe("option");
 	});
 
 	it("renders an editor draft with Submit and Cancel", () => {

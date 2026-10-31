@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -121,7 +122,12 @@ func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, tex
 		if expectTitle != "" {
 			return p.Title == expectTitle
 		}
-		return paneParseID(path, p) == expectID
+		if strings.HasPrefix(expectID, "pane-") {
+			return paneParseID(path, p) == expectID
+		}
+		// A bridge uuid has no pane-hash counterpart. Its registry
+		// match above plus a live dialog here is the identity gate.
+		return true
 	}
 	paneID, err := a.statusFor().TargetForPath(ctx, path)
 	if err != nil {
@@ -160,10 +166,7 @@ func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, tex
 		return a.answerFreeText(w, r, ctx, paneID, path, text)
 
 	case answer == "toggle":
-		if !a.settleWalk(w, r, ctx, paneID, text) {
-			return false, false
-		}
-		return a.answerSend(w, ctx, paneID, []string{"space"}), false
+		return a.answerToggle(w, ctx, paneID, text), false
 
 	case answer == "escape":
 		pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 30)
@@ -301,6 +304,13 @@ func (a *app) settleWalk(w http.ResponseWriter, r *http.Request, ctx context.Con
 		case <-time.After(250 * time.Millisecond):
 		}
 	}
+	if m != nil && m.Cursor != target {
+		// The last attempt's keys may have landed after its read.
+		pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 30)
+		if err == nil {
+			m = parsePiDialog(pr.Text)
+		}
+	}
 	if m == nil || m.Cursor != target {
 		// The cursor never settled on the target row.
 		a.logger.Warn("dialog answer refused", "cause", "cursor never settled", "option", want)
@@ -410,6 +420,59 @@ func (a *app) answerFreeText(w http.ResponseWriter, r *http.Request, ctx context
 	// pi never showed its input line.
 	writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
 	return false, false
+}
+
+func toggleOption(m *piDialog, want string) (piDialogOption, bool) {
+	if m == nil || m.InputMode {
+		return piDialogOption{}, false
+	}
+	for _, o := range m.Options {
+		if o.Checkbox && o.Number > 0 && strings.TrimSpace(o.Label) == strings.TrimSpace(want) {
+			return o, true
+		}
+	}
+	return piDialogOption{}, false
+}
+
+// answerToggle uses rpiv's number hotkey, not a cursor walk. Checkbox
+// labels change when toggled, but row numbers and clean labels do not.
+func (a *app) answerToggle(w http.ResponseWriter, ctx context.Context, paneID, want string) bool {
+	for settle := 0; settle < 4; settle++ {
+		pr, err := a.herdr.PaneRead(ctx, paneID, "detection", 30)
+		if err == nil {
+			if o, ok := toggleOption(parsePiDialog(pr.Text), want); ok {
+				if !a.paneSend(w, ctx, paneID, strconv.Itoa(o.Number), nil) {
+					return false
+				}
+				for attempt := 0; attempt < 4; attempt++ {
+					select {
+					case <-ctx.Done():
+						writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+						return false
+					case <-time.After(200 * time.Millisecond):
+					}
+					after, err := a.herdr.PaneRead(ctx, paneID, "detection", 30)
+					if err != nil {
+						continue
+					}
+					if now, ok := toggleOption(parsePiDialog(after.Text), want); ok && now.Checked != o.Checked {
+						writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+						return true
+					}
+				}
+				writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+				return false
+			}
+		}
+		select {
+		case <-ctx.Done():
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+			return false
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+	writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+	return false
 }
 
 // typeAndSubmit types the answer into pi's input line and only presses
@@ -735,7 +798,12 @@ func (a *app) answerDispatchHC(w http.ResponseWriter, r *http.Request, answer, t
 		if expectTitle != "" {
 			return p.Title == expectTitle
 		}
-		return paneParseID(path, p) == expectID
+		if strings.HasPrefix(expectID, "pane-") {
+			return paneParseID(path, p) == expectID
+		}
+		// A bridge uuid has no pane-hash counterpart. Its registry
+		// match above plus a live dialog here is the identity gate.
+		return true
 	}
 	read := func() (string, bool) {
 		screen, err := drv.ReadScreen(ctx, addr, 60)
@@ -771,7 +839,7 @@ func (a *app) answerDispatchHC(w http.ResponseWriter, r *http.Request, answer, t
 		return a.answerFreeTextHC(w, ctx, drv, addr, path, text)
 
 	case answer == "toggle":
-		return a.answerOptionHC(w, ctx, drv, addr, text, false), false
+		return a.answerToggleHC(w, ctx, drv, addr, text), false
 
 	case answer == "escape":
 		screen, ok := read()
@@ -872,6 +940,46 @@ func (a *app) answerFreeTextHC(w http.ResponseWriter, ctx context.Context, drv *
 	return ok, false
 }
 
+func (a *app) answerToggleHC(w http.ResponseWriter, ctx context.Context, drv *hc.Driver, addr, want string) bool {
+	for settle := 0; settle < 4; settle++ {
+		screen, err := drv.ReadScreen(ctx, addr, 60)
+		if err == nil {
+			if o, ok := toggleOption(parsePiDialog(screen), want); ok {
+				if err := drv.PressKeys(ctx, addr, []string{strconv.Itoa(o.Number)}); err != nil {
+					writeJSON(w, http.StatusBadGateway, map[string]string{"error": "send failed"})
+					return false
+				}
+				for attempt := 0; attempt < 4; attempt++ {
+					select {
+					case <-ctx.Done():
+						writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+						return false
+					case <-time.After(200 * time.Millisecond):
+					}
+					after, err := drv.ReadScreen(ctx, addr, 60)
+					if err != nil {
+						continue
+					}
+					if now, ok := toggleOption(parsePiDialog(after), want); ok && now.Checked != o.Checked {
+						writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+						return true
+					}
+				}
+				writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+				return false
+			}
+		}
+		select {
+		case <-ctx.Done():
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+			return false
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+	writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+	return false
+}
+
 // answerOptionHC walks pi's dialog cursor to the option and confirms
 // it, settle-verified like the herdr walk: re-read, aim, verify the
 // cursor, then enter.
@@ -924,6 +1032,12 @@ func (a *app) answerOptionHC(w http.ResponseWriter, ctx context.Context, drv *hc
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
 			return false
 		case <-time.After(250 * time.Millisecond):
+		}
+	}
+	if m != nil && m.Cursor != target {
+		screen, err := drv.ReadScreen(ctx, addr, 60)
+		if err == nil {
+			m = parsePiDialog(screen)
 		}
 	}
 	if m == nil || m.Cursor != target {

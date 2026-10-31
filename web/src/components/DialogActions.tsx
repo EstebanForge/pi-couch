@@ -17,12 +17,12 @@ const checkboxPrefixRe = /^\[[ xX]\]\s*/;
  * three keep the card. The tapped control keeps its spinner until
  * the keys land, so the seconds before pi's end event never read as a
  * dead tap. */
-export function dialogAnswerVerb(label: string, multi: boolean): string {
-	return multi && label !== "Submit" ? "toggle" : "option";
+export function dialogAnswerVerb(_label: string, multi: boolean, next = false): string {
+	return multi && !next ? "toggle" : "option";
 }
 
 export function dialogServedSignature(dialog: BridgeDialog): string {
-	return `${dialog.title}\n${(dialog.options ?? []).map((o) => o.label).join("\n")}\n${dialog.input_mode === true}`;
+	return `${dialog.title}\n${(dialog.options ?? []).map((o) => `${o.label}:${o.checked === true}`).join("\n")}\n${dialog.input_mode === true}`;
 }
 
 export function DialogActions({ k, dialog }: { k: string; dialog: BridgeDialog }) {
@@ -70,7 +70,7 @@ export function DialogActions({ k, dialog }: { k: string; dialog: BridgeDialog }
 	// truly moved on.
 	if (!id) return null;
 	const options = dialog.options ?? [];
-	const multi = options.some((o) => checkboxPrefixRe.test(o.label));
+	const multi = options.some((o) => o.checkbox);
 	const ownAnswer = options.find((o) => piOwnAnswerRe.test(o.label.replace(checkboxPrefixRe, "")));
 	const tappable = options.filter((o) => o !== ownAnswer);
 	const isEditor = dialog.kind === "editor";
@@ -130,7 +130,7 @@ export function DialogActions({ k, dialog }: { k: string; dialog: BridgeDialog }
 							type="button"
 							disabled={busy}
 							onClick={() => {
-								const verb = dialogAnswerVerb(o.label, multi);
+								const verb = dialogAnswerVerb(o.label, multi, o.next);
 								answer(
 									verb === "toggle" ? "toggle" : o.label,
 									o.label,
@@ -148,7 +148,9 @@ export function DialogActions({ k, dialog }: { k: string; dialog: BridgeDialog }
 						>
 							{active === o.label && <Spinner size={14} />}
 							<span className="min-w-0 flex-1">
-								<span className="block text-[14px]">{o.label}</span>
+								<span className="block text-[14px]">
+									{o.checkbox ? `${o.checked ? "[✓]" : "[ ]"} ${o.label}` : o.label}
+								</span>
 								{o.description && (
 									<span className="mt-0.5 block text-[12px] opacity-80 [overflow-wrap:anywhere]">
 										{o.description}

@@ -467,3 +467,33 @@ func TestPiEmptyEditorDialog(t *testing.T) {
 		t.Fatal("prose matched")
 	}
 }
+
+func TestParsePiDialogMultiSelectRealRows(t *testing.T) {
+	screen := " Colors\n Choose colors\n❯ 1. [ ] Red\n  Include red.\n  2. [✔] Green\n  Include green.\n  3. [ ] Blue\n  Include blue.\n  4. [ ] Type something.\n  Submit\n" +
+		" Enter to select · ↑/↓ to navigate · space to toggle · Esc to cancel"
+	d := parsePiDialog(screen)
+	if d == nil {
+		t.Fatal("multi-select did not parse")
+	}
+	if len(d.Options) != 5 {
+		t.Fatalf("options=%d, want 4 rows plus Submit: %+v", len(d.Options), d.Options)
+	}
+	if d.Options[0].Label != "Red" || d.Options[0].Description != "Include red." {
+		t.Fatalf("first row=%+v", d.Options[0])
+	}
+	if !d.Options[1].Checked || d.Options[1].Number != 2 || !d.Options[1].Checkbox {
+		t.Fatalf("checked row=%+v", d.Options[1])
+	}
+	if !d.Options[4].Next || d.Cursor != 0 {
+		t.Fatalf("submit/cursor=%+v cursor=%d", d.Options[4], d.Cursor)
+	}
+}
+
+func TestParsePiDialogMultiSelectInputHint(t *testing.T) {
+	screen := " Colors\n Choose colors\n  1. [ ] Red\n  2. [ ] Green\n❯ 3. [ ]\n" +
+		" Enter to select · ↑/↓ to navigate · space to toggle · Esc to cancel · Shift+Enter for newline · Ctrl+U to clear"
+	d := parsePiDialog(screen)
+	if d == nil || !d.InputMode {
+		t.Fatalf("multi-select input mode not detected: %+v", d)
+	}
+}

@@ -505,15 +505,43 @@ func TestDialogAnswerNumericFreeTextRow(t *testing.T) {
 	}
 }
 
-func TestDialogAnswerToggleMultiSelect(t *testing.T) {
-	before := " Colors\n Choose colors\n❯ [ ] Red\n  [ ] Green\n  [ ] Type something.\n  Submit\n" +
+func TestDialogAnswerEscapeUntitledBridgeDialog(t *testing.T) {
+	before := " Colors\n Choose colors\n❯ 1. [ ] Red\n  2. [ ] Green\n  Submit\n" +
 		" Enter to select · ↑/↓ to navigate · space to toggle · Esc to cancel"
-	after := strings.Replace(before, "[ ] Red", "[x] Red", 1)
 	var sends int32
 	var keys [][]string
 	var sessPath string
+	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath, sends: &sends, keysLog: &keys, paneText: &before})
+	a, sub, _ := streamTestAppWithHerdr(t, sock)
+	sessPath = filepath.Join(sub, "s1.jsonl")
+	a.bridgeMu.Lock()
+	a.bridge = map[string]bridgeEntry{}
+	a.bridge[sessPath] = bridgeEntry{
+		dialog:  BridgeDialog{ID: "bridge-uuid", Kind: "custom"},
+		expires: time.Now().Add(time.Minute),
+	}
+	a.bridgeMu.Unlock()
+	a.awaiting = newAwaitingDetector(a.herdr, time.Hour)
+	a.awaiting.tick(context.Background())
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/s1/dialog/answer", strings.NewReader(`{"id":"bridge-uuid","answer":"escape"}`))
+	req.Host = "127.0.0.1:8090"
+	rec := httptest.NewRecorder()
+	a.guard(a.routes()).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("escape code=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestDialogAnswerToggleMultiSelect(t *testing.T) {
+	before := " Colors\n Choose colors\n❯ 1. [ ] Red\n  Include red.\n  2. [ ] Green\n  Include green.\n  3. [ ] Type something.\n  Submit\n" +
+		" Enter to select · ↑/↓ to navigate · space to toggle · Esc to cancel"
+	after := strings.Replace(before, "[ ] Red", "[✔] Red", 1)
+	var sends int32
+	var keys [][]string
+	var lastText string
+	var sessPath string
 	sock := herdrFake(t, fakeHerdrOpts{
-		sessPath: &sessPath, sends: &sends, keysLog: &keys, paneText: &before,
+		sessPath: &sessPath, sends: &sends, keysLog: &keys, paneText: &before, lastText: &lastText,
 		paneSeq: []string{after},
 	})
 	a, sub, _ := streamTestAppWithHerdr(t, sock)
@@ -527,15 +555,15 @@ func TestDialogAnswerToggleMultiSelect(t *testing.T) {
 	a.bridgeMu.Unlock()
 	a.awaiting = newAwaitingDetector(a.herdr, time.Hour)
 	a.awaiting.tick(context.Background())
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/s1/dialog/answer", strings.NewReader(`{"id":"dm","answer":"toggle","text":"[ ] Red"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/s1/dialog/answer", strings.NewReader(`{"id":"dm","answer":"toggle","text":"Red"}`))
 	req.Host = "127.0.0.1:8090"
 	rec := httptest.NewRecorder()
 	a.guard(a.routes()).ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("toggle code=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if len(keys) != 1 || len(keys[0]) != 1 || keys[0][0] != "space" {
-		t.Fatalf("keys=%v, want one space toggle", keys)
+	if lastText != "1" || len(keys) != 0 {
+		t.Fatalf("text=%q keys=%v, want only the row-1 hotkey", lastText, keys)
 	}
 }
 

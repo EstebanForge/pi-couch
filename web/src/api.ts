@@ -79,6 +79,9 @@ export type Todo = { id: number; subject: string; status: string; active_form?: 
 export type DialogOption = {
 	label: string;
 	description?: string;
+	checkbox?: boolean;
+	checked?: boolean;
+	next?: boolean;
 };
 
 export type BridgeDialog = {

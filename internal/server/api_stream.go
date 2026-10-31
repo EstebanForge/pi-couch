@@ -105,6 +105,9 @@ type transcriptStatus struct {
 type dialogOptionWire struct {
 	Label       string `json:"label"`
 	Description string `json:"description,omitempty"`
+	Checkbox    bool   `json:"checkbox,omitempty"`
+	Checked     bool   `json:"checked,omitempty"`
+	Next        bool   `json:"next,omitempty"`
 }
 
 type dialogWire struct {
@@ -157,7 +160,7 @@ func (a *app) dialogWireFor(path string, d BridgeDialog, ok bool) *dialogWire {
 			}
 		}
 		for _, o := range p.Options {
-			w.Options = append(w.Options, dialogOptionWire{Label: o.Label, Description: o.Description})
+			w.Options = append(w.Options, dialogOptionWire{Label: o.Label, Description: o.Description, Checkbox: o.Checkbox, Checked: o.Checked, Next: o.Next})
 		}
 		if w.Kind == "editor" && w.Title == "" {
 			w.Title = "Commit message"
@@ -210,7 +213,7 @@ func dialogEqual(a, b *dialogWire) bool {
 		return a == b
 	}
 	if a.ID != b.ID || a.Kind != b.Kind || a.Title != b.Title ||
-		a.Body != b.Body || a.Cursor != b.Cursor || a.Scrolled != b.Scrolled || len(a.Options) != len(b.Options) {
+		a.Body != b.Body || a.Cursor != b.Cursor || a.InputMode != b.InputMode || a.Scrolled != b.Scrolled || len(a.Options) != len(b.Options) {
 		return false
 	}
 	for i := range a.Options {

@@ -27,6 +27,10 @@ func piOwnAnswerLabel(label string) bool {
 type piDialogOption struct {
 	Label       string
 	Description string
+	Number      int
+	Checkbox    bool
+	Checked     bool
+	Next        bool
 }
 
 type piDialog struct {
@@ -73,7 +77,7 @@ var (
 	// The same questionnaire once the cursor reaches that row: the row
 	// label is replaced by the live draft and the hint gains the
 	// newline/clear segments. Captured live 2026-10-17.
-	piAskInputHintRe = regexp.MustCompile(`(?i)enter to select\s*[·•]\s*↑/↓ to navigate\s*[·•]\s*esc to cancel.*shift\+enter for newline`)
+	piAskInputHintRe = regexp.MustCompile(`(?i)enter to select\s*[·•]\s*↑/↓ to navigate(\s*[·•]\s*space to toggle)?\s*[·•]\s*esc to cancel.*shift\+enter for newline`)
 	// pi's plain menu and input hints, shared with awaiting.go.
 	// piRowCursorRe marks the row pi's cursor sits on.
 	piRowCursorRe  = regexp.MustCompile(`^[→❯›➜]\s*\S`)
@@ -319,6 +323,7 @@ func parsePiRowsBlock(lines []string, kind string) *piDialog {
 	var opts []piDialogOption
 	var rest []string // painted lines met before the row they belong to
 	belowAtMark := -1
+	numberedSeen := false
 	boundary := end
 	for i := end; i > 0 && len(opts) < 32; i-- {
 		raw := lines[i-1]
@@ -332,6 +337,12 @@ func parsePiRowsBlock(lines []string, kind string) *piDialog {
 			continue
 		}
 		label, numbered, isRow := piRowLabel(raw)
+		if isRow && !numbered && numberedSeen {
+			// Multi-select descriptions use the same two-space indent
+			// as Submit. Once a numbered row sits below, plain text
+			// above it belongs to that row, not to the cursor list.
+			isRow = false
+		}
 		if !isRow {
 			if len(opts) > 0 || len(rest) > 0 {
 				// Painted between rows and hint: it belongs to whichever
@@ -343,13 +354,15 @@ func parsePiRowsBlock(lines []string, kind string) *piDialog {
 			continue
 		}
 		if numbered {
-			opts = append([]piDialogOption{{Label: label, Description: strings.Join(rest, " ")}}, opts...)
+			clean, checkbox, checked := piCheckboxState(label)
+			opts = append([]piDialogOption{{Label: clean, Description: strings.Join(rest, " "), Number: piRowNumber(raw), Checkbox: checkbox, Checked: checked}}, opts...)
+			numberedSeen = true
 		} else if len(rest) > 0 {
 			// A plain menu's wrapped option rest continues the label.
 			opts = append([]piDialogOption{{Label: strings.Join(append([]string{label}, rest...), " ")}}, opts...)
 			rest = nil
 		} else {
-			opts = append([]piDialogOption{{Label: label}}, opts...)
+			opts = append([]piDialogOption{{Label: label, Next: strings.EqualFold(label, "submit") || strings.EqualFold(label, "next")}}, opts...)
 		}
 		rest = nil
 		if piRowCursorRe.MatchString(strings.TrimLeft(raw, " ")) {
@@ -387,6 +400,27 @@ done:
 		d.Body = strings.Join(head[1:], "\n")
 	}
 	return d
+}
+
+var piCheckboxRe = regexp.MustCompile(`^\[([ xX✔])\]\s*`)
+
+func piCheckboxState(label string) (string, bool, bool) {
+	m := piCheckboxRe.FindStringSubmatch(label)
+	if m == nil {
+		return label, false, false
+	}
+	return strings.TrimSpace(piCheckboxRe.ReplaceAllString(label, "")), true, m[1] != " "
+}
+
+func piRowNumber(raw string) int {
+	line := strings.TrimSpace(raw)
+	line = strings.TrimSpace(piCursorMarkRe.ReplaceAllString(line, ""))
+	m := piNumberedRe.FindStringSubmatch(line)
+	if m == nil {
+		return 0
+	}
+	n, _ := strconv.Atoi(m[1])
+	return n
 }
 
 // piRowLabel strips pi's row chrome and says whether the line is a
