@@ -99,13 +99,13 @@ func agentName(label string) string {
 // waitAgentActive polls until the pane's agent is a named, promptable
 // target: herdr rejects prompts with "not an active named agent" while
 // the process is still launching (agent_status unknown).
-func waitAgentActive(ctx context.Context, hc *herdr.Client, paneID string) error {
+func waitAgentActive(ctx context.Context, hc *herdr.Client, paneID, name string) error {
 	deadline := time.Now().Add(15 * time.Second)
 	for {
 		agents, err := hc.Agents(ctx)
 		if err == nil {
 			for _, ag := range agents {
-				if ag.PaneID == paneID && ag.AgentStatus != "" && ag.AgentStatus != "unknown" {
+				if ag.PaneID == paneID && ag.Name == name && ag.AgentStatus != "" && ag.AgentStatus != "unknown" {
 					return nil
 				}
 			}
@@ -464,7 +464,7 @@ func (a *app) runAgent(ctx context.Context, paneID, name, prompt string, piArgs 
 		undo()
 		return fmt.Errorf("agent start: %w", err)
 	}
-	if err := waitAgentActive(ctx, a.herdr, paneID); err != nil {
+	if err := waitAgentActive(ctx, a.herdr, paneID, name); err != nil {
 		undo()
 		return err
 	}
@@ -481,9 +481,24 @@ func (a *app) runAgent(ctx context.Context, paneID, name, prompt string, piArgs 
 	}
 	a.logger.Info("pane ready", slog.Float64("waited_s", time.Since(start).Seconds()))
 	if prompt != "" {
-		if err := herdrRetryErr(func() error { return a.herdr.Prompt(ctx, name, prompt) }); err != nil {
-			undo()
-			return fmt.Errorf("prompt: %w", err)
+		// agent.list can report the new name active just before the
+		// prompt registry catches up. The refusal means herdr never
+		// accepted the prompt, so a short bounded retry is safe.
+		for attempt := 0; ; attempt++ {
+			err := herdrRetryErr(func() error { return a.herdr.Prompt(ctx, name, prompt) })
+			if err == nil {
+				break
+			}
+			if !strings.Contains(err.Error(), "not an active named agent") || attempt >= 4 {
+				undo()
+				return fmt.Errorf("prompt: %w", err)
+			}
+			select {
+			case <-ctx.Done():
+				undo()
+				return ctx.Err()
+			case <-time.After(400 * time.Millisecond):
+			}
 		}
 		// A prompt can fail soft: herdr accepts it while the agent is
 		// still settling and the keys go nowhere, and recovery can also
