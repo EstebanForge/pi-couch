@@ -32,7 +32,7 @@ else
 	gh release create "$tag" dist/pi-couch-* dist/checksums.txt --title "$tag" --generate-notes
 fi
 
-gh workflow dispatch update-formula.yml -R EstebanForge/homebrew-tap \
+gh workflow run update-formula.yml -R EstebanForge/homebrew-tap \
 	-f formula=pi-couch -f tag="$tag" -f repository=EstebanForge/pi-couch \
 	-f ext=bare -f assets=darwin-amd64,darwin-arm64,linux-amd64,linux-arm64
 
