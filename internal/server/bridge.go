@@ -19,10 +19,28 @@ const bridgeTTL = 10 * time.Minute
 // BridgeDialog is one open blocking pi dialog, by session path.
 type BridgeDialog struct {
 	// ID is the per-dialog id the extension generates at start; the
-	// answer endpoint refuses keys unless it still matches.
+	// answer endpoint refuses keys unless it still matches. For kind
+	// "ask" it is the rpiv tool-call id instead.
 	ID    string `json:"id,omitempty"`
-	Kind  string `json:"kind"`  // select, confirm, input, editor, custom
+	Kind  string `json:"kind"`  // select, confirm, input, editor, custom, ask
 	Title string `json:"title"` // dialog title, or the kind when untitled
+	// Questions is the rpiv ask_user_question payload (ADR-0009); an
+	// ask entry outranks the pane parse, which cannot read the
+	// questionnaire.
+	Questions []AskQuestion `json:"questions,omitempty"`
+}
+
+// AskQuestion is one question of a relayed ask_user_question call.
+type AskQuestion struct {
+	Question    string      `json:"question"`
+	Header      string      `json:"header,omitempty"`
+	MultiSelect bool        `json:"multi_select,omitempty"`
+	Options     []AskOption `json:"options"`
+}
+
+type AskOption struct {
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
 }
 
 // dialogFor prefers the bridge entry while herdr reports blocked, and
@@ -120,9 +138,19 @@ func (a *app) apiBridgeDialog(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		a.bridge[req.SessionPath] = bridgeEntry{
-			dialog:  BridgeDialog{ID: req.ID, Kind: req.Kind, Title: req.Title},
-			expires: time.Now().Add(bridgeTTL),
+		// The rpiv questionnaire mounts through ctx.ui.custom, so its own
+		// ui_prompt_start lands just after the ask entry (ADR-0009): a
+		// custom start must not downgrade a live ask. Any other kind is a
+		// different dialog family and replaces it.
+		skip := false
+		if e, ok := a.bridge[req.SessionPath]; ok && e.dialog.Kind == "ask" && req.Kind == "custom" && time.Now().Before(e.expires) {
+			skip = true
+		}
+		if !skip {
+			a.bridge[req.SessionPath] = bridgeEntry{
+				dialog:  BridgeDialog{ID: req.ID, Kind: req.Kind, Title: req.Title},
+				expires: time.Now().Add(bridgeTTL),
+			}
 		}
 	} else if req.ID == "" {
 		// An id-less end comes from an older extension: clear regardless.

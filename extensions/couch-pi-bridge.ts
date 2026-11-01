@@ -1,6 +1,11 @@
 // couch-pi bridge: surface pi's blocking dialogs as herdr blocked state,
 // and carry each dialog's kind and title to Couch Pi by direct dial so
 // the phone can show which dialog pi waits on (herdr drops the label).
+// The rpiv ask_user_question questionnaire rides a second relay
+// (ADR-0009): its rpiv:ask-user:prompt event carries the questions, and
+// the inbound rpiv:ask-user:answer event lets the phone answer without
+// a keystroke; this extension polls Couch Pi for pending answers while
+// a questionnaire is open and re-emits them on pi's event bus.
 //
 // API-only by design (ADR-0007): this extension listens to pi's typed
 // ui_prompt_start / ui_prompt_end extension events, re-emits them on
@@ -28,6 +33,26 @@ interface PromptEvent {
 	title?: string;
 }
 
+interface AskQuestion {
+	question: string;
+	header?: string;
+	multiSelect?: boolean;
+	options?: Array<{ label: string; description?: string }>;
+}
+
+interface AskPromptEvent {
+	toolCallId?: string;
+	questions?: AskQuestion[];
+}
+
+interface AskAnswerResultEvent {
+	toolCallId?: string;
+	requestId?: string;
+	ok?: boolean;
+	code?: string;
+	reason?: string;
+}
+
 interface ExtensionContext {
 	mode?: string;
 	sessionManager?: { getSessionFile?: () => string | undefined };
@@ -38,6 +63,8 @@ interface ExtensionAPI {
 	on(event: "ui_prompt_start", handler: (event: PromptEvent) => void): () => void;
 	on(event: "ui_prompt_end", handler: (event: PromptEvent) => void): () => void;
 	on(event: "session_start", handler: (event: unknown, ctx: ExtensionContext) => void): () => void;
+	// Cross-extension event contracts (rpiv:*, herdr:*).
+	on(event: string, handler: (data: unknown) => void): () => void;
 }
 
 const HERDR_ENV = process.env.HERDR_ENV;
@@ -75,6 +102,61 @@ function accessTokenForDial(): string {
 		}
 	}
 	return accessToken ?? "";
+}
+
+// Ask relay (ADR-0009): the extension polls Couch Pi for a pending
+// phone answer while a questionnaire is open and re-emits it on pi's
+// event bus. One poll tick of latency per answer.
+const ASK_POLL_MS = 700;
+
+// Fire-and-forget POST for the ask endpoints, same dial discipline as
+// dial(): dialogs surface while the server is up, failures warn once.
+function postBridge(path: string, body: unknown): void {
+	try {
+		fetch(`${COUCHPI_URL}${path}`, {
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+				...authHeaders(),
+			},
+			body: JSON.stringify(body),
+			signal: AbortSignal.timeout(1500),
+		})
+			.then((res) => {
+				if (!res.ok && !warned) {
+					warned = true;
+					console.error(`couch-pi bridge: POST rejected (HTTP ${res.status}); check PICOUCH_ACCESS_TOKEN`);
+				}
+			})
+			.catch(() => {
+				if (!warned) {
+					warned = true;
+					console.error("couch-pi bridge: cannot reach the server; dialogs surface only while it is up");
+				}
+			});
+	} catch {
+		// no fetch, no server, no problem: herdr blocked state still carries
+	}
+}
+
+// One poll tick: the pending phone answer, or undefined when the
+// server has none (204) or cannot be reached.
+async function fetchAskAnswer(toolCallID: string): Promise<unknown> {
+	const res = await fetch(`${COUCHPI_URL}/api/bridge/ask/answer?tool_call_id=${encodeURIComponent(toolCallID)}`, {
+		headers: authHeaders(),
+		signal: AbortSignal.timeout(1500),
+	});
+	if (res.status !== 200) return undefined;
+	try {
+		return await res.json();
+	} catch {
+		return undefined;
+	}
+}
+
+function authHeaders(): Record<string, string> {
+	const token = accessTokenForDial();
+	return token ? { authorization: `Bearer ${token}` } : {};
 }
 
 function newDialogID(): string {
@@ -159,6 +241,47 @@ export default function couchPiBridge(pi: ExtensionAPI) {
 	let depth = 0;
 	let sessionPath: string | undefined;
 	let dialogID: string | undefined;
+	// Ask relay state: one open questionnaire per pane (the latest
+	// prompt wins), the pending poll timer, and the request id of the
+	// answer this extension last delivered from the phone.
+	let askID: string | undefined;
+	let askPoll: ReturnType<typeof setTimeout> | undefined;
+	let askRequestID: string | undefined;
+
+	function endAsk(): void {
+		const id = askID;
+		askID = undefined;
+		askRequestID = undefined;
+		if (askPoll) {
+			clearTimeout(askPoll);
+			askPoll = undefined;
+		}
+		if (!id) return;
+		postBridge("/api/bridge/ask", { phase: "close", tool_call_id: id, session_path: sessionPath });
+	}
+
+	function armAskPoll(): void {
+		if (askPoll) return;
+		const tick = (): void => {
+			askPoll = undefined;
+			const id = askID;
+			if (!id) return;
+			fetchAskAnswer(id)
+				.then((payload) => {
+					if (!payload || askID !== id) return;
+					const reqID = (payload as { request_id?: unknown }).request_id;
+					askRequestID = typeof reqID === "string" ? reqID : undefined;
+					pi.events.emit("rpiv:ask-user:answer", payload);
+				})
+				.catch(() => {
+					// server down: keep ticking, the dialog outlives the outage
+				})
+				.finally(() => {
+					if (askID === id) askPoll = setTimeout(tick, ASK_POLL_MS);
+				});
+		};
+		askPoll = setTimeout(tick, ASK_POLL_MS);
+	}
 
 	pi.on("session_start", (_event, ctx) => {
 		tui = ctx?.mode === "tui";
@@ -167,6 +290,7 @@ export default function couchPiBridge(pi: ExtensionAPI) {
 		// ui_prompt_end must not mute every later dialog in the pane
 		depth = 0;
 		dialogID = undefined;
+		endAsk();
 		// A non-TUI child inherits HC_TERMINAL_*: it must not steal
 		// the parent's session label.
 		if (underHC && tui) {
@@ -204,6 +328,50 @@ export default function couchPiBridge(pi: ExtensionAPI) {
 			}
 			dial("end", "", undefined, sessionPath, dialogID);
 			dialogID = undefined;
+			// A lost rpiv blocked:false must not strand the poll; endAsk
+			// no-ops when no questionnaire is open.
+			endAsk();
 		}
+	});
+
+	// rpiv ask_user_question relay (ADR-0009). The prompt event carries
+	// the questions; the inbound answer event answers without keys; the
+	// result event carries the verdict back to Couch Pi.
+	pi.on("rpiv:ask-user:prompt", (data) => {
+		if (!tui) return;
+		const event = data as AskPromptEvent | null;
+		const id = event?.toolCallId;
+		const questions = event?.questions;
+		if (typeof id !== "string" || !Array.isArray(questions)) return;
+		askID = id;
+		askRequestID = undefined;
+		postBridge("/api/bridge/ask", {
+			phase: "open",
+			tool_call_id: id,
+			session_path: sessionPath,
+			questions,
+		});
+		armAskPoll();
+	});
+	pi.on("rpiv:ask-user:blocked", (data) => {
+		if (!tui) return;
+		const event = data as { active?: boolean; toolCallId?: string } | null;
+		if (event?.active) return;
+		if (event?.toolCallId && event.toolCallId !== askID) return;
+		endAsk();
+	});
+	pi.on("rpiv:ask-user:answer-result", (data) => {
+		if (!tui) return;
+		const event = data as AskAnswerResultEvent | null;
+		if (!event || typeof event.toolCallId !== "string") return;
+		if (askID && event.toolCallId !== askID) return;
+		if (!event.requestId || (askRequestID && event.requestId !== askRequestID)) return;
+		postBridge("/api/bridge/ask/verdict", {
+			request_id: event.requestId,
+			tool_call_id: event.toolCallId,
+			ok: !!event.ok,
+			...(event.code ? { code: event.code } : {}),
+			...(event.reason ? { reason: event.reason } : {}),
+		});
 	});
 }

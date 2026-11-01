@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { answerDialog, type BridgeDialog } from "../api";
+import { AskCard } from "./AskCard";
 import { Spinner } from "./Spinner";
 
 const piOwnAnswerRe = /^(?:type something.*|\d+[.)]\s*)$/i;
@@ -26,6 +27,15 @@ export function dialogServedSignature(dialog: BridgeDialog): string {
 }
 
 export function DialogActions({ k, dialog }: { k: string; dialog: BridgeDialog }) {
+	// The rpiv questionnaire answers from its questions (ADR-0009); the
+	// keystroke verbs below never fire for it.
+	if (dialog.questions?.length) {
+		return <AskCard k={k} dialog={dialog} />;
+	}
+	return <KeystrokeDialogActions k={k} dialog={dialog} />;
+}
+
+function KeystrokeDialogActions({ k, dialog }: { k: string; dialog: BridgeDialog }) {
 	const [busy, setBusy] = useState(false);
 	const [active, setActive] = useState<string>("");
 	const [failed, setFailed] = useState<"refused" | "network" | "timeout" | null>(null);

@@ -118,6 +118,9 @@ type dialogWire struct {
 	Options   []dialogOptionWire `json:"options,omitempty"`
 	Cursor    int                `json:"cursor"`
 	InputMode bool               `json:"input_mode,omitempty"`
+	// Questions carries an rpiv ask_user_question relay (ADR-0009);
+	// the phone card renders them instead of the pane-parsed rows.
+	Questions []AskQuestion `json:"questions,omitempty"`
 	// Scrolled marks an editor whose buffer outgrew pi's viewport: the
 	// body is the painted tail only, so the card must not prefill from
 	// it - the hidden head would be silently lost on a rewrite.
@@ -136,6 +139,16 @@ func (a *app) dialogWireFor(path string, d BridgeDialog, ok bool) *dialogWire {
 		return nil
 	}
 	w := &dialogWire{ID: d.ID, Kind: d.Kind, Title: d.Title}
+	// An ask is answered from its questions, not the pane: the rpiv
+	// overlay parses into garbage rows, so its parse is skipped and
+	// never latched.
+	if d.Kind == "ask" {
+		w.Questions = d.Questions
+		if len(d.Questions) > 0 && w.Title == "" {
+			w.Title = d.Questions[0].Header
+		}
+		return w
+	}
 	if p := a.awaiting.parsed(path); p != nil {
 		if w.Title == "" {
 			w.Title = p.Title
@@ -213,7 +226,27 @@ func dialogEqual(a, b *dialogWire) bool {
 		return a == b
 	}
 	if a.ID != b.ID || a.Kind != b.Kind || a.Title != b.Title ||
-		a.Body != b.Body || a.Cursor != b.Cursor || a.InputMode != b.InputMode || a.Scrolled != b.Scrolled || len(a.Options) != len(b.Options) {
+		a.Body != b.Body || a.Cursor != b.Cursor || a.InputMode != b.InputMode || a.Scrolled != b.Scrolled || len(a.Options) != len(b.Options) ||
+		len(a.Questions) != len(b.Questions) {
+		return false
+	}
+	for i := range a.Options {
+		if a.Options[i] != b.Options[i] {
+			return false
+		}
+	}
+	for i := range a.Questions {
+		if !askQuestionEqual(a.Questions[i], b.Questions[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// askQuestionEqual compares by field: AskQuestion carries a slice, so
+// it is not comparable with ==.
+func askQuestionEqual(a, b AskQuestion) bool {
+	if a.Question != b.Question || a.Header != b.Header || a.MultiSelect != b.MultiSelect || len(a.Options) != len(b.Options) {
 		return false
 	}
 	for i := range a.Options {

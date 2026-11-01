@@ -967,6 +967,7 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 		state.dialog &&
 		((state.dialog.options?.length ?? 0) > 0 ||
 			state.dialog.body ||
+			(state.dialog.questions?.length ?? 0) > 0 ||
 			state.dialog.kind === "input" ||
 			// An emptied editor buffer is legitimate: the card's empty
 			// box plus Submit is the recovery path after a refused sweep.

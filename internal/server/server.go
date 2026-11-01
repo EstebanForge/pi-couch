@@ -59,6 +59,8 @@ type app struct {
 	awaiting      *awaitingDetector
 	bridgeMu      sync.Mutex
 	bridge        map[string]bridgeEntry // session path -> open pi dialog (bridge extension)
+	askMu         sync.Mutex
+	askPends      map[string]*askPending // rpiv tool call id -> pending phone answer (ADR-0009)
 	answered      *dialogMemos           // per-dialog answer claims; dedupes double taps
 	dialogMu      sync.Mutex
 	dialogLatch   map[string]*dialogWire // last good wire parse per session; a flaked tick must not drop the card's body
@@ -298,9 +300,13 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("POST /api/sessions/{key}/prompt", a.apiPrompt)
 	mux.HandleFunc("POST /api/sessions/{key}/resume", a.apiSessionResume)
 	mux.HandleFunc("POST /api/sessions/{key}/dialog/answer", a.apiDialogAnswer)
+	mux.HandleFunc("POST /api/sessions/{key}/ask/answer", a.apiAskAnswer)
 	mux.HandleFunc("POST /api/sessions/{key}/model", a.apiModel)
 	mux.HandleFunc("POST /api/sessions/{key}/thinking", a.apiThinking)
 	mux.HandleFunc("POST /api/bridge/dialog", a.apiBridgeDialog)
+	mux.HandleFunc("POST /api/bridge/ask", a.apiBridgeAsk)
+	mux.HandleFunc("GET /api/bridge/ask/answer", a.apiBridgeAskAnswer)
+	mux.HandleFunc("POST /api/bridge/ask/verdict", a.apiBridgeAskVerdict)
 	mux.HandleFunc("GET /api/dirs", a.apiDirs)
 	mux.HandleFunc("GET /api/workspaces", a.apiWorkspaces)
 	mux.HandleFunc("POST /api/agents", a.apiAgents)

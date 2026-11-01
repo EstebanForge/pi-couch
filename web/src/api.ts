@@ -95,9 +95,24 @@ export type BridgeDialog = {
 	options?: DialogOption[];
 	cursor?: number;
 	input_mode?: boolean;
+	/** rpiv ask_user_question relay (ADR-0009): the questionnaire as
+	 * the tool authored it; the phone answers it natively, no keys. */
+	questions?: AskQuestion[];
 	/** True when pi's editor viewport clipped the buffer: body is the
 	 * painted tail only, so the card must not prefill from it. */
 	scrolled?: boolean;
+};
+
+export type AskQuestion = {
+	question: string;
+	header?: string;
+	multi_select?: boolean;
+	options: AskOption[];
+};
+
+export type AskOption = {
+	label: string;
+	description?: string;
 };
 
 export type TranscriptReset = {
@@ -363,25 +378,30 @@ export const stopSession = (key: string) =>
 export const closeSession = (key: string) =>
 	postJSON(`/api/sessions/${encodeURIComponent(key)}/close`);
 
-async function postJSONBody(
+async function postJSONBody<T = Record<string, unknown>>(
 	path: string,
 	body: unknown,
 	timeoutMs?: number,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string } & Partial<T>> {
 	const res = await fetch(path, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify(body),
 		...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
 	});
-	let parsed: { ok?: boolean; error?: string } = {};
+	let parsed: Record<string, unknown> = {};
 	try {
-		parsed = (await res.json()) as typeof parsed;
+		parsed = (await res.json()) as Record<string, unknown>;
 	} catch {
 		// 204 and other empty bodies: the status decides
 	}
-	if (!res.ok) return { ok: false, error: parsed.error ?? `http ${res.status}` };
-	return { ok: true };
+	if (!res.ok) {
+		const err = typeof parsed.error === "string" ? parsed.error : `http ${res.status}`;
+		return { ok: false, error: err } as { ok: boolean; error?: string } & Partial<T>;
+	}
+	// A body that carries its own ok (the ask verdict) wins over the
+	// HTTP status; every other 200 stays ok:true as before.
+	return { ...parsed, ok: parsed.ok !== false } as { ok: boolean; error?: string } & Partial<T>;
 }
 
 export const sendPrompt = (key: string, text: string, whenBusy?: "followUp") =>
@@ -411,6 +431,35 @@ export const answerDialog = (key: string, id: string, answer: string, text?: str
 		},
 		25_000,
 	);
+export type AskAnswer = {
+	question_index: number;
+	option_indexes?: number[];
+	text?: string;
+};
+
+export type AskAnswerRequest = {
+	tool_call_id: string;
+	answers?: AskAnswer[];
+	cancel?: boolean;
+};
+
+export type AskAnswerResult = {
+	ok: boolean;
+	code?: string;
+	reason?: string;
+};
+
+/** Answer an open ask_user_question questionnaire natively (ADR-0009):
+ * the structured answer rides the rpiv answer channel and the response
+ * carries the real verdict. Bounded just past the server's 8s verdict
+ * wait: an unanswered request resolves as timeout, not a hung spinner. */
+export const answerAsk = (key: string, body: AskAnswerRequest) =>
+	postJSONBody<AskAnswerResult>(
+		`/api/sessions/${encodeURIComponent(key)}/ask/answer`,
+		body,
+		10_000,
+	);
+
 export const setModel = (key: string, pattern: string) =>
 	postJSONBody(`/api/sessions/${encodeURIComponent(key)}/model`, { pattern });
 export const setThinking = (key: string, level: string) =>
