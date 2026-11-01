@@ -28,7 +28,8 @@ type Agent struct {
 	Session       *AgentSessionRef `json:"agent_session"`
 }
 
-// AgentSessionRef carries the pi session file path once a prompt ran.
+// AgentSessionRef carries the pi session file path once pi's plugin
+// binds it; current pi builds bind at start, older ones at first turn.
 type AgentSessionRef struct {
 	Kind  string `json:"kind"`
 	Value string `json:"value"`

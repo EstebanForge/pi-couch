@@ -41,22 +41,23 @@ type fakeHerdrOpts struct {
 	lastPrompt               *string // agent.prompt target name
 	failFirstSend            bool
 	failFirstStart           bool
-	onEnter                  func()      // fires on a pane.send_input whose keys contain "enter"
-	onPrompt                 func()      // fires on every agent.prompt
-	paneReady                *string     // pre-prompt pane.read override: the screen before any agent.prompt
-	lastStartArgs            *[]string   // agent.start args (the pi flags)
-	status                   *string     // agent_status in agent.list; blocked when nil
-	agentName                string      // agent name in agent.list; pi when empty
-	failFirstPromptNotActive bool        // first agent.prompt refuses the new name
-	paneText                 *string     // pane.read text; the menu fixture when nil
-	readSeq                  []string    // per-read states: read n serves readSeq[min(n-1, len-1)]
-	paneAfterSend            *string     // pane.read text once a send_input landed
-	paneSeq                  []string    // per-send states: after send n, serve paneSeq[min(n-1, len-1)]
-	lastText                 *string     // last send_input text param
-	lastTexts                *[]string   // every send_input text param
-	keysLog                  *[][]string // every non-empty send_input keys call
-	paneCloses               *int32      // pane.close count
-	wsCloses                 *int32      // workspace.close count
+	onEnter                  func()       // fires on a pane.send_input whose keys contain "enter"
+	onPrompt                 func()       // fires on every agent.prompt
+	paneReady                *string      // pre-prompt pane.read override: the screen before any agent.prompt
+	lastStartArgs            *[]string    // agent.start args (the pi flags)
+	status                   *string      // agent_status in agent.list; blocked when nil
+	agentName                string       // agent name in agent.list; pi when empty
+	failFirstPromptNotActive bool         // first agent.prompt refuses the new name
+	sessionUnbound           *atomic.Bool // agent.list serves agent_session null while true
+	paneText                 *string      // pane.read text; the menu fixture when nil
+	readSeq                  []string     // per-read states: read n serves readSeq[min(n-1, len-1)]
+	paneAfterSend            *string      // pane.read text once a send_input landed
+	paneSeq                  []string     // per-send states: after send n, serve paneSeq[min(n-1, len-1)]
+	lastText                 *string      // last send_input text param
+	lastTexts                *[]string    // every send_input text param
+	keysLog                  *[][]string  // every non-empty send_input keys call
+	paneCloses               *int32       // pane.close count
+	wsCloses                 *int32       // workspace.close count
 }
 
 func herdrFake(t *testing.T, o fakeHerdrOpts) string {
@@ -106,7 +107,11 @@ func herdrFake(t *testing.T, o fakeHerdrOpts) string {
 						agentStatus = *o.status
 					}
 					b, _ := json.Marshal(*o.sessPath)
-					resp = `{"id":"x","result":{"agents":[{"name":"` + agentName + `","agent":"` + agentName + `","agent_status":"` + agentStatus + `","pane_id":"p1","workspace_id":"w1","terminal_title_stripped":"pi - s1:running...","agent_session":{"kind":"path","value":` + string(b) + `}}]}}`
+					sessJSON := `"agent_session":{"kind":"path","value":` + string(b) + `}`
+					if o.sessionUnbound != nil && o.sessionUnbound.Load() {
+						sessJSON = `"agent_session":null`
+					}
+					resp = `{"id":"x","result":{"agents":[{"name":"` + agentName + `","agent":"` + agentName + `","agent_status":"` + agentStatus + `","pane_id":"p1","workspace_id":"w1","terminal_title_stripped":"pi - s1:running...",` + sessJSON + `}]}}`
 				case "pane.split":
 					resp = `{"id":"x","result":{"type":"pane_info","pane":{"pane_id":"p1","workspace_id":"w1"}}}`
 				case "pane.close":
@@ -151,6 +156,10 @@ func herdrFake(t *testing.T, o fakeHerdrOpts) string {
 						atomic.AddInt32(o.prompts, 1)
 					}
 					if o.failFirstPromptNotActive && atomic.CompareAndSwapInt32(&startFails, 0, 1) {
+						resp = `{"id":"x","error":{"message":"agent wanted is not an active named agent"}}`
+						break
+					}
+					if o.sessionUnbound != nil && o.sessionUnbound.Load() {
 						resp = `{"id":"x","error":{"message":"agent wanted is not an active named agent"}}`
 						break
 					}
