@@ -404,7 +404,7 @@ async function postJSONBody<T = Record<string, unknown>>(
 	return { ...parsed, ok: parsed.ok !== false } as { ok: boolean; error?: string } & Partial<T>;
 }
 
-export const sendPrompt = (key: string, text: string, whenBusy?: "followUp") =>
+export const sendPrompt = (key: string, text: string, whenBusy?: "followUp" | "now") =>
 	// Bounded: a wedged request must settle so the composer's send gate
 	// reopens instead of locking the input until reload.
 	postJSONBody(

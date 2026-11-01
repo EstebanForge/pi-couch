@@ -595,6 +595,21 @@ func (a *app) apiPrompt(w http.ResponseWriter, r *http.Request) {
 	// mode (ADR-0001).
 	switch in.WhenBusy {
 	case "", "followUp":
+	case "now":
+		// pi's /name only runs as a command while the session is idle;
+		// queued into a busy pi it becomes steering text in the next
+		// turn. The rename disposition refuses up front instead of
+		// answering ok for a prompt that can never rename.
+		meta, ok := a.idx.Meta(r.PathValue("key"))
+		if !ok {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "notfound"})
+			return
+		}
+		badges, _ := a.statusFor().DriveStatus(r.Context())
+		if st := badges[meta.Path]; st == "working" || st == "blocked" {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "busy"})
+			return
+		}
 	default:
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "badrequest"})
 		return

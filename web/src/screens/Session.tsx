@@ -996,12 +996,17 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 
 	// pi's /name command writes a session_info entry, which rides the
 	// existing watcher tick and sessions-stream upsert into the title.
+	// whenBusy "now" refuses with busy while pi is mid-turn instead of
+	// queueing the /name as steering text.
 	const runRename = async () => {
 		const name = renameVal.trim();
 		setRenameOpen(false);
 		if (!name || name === title) return;
-		const r = await sendPrompt(sessionKey, `/name ${name}`);
-		if (!r.ok) setNotice("Rename failed.");
+		const r = await sendPrompt(sessionKey, `/name ${name}`, "now");
+		if (!r.ok)
+			setNotice(
+				r.error === "busy" ? "pi is busy - rename waits until it finishes." : "Rename failed.",
+			);
 	};
 
 	const runClose = async () => {
@@ -1049,6 +1054,10 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 					<button
 						type="button"
 						onClick={() => {
+							if (isWaiting(state.status)) {
+								setNotice("pi is busy - rename waits until it finishes.");
+								return;
+							}
 							setRenameVal(title === "Session" ? "" : title);
 							setRenameOpen(true);
 						}}
