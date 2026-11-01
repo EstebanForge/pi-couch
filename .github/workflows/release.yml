@@ -39,6 +39,8 @@ jobs:
 
   release:
     needs: verify
+    outputs:
+      version: ${{ steps.publish.outputs.version }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -95,6 +97,7 @@ jobs:
           git push origin "$want"
 
       - name: Publish
+        id: publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -102,3 +105,27 @@ jobs:
           gh release create "$want" dist/pi-couch-* dist/checksums.txt \
             --title "$want" \
             --generate-notes
+          echo "version=$want" >> "$GITHUB_OUTPUT"
+
+  update-tap:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Homebrew Tap Update
+        uses: actions/github-script@v9
+        with:
+          github-token: ${{ secrets.TAP_GITHUB_TOKEN }}
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: 'EstebanForge',
+              repo: 'homebrew-tap',
+              workflow_id: 'update-formula.yml',
+              ref: 'main',
+              inputs: {
+                formula: 'pi-couch',
+                tag: '${{ needs.release.outputs.version }}',
+                repository: '${{ github.repository }}',
+                ext: 'bare',
+                assets: 'darwin-amd64,darwin-arm64,linux-amd64,linux-arm64',
+              },
+            })

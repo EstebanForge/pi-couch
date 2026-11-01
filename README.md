@@ -23,6 +23,17 @@ One suggestion from me: [herdrui.dev](https://herdrui.dev) is an optional deskto
 
 ### Installation
 
+```sh
+# One-line installer (macOS & Linux)
+curl -fsSL https://raw.githubusercontent.com/EstebanForge/pi-couch/main/scripts/install.sh | bash
+
+# Or manage with mise
+mise use -g github:EstebanForge/pi-couch
+
+# Or with Homebrew
+brew install EstebanForge/tap/pi-couch
+```
+
 Releases carry compiled binaries, so most people just grab one from the [releases page](https://github.com/EstebanForge/pi-couch/releases) and skip the build. Building from source:
 
 ```sh

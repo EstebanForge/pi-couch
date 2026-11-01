@@ -31,4 +31,9 @@ if gh release view "$tag" >/dev/null 2>&1; then
 else
 	gh release create "$tag" dist/pi-couch-* dist/checksums.txt --title "$tag" --generate-notes
 fi
-echo "release $tag published"
+
+gh workflow dispatch update-formula.yml -R EstebanForge/homebrew-tap \
+	-f formula=pi-couch -f tag="$tag" -f repository=EstebanForge/pi-couch \
+	-f ext=bare -f assets=darwin-amd64,darwin-arm64,linux-amd64,linux-arm64
+
+echo "release $tag published; homebrew-tap update dispatched"
