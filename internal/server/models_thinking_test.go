@@ -12,17 +12,14 @@ func TestApplyThinkingDumpMergesByID(t *testing.T) {
 		{ID: "openai/gpt-5.2"},
 	}
 	dump := []byte(`[
-		{"id":"zai/glm-5.3-flash","reasoning":true,"levels":["low","high","max"]},
-		{"id":"openai/gpt-5.2","reasoning":false,"levels":["off"]}
+		{"id":"zai/glm-5.3-flash","levels":["low","high","max"]},
+		{"id":"openai/gpt-5.2","levels":["off"]}
 	]`)
 	applyThinkingDump(rows, dump)
 	if got := rows[0].Levels; len(got) != 3 || got[0] != "low" {
 		t.Fatalf("glm-5.3-flash should carry pi's levels, got %v", got)
 	}
-	if !rows[0].Reasoning {
-		t.Fatal("glm-5.3-flash should be reasoning")
-	}
-	if rows[1].Levels != nil || rows[1].Reasoning {
+	if rows[1].Levels != nil {
 		t.Fatal("rows the dump does not know must stay bare")
 	}
 	if rows[2].Levels == nil || len(rows[2].Levels) != 1 || rows[2].Levels[0] != "off" {

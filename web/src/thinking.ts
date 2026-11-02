@@ -1,8 +1,9 @@
-// pi's thinking ladder and the per-model filtering rules, mirrored
-// from @earendil-works/pi-ai's getSupportedThinkingLevels/clampThinking
-// so the phone shows exactly what pi's own terminal selector would.
-// The authoritative levels still come from the server, which runs
-// pi's code to dump them per model.
+// The thinking clamp, mirrored from @earendil-works/pi-ai's
+// clampThinkingLevel walk; the supported levels themselves come from
+// the server, which runs pi's code to dump them per model.
+// The fallback to the full ladder when a model has no catalog data
+// is deliberate: the picker must never narrow to nothing because a
+// dump failed.
 
 export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 

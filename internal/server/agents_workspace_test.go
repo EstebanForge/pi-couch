@@ -172,6 +172,7 @@ func seedModelsFile(t *testing.T, a *app, ids ...string) {
 		rows[i] = modelRow{ID: id}
 	}
 	b, err := json.Marshal(map[string]any{
+		"v":          2,
 		"fetched_at": time.Now().UTC(),
 		"rows":       rows,
 	})

@@ -4,6 +4,7 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -23,11 +24,16 @@ var modelsDumpScript string
 
 // modelRow is one pi --list-models line as "provider/model".
 type modelRow struct {
-	ID        string   `json:"id"`
-	Context   int      `json:"context,omitempty"`
-	Reasoning bool     `json:"reasoning,omitempty"`
-	Levels    []string `json:"levels,omitempty"`
+	ID      string   `json:"id"`
+	Context int      `json:"context,omitempty"`
+	Levels  []string `json:"levels,omitempty"`
 }
+
+// errDegraded marks a run where --list-models succeeded but the
+// thinking dump did not. The rows are still served — the picker
+// falls back to the full ladder — but refresh must keep them out of
+// the cache file so one bad dump cannot hide levels for a week.
+var errDegraded = errors.New("thinking dump unavailable")
 
 // The catalog is static per pi release but pi --list-models takes
 // seconds, so it is cached three deep: memory for an hour, a state-dir
@@ -68,8 +74,8 @@ func runPiModels(ctx context.Context, scriptDir string) ([]modelRow, error) {
 	// back to the full list, exactly as before this existed.
 	dump, err := dumpThinkingLevels(ctx, scriptDir)
 	if err != nil {
-		log.Printf("models: thinking dump unavailable: %v", err)
-		return rows, nil
+		log.Printf("models: %v", err)
+		return rows, errDegraded
 	}
 	applyThinkingDump(rows, dump)
 	return rows, nil
@@ -77,9 +83,8 @@ func runPiModels(ctx context.Context, scriptDir string) ([]modelRow, error) {
 
 // thinkingDumpRow is one entry of the models_dump.mjs output.
 type thinkingDumpRow struct {
-	ID        string   `json:"id"`
-	Reasoning bool     `json:"reasoning"`
-	Levels    []string `json:"levels"`
+	ID     string   `json:"id"`
+	Levels []string `json:"levels"`
 }
 
 // applyThinkingDump merges the dump onto the table rows by id. Rows
@@ -96,7 +101,6 @@ func applyThinkingDump(rows []modelRow, dump []byte) {
 	}
 	for i := range rows {
 		if d, ok := byID[rows[i].ID]; ok {
-			rows[i].Reasoning = d.Reasoning
 			rows[i].Levels = d.Levels
 		}
 	}
@@ -124,6 +128,10 @@ func dumpThinkingLevels(ctx context.Context, scriptDir string) ([]byte, error) {
 	defer cancel()
 	out, err := exec.CommandContext(ctx, node, script, root).Output()
 	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && len(ee.Stderr) > 0 {
+			return nil, fmt.Errorf("thinking dump: %w: %s", err, ee.Stderr)
+		}
 		return nil, fmt.Errorf("thinking dump: %w", err)
 	}
 	if !json.Valid(out) {
@@ -218,6 +226,10 @@ func (c *modelsCache) refresh(ctx context.Context) ([]modelRow, error) {
 	defer c.mu.Unlock()
 	fresh, err := c.run(ctx)
 	if err != nil {
+		if errors.Is(err, errDegraded) {
+			c.rows, c.at = fresh, time.Now()
+			return c.rows, nil
+		}
 		return c.rows, err
 	}
 	c.rows, c.at = fresh, time.Now()

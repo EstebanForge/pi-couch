@@ -257,3 +257,39 @@ func TestModelsCacheV1FileRunsPi(t *testing.T) {
 		t.Fatalf("a v1 file must re-run pi, got %+v", rows)
 	}
 }
+
+// A degraded dump (pi internals changed, node missing, request
+// cancelled) must not poison the cache file: the rows serve from
+// memory until the next run, and no level-less rows persist for a
+// week.
+func TestRefreshKeepsDegradedRowsOutOfTheFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "models.json")
+	c := newModelsCache(path)
+	c.run = func(context.Context) ([]modelRow, error) {
+		return []modelRow{{ID: "p/x"}}, errDegraded
+	}
+	rows, err := c.refresh(context.Background())
+	if err != nil {
+		t.Fatalf("degraded rows must serve: %v", err)
+	}
+	if len(rows) != 1 || rows[0].ID != "p/x" {
+		t.Fatalf("rows %+v", rows)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("a degraded run must not write the cache file")
+	}
+}
+
+func TestModelFileRoundTripKeepsLevels(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "models.json")
+	rows := []modelRow{{ID: "p/one", Context: 1000000, Levels: []string{"low", "high", "max"}}}
+	writeModelFile(path, rows)
+	got, at, err := readModelFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if at.IsZero() || got[0].ID != "p/one" || got[0].Context != 1000000 ||
+		len(got[0].Levels) != 3 || got[0].Levels[2] != "max" {
+		t.Fatalf("round trip lost data: %+v %v", got, at)
+	}
+}

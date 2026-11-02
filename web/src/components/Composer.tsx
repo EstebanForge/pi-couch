@@ -34,7 +34,7 @@ import {
 	readPref,
 	writePref,
 } from "../prefs";
-import { clampThinking, levelsForModel } from "../thinking";
+import { levelsForModel } from "../thinking";
 import {
 	FaArrowsRotate,
 	FaBrain,
@@ -143,6 +143,7 @@ export const Composer = memo(function Composer(props: {
 	useSheetBack(sheet !== "none", closeQuick);
 	const [modelQuery, setModelQuery] = useState("");
 	const [modelRows, setModelRows] = useState<ModelRow[]>([]);
+	const [catalog, setCatalog] = useState<ModelRow[]>([]);
 	const [modelsLoading, setModelsLoading] = useState(false);
 	const [modelsRefreshing, setModelsRefreshing] = useState(false);
 	const [modelMark, setModelMark] = useState(false);
@@ -365,11 +366,14 @@ export const Composer = memo(function Composer(props: {
 
 	// Model search: 300ms debounce over /api/models. Old rows stay
 	// visible while a new query loads; only a cold, empty list spins.
-	// Rows also feed the context fill below the card, so the catalog
-	// is fetched once at mount (the server cache serves it warm).
+	// The catalog (mount + refresh) feeds lookups - context fill and
+	// thinking ladders - so a filtered search can never hide them.
 	useEffect(() => {
 		getModels("")
-			.then(setModelRows)
+			.then((rows) => {
+				setModelRows(rows);
+				setCatalog(rows);
+			})
 			.catch(() => {});
 	}, []);
 
@@ -398,6 +402,7 @@ export const Composer = memo(function Composer(props: {
 		refreshModels()
 			.then((rows) => {
 				setModelRows(rows);
+				setCatalog(rows);
 				setToast("Model catalog refreshed");
 			})
 			.catch(() => setToast("Catalog refresh failed"))
@@ -410,17 +415,9 @@ export const Composer = memo(function Composer(props: {
 		setSheet("none");
 		setModelMark(true);
 		setChosenModel(p);
-		// pi clamps the thinking level onto the new model's ladder on a
-		// model switch; mirror that so the selector never shows a level
-		// the fresh model would reject.
-		const next = clampThinking(
-			levelsForModel(modelRows.find((r) => r.id === p)?.levels),
-			showThinking,
-		);
-		if (next !== showThinking) {
-			setChosenThinking(next);
-			void setThinking(sessionKey, next).then(() => {});
-		}
+		// pi resolves the level itself on /model (per-model default,
+		// then global default, then current); the stream carries the
+		// result, so the phone never second-guesses it.
 		void setModel(sessionKey, p).then((r) => {
 			if (!r.ok) {
 				setModelMark(false);
@@ -502,11 +499,11 @@ export const Composer = memo(function Composer(props: {
 	const showThinking = chosenThinking ?? props.thinking;
 	// The supported ladder rides the model catalog dump; unknown models
 	// show everything, like the picker did before the dump existed.
-	const supportedThinking = levelsForModel(modelRows.find((r) => r.id === showModel)?.levels);
+	const supportedThinking = levelsForModel(catalog.find((r) => r.id === showModel)?.levels);
 
 	// Context fill in pi's own bar format: 23.5%/1.0M. Without either
 	// number there is no line.
-	const ctxWindow = modelRows.find((r) => r.id === showModel)?.context ?? 0;
+	const ctxWindow = catalog.find((r) => r.id === showModel)?.context ?? 0;
 	const ctxPct =
 		props.ctxTokens > 0 && ctxWindow > 0
 			? Math.min(100, (props.ctxTokens / ctxWindow) * 100).toFixed(1)
