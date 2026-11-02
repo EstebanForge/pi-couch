@@ -96,6 +96,13 @@ func agentName(label string) string {
 	return name
 }
 
+// herdr's prompt gate can stay shut seconds past agent.list's view of
+// the agent (varies per create; herdr logs no event when it opens).
+var (
+	promptRetryEvery    = 600 * time.Millisecond
+	promptRetryDeadline = 15 * time.Second
+)
+
 // waitAgentActive polls until the pane's agent is a named, promptable
 // target: herdr rejects prompts with "not an active named agent" while
 // the process is still launching (agent_status unknown) and, on newer
@@ -483,15 +490,17 @@ func (a *app) runAgent(ctx context.Context, paneID, name, prompt string, piArgs 
 	}
 	a.logger.Info("pane ready", slog.Float64("waited_s", time.Since(start).Seconds()))
 	if prompt != "" {
-		// herdr's prompt gate opens on the session bind, which can land
-		// a beat after the status flip; a short bounded retry rides out
-		// that gap instead of failing the whole create.
-		for attempt := 0; ; attempt++ {
+		// herdr's prompt gate can open seconds after agent.list already
+		// reports the agent named, bound, and non-unknown (over 5.5s on a
+		// real create), so the retry is deadline-based; a fixed attempt
+		// cap lost creates whose gate ran longer than the cap covered.
+		promptDeadline := time.Now().Add(promptRetryDeadline)
+		for {
 			err := herdrRetryErr(func() error { return a.herdr.Prompt(ctx, name, prompt) })
 			if err == nil {
 				break
 			}
-			if !strings.Contains(err.Error(), "not an active named agent") || attempt >= 9 {
+			if !strings.Contains(err.Error(), "not an active named agent") || time.Now().After(promptDeadline) {
 				undo()
 				return fmt.Errorf("prompt: %w", err)
 			}
@@ -499,7 +508,7 @@ func (a *app) runAgent(ctx context.Context, paneID, name, prompt string, piArgs 
 			case <-ctx.Done():
 				undo()
 				return ctx.Err()
-			case <-time.After(600 * time.Millisecond):
+			case <-time.After(promptRetryEvery):
 			}
 		}
 		// A prompt can fail soft: herdr accepts it while the agent is

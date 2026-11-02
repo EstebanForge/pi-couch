@@ -48,6 +48,7 @@ type fakeHerdrOpts struct {
 	status                   *string      // agent_status in agent.list; blocked when nil
 	agentName                string       // agent name in agent.list; pi when empty
 	failFirstPromptNotActive bool         // first agent.prompt refuses the new name
+	promptRefuseUntil        time.Time    // agent.prompt refuses the new name until this instant
 	sessionUnbound           *atomic.Bool // agent.list serves agent_session null while true
 	paneText                 *string      // pane.read text; the menu fixture when nil
 	readSeq                  []string     // per-read states: read n serves readSeq[min(n-1, len-1)]
@@ -156,6 +157,10 @@ func herdrFake(t *testing.T, o fakeHerdrOpts) string {
 						atomic.AddInt32(o.prompts, 1)
 					}
 					if o.failFirstPromptNotActive && atomic.CompareAndSwapInt32(&startFails, 0, 1) {
+						resp = `{"id":"x","error":{"message":"agent wanted is not an active named agent"}}`
+						break
+					}
+					if !o.promptRefuseUntil.IsZero() && time.Now().Before(o.promptRefuseUntil) {
 						resp = `{"id":"x","error":{"message":"agent wanted is not an active named agent"}}`
 						break
 					}

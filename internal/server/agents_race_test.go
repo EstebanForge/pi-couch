@@ -81,6 +81,31 @@ func TestRunAgentPromptSurvivesABindingGap(t *testing.T) {
 	}
 }
 
+// herdr's prompt gate can stay shut seconds after agent.list already
+// reports the agent named, bound, and non-unknown (observed >5.5s on a
+// real create); the retry must be deadline-based, not attempt-capped.
+func TestRunAgentPromptOutlastsALongGateGap(t *testing.T) {
+	every, deadline := promptRetryEvery, promptRetryDeadline
+	promptRetryEvery, promptRetryDeadline = 50*time.Millisecond, 5*time.Second
+	defer func() { promptRetryEvery, promptRetryDeadline = every, deadline }()
+	dir := t.TempDir()
+	sess := filepath.Join(dir, "s.jsonl")
+	if err := os.WriteFile(sess, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	status := "working"
+	ready := "0.0%/1.0M"
+	var sends int32
+	sock := herdrFake(t, fakeHerdrOpts{
+		sessPath: &sess, status: &status, agentName: "wanted", paneReady: &ready,
+		sends: &sends, promptRefuseUntil: time.Now().Add(1500 * time.Millisecond),
+	})
+	a := &app{herdr: herdr.NewAt(sock), logger: slog.New(slog.NewTextHandler(testDiscard{}, nil))}
+	if err := a.runAgent(context.Background(), "p1", "wanted", "hello", nil, func() {}); err != nil {
+		t.Fatalf("a 1.5s prompt-gate gap must ride out via deadline retries: %v", err)
+	}
+}
+
 func TestRunAgentRetriesTransientInactiveName(t *testing.T) {
 	dir := t.TempDir()
 	sess := filepath.Join(dir, "s.jsonl")
