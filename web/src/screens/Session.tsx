@@ -27,6 +27,7 @@ import {
 	FaEllipsis,
 	FaGaugeHigh,
 	FaHourglassHalf,
+	FaPencilAlt,
 	FaXmark,
 } from "../components/fa";
 import { Markdown } from "../components/Markdown";
@@ -1054,9 +1055,10 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 							setRenameVal(title === "Session" ? "" : title);
 							setRenameOpen(true);
 						}}
-						className="min-w-0 truncate text-left text-[15.5px] font-semibold tracking-tight text-base-content active:opacity-60"
+						className="flex min-w-0 items-center gap-1.5 text-left text-[15.5px] font-semibold tracking-tight text-base-content active:opacity-60"
 					>
-						{title}
+						<span className="min-w-0 truncate">{title}</span>
+						<FaPencilAlt size={13} className="shrink-0 text-base-content/40" />
 					</button>
 					{(state.dialog || state.awaiting) && (
 						<span
