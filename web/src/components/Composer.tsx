@@ -34,6 +34,7 @@ import {
 	readPref,
 	writePref,
 } from "../prefs";
+import { clampThinking, levelsForModel } from "../thinking";
 import {
 	FaArrowsRotate,
 	FaBrain,
@@ -53,7 +54,6 @@ import { Spinner } from "./Spinner";
 const MAX_FILES = 10;
 const MAX_PARALLEL = 3;
 const MAX_BYTES = 10 << 20; // mirrors the server cap
-const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 type Attachment = { id: number; name: string; path?: string; error?: string };
 
@@ -410,6 +410,17 @@ export const Composer = memo(function Composer(props: {
 		setSheet("none");
 		setModelMark(true);
 		setChosenModel(p);
+		// pi clamps the thinking level onto the new model's ladder on a
+		// model switch; mirror that so the selector never shows a level
+		// the fresh model would reject.
+		const next = clampThinking(
+			levelsForModel(modelRows.find((r) => r.id === p)?.levels),
+			showThinking,
+		);
+		if (next !== showThinking) {
+			setChosenThinking(next);
+			void setThinking(sessionKey, next).then(() => {});
+		}
 		void setModel(sessionKey, p).then((r) => {
 			if (!r.ok) {
 				setModelMark(false);
@@ -489,6 +500,9 @@ export const Composer = memo(function Composer(props: {
 
 	const showModel = chosenModel ?? props.model;
 	const showThinking = chosenThinking ?? props.thinking;
+	// The supported ladder rides the model catalog dump; unknown models
+	// show everything, like the picker did before the dump existed.
+	const supportedThinking = levelsForModel(modelRows.find((r) => r.id === showModel)?.levels);
 
 	// Context fill in pi's own bar format: 23.5%/1.0M. Without either
 	// number there is no line.
@@ -1016,7 +1030,7 @@ export const Composer = memo(function Composer(props: {
 						Thinking budget
 					</div>
 					<div className="flex flex-col gap-1.5 pt-1">
-						{THINKING_LEVELS.map((lv) => {
+						{supportedThinking.map((lv) => {
 							const selected = lv === props.thinking;
 							return (
 								<button

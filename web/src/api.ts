@@ -471,7 +471,7 @@ export const sendKeys = (key: string, keys: string[]) =>
 export const sendTextInput = (key: string, text: string) =>
 	postJSONBody(`/api/sessions/${encodeURIComponent(key)}/terminal/input`, { text });
 
-export type ModelRow = { id: string; context?: number };
+export type ModelRow = { id: string; context?: number; reasoning?: boolean; levels?: string[] };
 
 export async function getModels(q: string): Promise<ModelRow[]> {
 	const res = await fetch(`/api/models?q=${encodeURIComponent(q)}`);

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { getModels, type ModelRow, uploadImage } from "../api";
+import { clampThinking, levelsForModel } from "../thinking";
 import { FaCaretDown, FaPaperclip, FaXmark } from "./fa";
 import { Spinner } from "./Spinner";
 
-const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 const MAX_FILES = 10;
 const MAX_BYTES = 10 * 1024 * 1024;
 
@@ -110,6 +110,12 @@ export function AgentLauncherFields({
 						disabled={busy}
 						onClick={() => {
 							setModel(m.id);
+							// pi clamps the level onto the picked model's
+							// ladder; mirror it so the create prompt can
+							// never carry a level the model rejects.
+							if (thinking !== "") {
+								setThinking(clampThinking(levelsForModel(m.levels), thinking));
+							}
 							setPick("none");
 						}}
 						className={`press-scale block w-full truncate rounded-xl px-3 py-2 text-left font-mono text-[13.5px] transition-all ${
@@ -139,7 +145,7 @@ export function AgentLauncherFields({
 				>
 					Model default
 				</button>
-				{THINKING_LEVELS.map((lv) => (
+				{levelsForModel(models?.find((r) => r.id === model)?.levels).map((lv) => (
 					<button
 						key={lv}
 						type="button"

@@ -15,9 +15,10 @@ import (
 func cacheRows(t *testing.T, path string, fetchedAt time.Time, ids ...string) {
 	t.Helper()
 	doc := struct {
+		V         int        `json:"v"`
 		FetchedAt time.Time  `json:"fetched_at"`
 		Rows      []modelRow `json:"rows"`
-	}{FetchedAt: fetchedAt}
+	}{V: 2, FetchedAt: fetchedAt}
 	for _, id := range ids {
 		doc.Rows = append(doc.Rows, modelRow{ID: id})
 	}
@@ -226,5 +227,33 @@ func TestAPIModelsUsesCache(t *testing.T) {
 	}
 	if len(rows) != 2 || rows[0].ID != "zai/glm-5" || rows[1].ID != "zai/glm-air" {
 		t.Fatalf("rows %+v", rows)
+	}
+}
+
+// v1 cache files predate the thinking dump; they must re-run rather
+// than serve a level-less picker until the ttl runs out.
+func TestModelsCacheV1FileRunsPi(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "models.json")
+	doc := struct {
+		FetchedAt time.Time  `json:"fetched_at"`
+		Rows      []modelRow `json:"rows"`
+	}{FetchedAt: time.Now(), Rows: []modelRow{{ID: "p/old"}}}
+	b, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c := newModelsCache(path)
+	c.run = func(context.Context) ([]modelRow, error) {
+		return []modelRow{{ID: "p/new", Levels: []string{"low", "high"}}}, nil
+	}
+	rows, err := c.load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].ID != "p/new" {
+		t.Fatalf("a v1 file must re-run pi, got %+v", rows)
 	}
 }

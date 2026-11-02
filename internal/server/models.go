@@ -2,7 +2,10 @@ package server
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
+	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -15,10 +18,15 @@ import (
 	"github.com/EstebanForge/couch-pi/internal/store"
 )
 
+//go:embed models_dump.mjs
+var modelsDumpScript string
+
 // modelRow is one pi --list-models line as "provider/model".
 type modelRow struct {
-	ID      string `json:"id"`
-	Context int    `json:"context,omitempty"`
+	ID        string   `json:"id"`
+	Context   int      `json:"context,omitempty"`
+	Reasoning bool     `json:"reasoning,omitempty"`
+	Levels    []string `json:"levels,omitempty"`
 }
 
 // The catalog is static per pi release but pi --list-models takes
@@ -35,14 +43,15 @@ type modelsCache struct {
 }
 
 func newModelsCache(path string) *modelsCache {
+	dir := filepath.Dir(path)
 	return &modelsCache{
 		path: path,
 		ttl:  7 * 24 * time.Hour,
-		run:  runPiModels,
+		run:  func(ctx context.Context) ([]modelRow, error) { return runPiModels(ctx, dir) },
 	}
 }
 
-func runPiModels(ctx context.Context) ([]modelRow, error) {
+func runPiModels(ctx context.Context, scriptDir string) ([]modelRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	bin, err := piBinary()
@@ -53,7 +62,127 @@ func runPiModels(ctx context.Context) ([]modelRow, error) {
 	if err != nil {
 		return nil, err
 	}
-	return parseModelList(string(out)), nil
+	rows := parseModelList(string(out))
+	// Levels ride best-effort: a dump failure (pi internals changed,
+	// node missing) leaves rows without levels and the picker falls
+	// back to the full list, exactly as before this existed.
+	dump, err := dumpThinkingLevels(ctx, scriptDir)
+	if err != nil {
+		log.Printf("models: thinking dump unavailable: %v", err)
+		return rows, nil
+	}
+	applyThinkingDump(rows, dump)
+	return rows, nil
+}
+
+// thinkingDumpRow is one entry of the models_dump.mjs output.
+type thinkingDumpRow struct {
+	ID        string   `json:"id"`
+	Reasoning bool     `json:"reasoning"`
+	Levels    []string `json:"levels"`
+}
+
+// applyThinkingDump merges the dump onto the table rows by id. Rows
+// the dump does not know stay bare; the phone treats missing levels
+// as "show everything".
+func applyThinkingDump(rows []modelRow, dump []byte) {
+	var parsed []thinkingDumpRow
+	if err := json.Unmarshal(dump, &parsed); err != nil {
+		return
+	}
+	byID := make(map[string]thinkingDumpRow, len(parsed))
+	for _, d := range parsed {
+		byID[d.ID] = d
+	}
+	for i := range rows {
+		if d, ok := byID[rows[i].ID]; ok {
+			rows[i].Reasoning = d.Reasoning
+			rows[i].Levels = d.Levels
+		}
+	}
+}
+
+// dumpThinkingLevels runs the embedded dump script under pi's own
+// node against pi's current managed release, so the level semantics
+// come from pi's code. The script imports pi's model runtime, which
+// merges the built-in provider catalogs with the user's models.json
+// overrides — the same models the terminal's own picker offers.
+func dumpThinkingLevels(ctx context.Context, scriptDir string) ([]byte, error) {
+	root, err := piReleaseRoot()
+	if err != nil {
+		return nil, err
+	}
+	node, err := piNode()
+	if err != nil {
+		return nil, err
+	}
+	script, err := writeModelsDumpScript(scriptDir)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, node, script, root).Output()
+	if err != nil {
+		return nil, fmt.Errorf("thinking dump: %w", err)
+	}
+	if !json.Valid(out) {
+		return nil, fmt.Errorf("thinking dump: output is not JSON")
+	}
+	return out, nil
+}
+
+// piReleaseRoot resolves ~/.pi/agent/install/releases/<current-version>,
+// honoring PI_MANAGED_INSTALL_ROOT the way pi's own launcher does.
+func piReleaseRoot() (string, error) {
+	root := os.Getenv("PI_MANAGED_INSTALL_ROOT")
+	if root == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		root = filepath.Join(home, ".pi", "agent", "install")
+	}
+	ver, err := os.ReadFile(filepath.Join(root, "current-version"))
+	if err != nil {
+		return "", err
+	}
+	v := strings.TrimSpace(string(ver))
+	if v == "" {
+		return "", fmt.Errorf("empty pi version file")
+	}
+	return filepath.Join(root, "releases", v), nil
+}
+
+// piNode prefers the node binary the pi installer manages, falling
+// back to whatever node is on PATH.
+func piNode() (string, error) {
+	dataDir := os.Getenv("XDG_DATA_HOME")
+	if dataDir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		dataDir = filepath.Join(home, ".local", "share")
+	}
+	managed := filepath.Join(dataDir, "pi-node", "current", "bin", "node")
+	if st, err := os.Stat(managed); err == nil && !st.IsDir() {
+		return managed, nil
+	}
+	return exec.LookPath("node")
+}
+
+// writeModelsDumpScript materializes the embedded dump next to the
+// models cache file; pi's node needs a real file to import from.
+func writeModelsDumpScript(dir string) (string, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, "models_dump.mjs")
+	if err := os.WriteFile(path, []byte(modelsDumpScript), 0o644); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 func (c *modelsCache) load(ctx context.Context) ([]modelRow, error) {
@@ -102,10 +231,13 @@ func readModelFile(path string) ([]modelRow, time.Time, error) {
 		return nil, time.Time{}, err
 	}
 	var doc struct {
+		V         int        `json:"v"`
 		FetchedAt time.Time  `json:"fetched_at"`
 		Rows      []modelRow `json:"rows"`
 	}
-	if err := json.Unmarshal(b, &doc); err != nil || len(doc.Rows) == 0 {
+	// v2 rows carry the thinking dump; v1 files predate it and must
+	// re-run rather than serve a level-less picker forever.
+	if err := json.Unmarshal(b, &doc); err != nil || doc.V != 2 || len(doc.Rows) == 0 {
 		return nil, time.Time{}, err
 	}
 	return doc.Rows, doc.FetchedAt, nil
@@ -113,9 +245,10 @@ func readModelFile(path string) ([]modelRow, time.Time, error) {
 
 func writeModelFile(path string, rows []modelRow) {
 	doc := struct {
+		V         int        `json:"v"`
 		FetchedAt time.Time  `json:"fetched_at"`
 		Rows      []modelRow `json:"rows"`
-	}{FetchedAt: time.Now(), Rows: rows}
+	}{V: 2, FetchedAt: time.Now(), Rows: rows}
 	b, err := json.Marshal(doc)
 	if err != nil {
 		return
