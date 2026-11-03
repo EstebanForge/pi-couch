@@ -8,9 +8,17 @@ type Handler = (event: unknown, ctx?: unknown) => void;
 
 function fakePi() {
 	const handlers = new Map<string, Handler[]>();
+	const eventHandlers = new Map<string, Handler[]>();
 	const emitted: { name: string; data: unknown }[] = [];
 	const pi = {
-		events: { emit: (name: string, data: unknown) => emitted.push({ name, data }) },
+		events: {
+			emit: (name: string, data: unknown) => emitted.push({ name, data }),
+			on: (event: string, h: Handler) => {
+				const list = eventHandlers.get(event) ?? [];
+				list.push(h);
+				eventHandlers.set(event, list);
+			},
+		},
 		on: (event: string, h: Handler) => {
 			const list = handlers.get(event) ?? [];
 			list.push(h);
@@ -20,7 +28,10 @@ function fakePi() {
 	const fire = (event: string, arg: unknown, ctx?: unknown) => {
 		for (const h of handlers.get(event) ?? []) h(arg, ctx);
 	};
-	return { pi, fire, emitted };
+	const fireEvent = (event: string, arg: unknown) => {
+		for (const h of eventHandlers.get(event) ?? []) h(arg);
+	};
+	return { pi, fire, fireEvent, emitted };
 }
 
 const sessionCtx = {
@@ -140,6 +151,27 @@ describe("couch-pi bridge extension", () => {
 
 		expect(fetch).toHaveBeenCalledTimes(1);
 		expect(authHeader(0)).toBe("Bearer filetok");
+	});
+
+	it("relays rpiv prompts from the event bus, not lifecycle handlers", async () => {
+		const factory = await loadFactory();
+		const { pi, fire, fireEvent } = fakePi();
+		factory(pi);
+		fire("session_start", {}, sessionCtx);
+		fireEvent("rpiv:ask-user:prompt", {
+			toolCallId: "call-1",
+			questions: [{ question: "Pick?", options: [{ label: "A" }] }],
+		});
+		fireEvent("rpiv:ask-user:blocked", { active: false, toolCallId: "call-1" });
+
+		const bodies = await postBodies();
+		expect(bodies[0]).toMatchObject({
+			phase: "open",
+			tool_call_id: "call-1",
+			session_path: sessionCtx.sessionManager.getSessionFile(),
+			questions: [{ question: "Pick?", options: [{ label: "A" }] }],
+		});
+		expect(bodies[1]).toMatchObject({ phase: "close", tool_call_id: "call-1" });
 	});
 
 	it("recovers dialog state when a new session starts after a lost end", async () => {

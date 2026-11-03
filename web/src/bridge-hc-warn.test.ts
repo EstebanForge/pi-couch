@@ -11,7 +11,7 @@ type Handler = (event: unknown, ctx?: unknown) => void;
 function fakePi() {
 	const handlers = new Map<string, Handler[]>();
 	const pi = {
-		events: { emit: () => {} },
+		events: { emit: () => {}, on: () => {} },
 		on: (event: string, h: Handler) => {
 			const list = handlers.get(event) ?? [];
 			list.push(h);
