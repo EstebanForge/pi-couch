@@ -474,7 +474,7 @@ func newTeardown(cancel func()) *teardown {
 }
 
 func (t *teardown) undo() {
-	if t.off.Load() {
+	if t.off.Swap(true) {
 		return
 	}
 	t.cancel()

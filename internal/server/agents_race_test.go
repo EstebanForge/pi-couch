@@ -123,17 +123,16 @@ func TestCreateKeepsTheAgentWhenNoSessionVerifies(t *testing.T) {
 	// herdr reports the bind while the agent readies, then it stops
 	// reporting a session at all (pi wedged pre-write tonight) — the
 	// key fetch then polls a dead context and the old code pane.closed
-	// the agent herdr had just accepted a prompt for.
+	// the agent herdr had just accepted a prompt for. The unbind is
+	// event-driven: the fake drops the bind at the instant it accepts
+	// the prompt, so no wall-clock window can race the delivery.
 	var unbound atomic.Bool
 	sock := herdrFake(t, fakeHerdrOpts{
 		sessPath: &phantom, status: &status, paneReady: &ready,
 		sends: &sends, promptRefuseUntil: time.Now().Add(300 * time.Millisecond),
 		paneCloses: &closes, sessionUnbound: &unbound,
+		onPrompt: func() { unbound.Store(true) },
 	})
-	go func() {
-		time.Sleep(450 * time.Millisecond)
-		unbound.Store(true)
-	}()
 	a := &app{herdr: herdr.NewAt(sock), logger: slog.New(slog.NewTextHandler(testDiscard{}, nil))}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
