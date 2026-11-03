@@ -59,7 +59,10 @@ interface ExtensionContext {
 }
 
 interface ExtensionAPI {
-	events: { emit(event: string, data: unknown): void };
+	events: {
+		emit(event: string, data: unknown): void;
+		on(event: string, handler: (data: unknown) => void): () => void;
+	};
 	on(event: "ui_prompt_start", handler: (event: PromptEvent) => void): () => void;
 	on(event: "ui_prompt_end", handler: (event: PromptEvent) => void): () => void;
 	on(event: "session_start", handler: (event: unknown, ctx: ExtensionContext) => void): () => void;
@@ -336,8 +339,11 @@ export default function couchPiBridge(pi: ExtensionAPI) {
 
 	// rpiv ask_user_question relay (ADR-0009). The prompt event carries
 	// the questions; the inbound answer event answers without keys; the
-	// result event carries the verdict back to Couch Pi.
-	pi.on("rpiv:ask-user:prompt", (data) => {
+	// result event carries the verdict back to Couch Pi. These are
+	// cross-extension event-bus channels, NOT pi lifecycle events:
+	// pi.on only registers lifecycle handlers, so they must ride
+	// pi.events.on or they never fire.
+	pi.events.on("rpiv:ask-user:prompt", (data) => {
 		if (!tui) return;
 		const event = data as AskPromptEvent | null;
 		const id = event?.toolCallId;
@@ -353,14 +359,14 @@ export default function couchPiBridge(pi: ExtensionAPI) {
 		});
 		armAskPoll();
 	});
-	pi.on("rpiv:ask-user:blocked", (data) => {
+	pi.events.on("rpiv:ask-user:blocked", (data) => {
 		if (!tui) return;
 		const event = data as { active?: boolean; toolCallId?: string } | null;
 		if (event?.active) return;
 		if (event?.toolCallId && event.toolCallId !== askID) return;
 		endAsk();
 	});
-	pi.on("rpiv:ask-user:answer-result", (data) => {
+	pi.events.on("rpiv:ask-user:answer-result", (data) => {
 		if (!tui) return;
 		const event = data as AskAnswerResultEvent | null;
 		if (!event || typeof event.toolCallId !== "string") return;
