@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/EstebanForge/couch-pi/internal/hc"
@@ -22,7 +23,12 @@ import (
 // live under the user's home (the same jail as /api/dirs) so the
 // phone cannot spawn agents in arbitrary paths.
 
-const agentCreateTimeout = 20 * time.Second
+// herdr spawns need the same runway hc gets: the prompt gate alone
+// can hold 7-10s, then session verification and the key fetch still
+// need their share of one budget. A 20s budget starved the tail and
+// turned gated-but-successful creates into failures (2026-11-02
+// quick-6bb8). Var so tests can shrink it.
+var agentCreateTimeout = 45 * time.Second
 
 // hc spawns need more runway: terminal.run, the first status report,
 // and the send pipeline's quiet/settle windows stack well past 20s.
@@ -318,11 +324,11 @@ func (a *app) createAgentSession(ctx context.Context, label, cwd, prompt string,
 			return "", "", fmt.Errorf("workspace create: %w", err)
 		}
 	}
-	undo := func() { _ = a.herdr.WorkspaceClose(context.Background(), workspaceID) }
-	if err := a.runAgent(ctx, paneID, name, prompt, piArgs, undo); err != nil {
+	td := newTeardown(func() { _ = a.herdr.WorkspaceClose(context.Background(), workspaceID) })
+	if err := a.runAgent(ctx, paneID, name, prompt, piArgs, td.undo, td.disarm); err != nil {
 		return "", "", err
 	}
-	key, err := a.sessionKeyForPane(ctx, paneID, undo)
+	key, err := a.sessionKeyForPane(ctx, paneID, td.undo)
 	return key, name, err
 }
 
@@ -362,11 +368,11 @@ func (a *app) createInWorkspace(ctx context.Context, workspaceID, prompt string,
 	// colliding with the pane it split from; a suffix keeps Prompt's
 	// by-name target unambiguous.
 	name := agentName(label + fmt.Sprintf("-%04x", time.Now().UnixNano()&0xffff))
-	undo := func() { _ = a.herdr.PaneClose(context.Background(), paneID) }
-	if err := a.runAgent(ctx, paneID, name, prompt, piArgs, undo); err != nil {
+	td := newTeardown(func() { _ = a.herdr.PaneClose(context.Background(), paneID) })
+	if err := a.runAgent(ctx, paneID, name, prompt, piArgs, td.undo, td.disarm); err != nil {
 		return "", "", err
 	}
-	key, err := a.sessionKeyForPane(ctx, paneID, undo)
+	key, err := a.sessionKeyForPane(ctx, paneID, td.undo)
 	return key, name, err
 }
 
@@ -384,8 +390,8 @@ func (a *app) resumeSession(ctx context.Context, label, cwd, path, text string) 
 			return "", fmt.Errorf("workspace create: %w", err)
 		}
 	}
-	undo := func() { _ = a.herdr.WorkspaceClose(context.Background(), workspaceID) }
-	if err := a.runAgent(ctx, paneID, name, text, []string{"--session", path}, undo); err != nil {
+	td := newTeardown(func() { _ = a.herdr.WorkspaceClose(context.Background(), workspaceID) })
+	if err := a.runAgent(ctx, paneID, name, text, []string{"--session", path}, td.undo, td.disarm); err != nil {
 		return "", err
 	}
 	return name, nil
@@ -453,7 +459,30 @@ func (a *app) apiSessionResume(w http.ResponseWriter, r *http.Request) {
 // retries while herdr reports the pane shell not yet available — a
 // fresh workspace's root shell takes a moment to spawn, and the bind
 // is otherwise a race.
-func (a *app) runAgent(ctx context.Context, paneID, name, prompt string, piArgs []string, undo func()) error {
+// teardown is the create's rollback. disarm retires it once the
+// prompt is delivered: herdr accepted the text, so every later
+// failure must leave the agent running, not kill it (the 2026-11-02
+// quick create died this way — key fetch gave up on a spent budget
+// and pane.closed a working agent).
+type teardown struct {
+	cancel func()
+	off    atomic.Bool
+}
+
+func newTeardown(cancel func()) *teardown {
+	return &teardown{cancel: cancel}
+}
+
+func (t *teardown) undo() {
+	if t.off.Load() {
+		return
+	}
+	t.cancel()
+}
+
+func (t *teardown) disarm() { t.off.Store(true) }
+
+func (a *app) runAgent(ctx context.Context, paneID, name, prompt string, piArgs []string, undo, disarm func()) error {
 	var err error
 	for i := 0; i < 5; i++ {
 		if _, err = herdrRetry(func() (herdr.Agent, error) {
@@ -511,6 +540,7 @@ func (a *app) runAgent(ctx context.Context, paneID, name, prompt string, piArgs 
 			case <-time.After(promptRetryEvery):
 			}
 		}
+		disarm() // prompt delivered: teardown is now forbidden
 		// A prompt can fail soft: herdr accepts it while the agent is
 		// still settling and the keys go nowhere, and recovery can also
 		// outlive this request's 20s budget — the request ctx must not

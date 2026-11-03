@@ -246,6 +246,9 @@ async function postAgent(
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify(body),
+		// Bounded just past the server's 45s create budget (answerDialog's
+		// same pattern) so a dead server cannot spin the sheet forever.
+		signal: AbortSignal.timeout(50_000),
 	});
 	const data = (await res.json().catch(() => ({}))) as {
 		key?: string;
