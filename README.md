@@ -19,7 +19,7 @@ The honest requirements: a Linux or macOS box (Windows WSL also works) with [pi]
 
 The server binds 127.0.0.1 and trusts whatever sits in front of it. I front mine with `tailscale serve --bg --https=48443 8090` and set `origin` in the config to the public URL, so cross-site posts get rejected.
 
-One suggestion from me: [herdrui.dev](https://herdrui.dev) is an optional desktop app for Windows, Linux and macOS, a nice integrated UI with the full terminal power. You install herdr anyway, so it's just a convenience on top.
+One suggestion from me: [Sheprd](https://sheprd.org) is an optional desktop app for Windows, Linux and macOS, a nice integrated UI with the full terminal power. It uses the herdr daemon as its backend, so it's just a convenience on top of the herdr you install anyway.
 
 ### Installation
 
