@@ -293,8 +293,8 @@ func (ix *Index) parse(path, key string, st os.FileInfo) (SessionMeta, bool) {
 		Version: h.Version,
 		Entries: len(entries),
 	}
-	todoIdx, lastUserIdx := -1, -1
-	for i, e := range entries {
+	expiredTodoIDs := map[int]struct{}{}
+	for _, e := range entries {
 		if u := e.Usage; u != nil {
 			meta.TotalTokens += u.TotalTokens
 			meta.TotalCost += u.Cost.Total
@@ -321,8 +321,7 @@ func (ix *Index) parse(path, key string, st os.FileInfo) (SessionMeta, bool) {
 				// A present-but-empty tasks array is a clear; only an
 				// absent key leaves the previous list standing.
 				if json.Unmarshal(e.Data, &td) == nil && td.Tasks != nil {
-					meta.Todos = td.Tasks
-					todoIdx = i
+					meta.Todos = withoutExpiredTodos(td.Tasks, expiredTodoIDs)
 				}
 			}
 			// pi's auto-namer labels the window with a short name; pi and
@@ -352,7 +351,15 @@ func (ix *Index) parse(path, key string, st os.FileInfo) (SessionMeta, bool) {
 				meta.FirstUser = firstText(m)
 			}
 			if m.Role == "user" {
-				lastUserIdx = i
+				// Completed work belongs to the request that finished it.
+				// Remember the ids: rpiv's next full-state entry still carries
+				// them and would otherwise resurrect the expired rows.
+				for _, todo := range meta.Todos {
+					if todo.Status == "completed" {
+						expiredTodoIDs[todo.ID] = struct{}{}
+					}
+				}
+				meta.Todos = withoutExpiredTodos(meta.Todos, expiredTodoIDs)
 				if t, err := time.Parse(time.RFC3339Nano, e.Timestamp); err == nil {
 					meta.LastUserAt = t.UnixMilli()
 				}
@@ -360,26 +367,20 @@ func (ix *Index) parse(path, key string, st os.FileInfo) (SessionMeta, bool) {
 		}
 	}
 	meta.FirstUser = truncate(meta.FirstUser, 80)
-	// pi's terminal drops a finished todo panel when the next user
-	// message lands; retire the served list the same way so the phone
-	// strip does not outlive it. Empty, not nil: a nil list would ride
-	// the status frame as null and the client would keep the stale one.
-	if todoIdx >= 0 && lastUserIdx > todoIdx && todosAllDone(meta.Todos) {
-		meta.Todos = []Todo{}
-	}
 	return meta, true
 }
 
-func todosAllDone(todos []Todo) bool {
-	if len(todos) == 0 {
-		return false
+func withoutExpiredTodos(todos []Todo, expired map[int]struct{}) []Todo {
+	if len(todos) == 0 || len(expired) == 0 {
+		return todos
 	}
-	for _, t := range todos {
-		if t.Status != "completed" {
-			return false
+	kept := make([]Todo, 0, len(todos))
+	for _, todo := range todos {
+		if _, ok := expired[todo.ID]; !ok {
+			kept = append(kept, todo)
 		}
 	}
-	return true
+	return kept
 }
 
 // ViewItem is one renderable transcript row.

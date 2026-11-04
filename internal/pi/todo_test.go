@@ -111,7 +111,9 @@ func TestMetaTodosRetireAfterUserMessage(t *testing.T) {
 	}
 }
 
-// An unfinished list survives later user messages; it is still work.
+// Unfinished work survives later user messages; completed tasks from
+// the previous request expire and must not return in later full-state
+// entries.
 func TestMetaTodosStayWhilePending(t *testing.T) {
 	dir := t.TempDir()
 	sub := filepath.Join(dir, "sess")
@@ -127,7 +129,29 @@ func TestMetaTodosStayWhilePending(t *testing.T) {
 	if !ok {
 		t.Fatal("meta not found")
 	}
-	if len(meta.Todos) != 2 {
-		t.Fatalf("todos len=%d, want 2 while the list has pending work", len(meta.Todos))
+	if len(meta.Todos) != 1 || meta.Todos[0].ID != 2 {
+		t.Fatalf("todos = %+v, want only the unfinished second task", meta.Todos)
+	}
+}
+
+func TestMetaTodosDoNotResurrectExpiredTasks(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "sess")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(sub, "s1.jsonl")
+	nextBatch := `[{"id":1,"subject":"Old completed","status":"completed"},{"id":2,"subject":"Still open","status":"in_progress"},{"id":3,"subject":"New work","status":"pending"}]`
+	writeSession(t, path, headerLine, msgLine("a", "", "first"),
+		todoLine("t1", "a", twoTasks), msgLine("u2", "t1", "new request"),
+		todoLine("t2", "u2", nextBatch))
+
+	ix := NewIndex(dir)
+	meta, ok := ix.Meta("s1")
+	if !ok {
+		t.Fatal("meta not found")
+	}
+	if len(meta.Todos) != 2 || meta.Todos[0].ID != 2 || meta.Todos[1].ID != 3 {
+		t.Fatalf("todos = %+v, want open tasks 2 and 3 without expired task 1", meta.Todos)
 	}
 }
