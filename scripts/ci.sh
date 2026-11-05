@@ -26,4 +26,7 @@ echo "== web: tsc + biome"
 echo "== web: vitest"
 (cd web && ./node_modules/.bin/vitest run)
 
+echo "== web: mobile browser E2E"
+(cd web && npm run test:e2e)
+
 echo "ci: all gates green"

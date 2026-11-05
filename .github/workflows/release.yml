@@ -36,6 +36,7 @@ jobs:
           npm ci
           npm run check
           ./node_modules/.bin/vitest run
+          npm run test:e2e
 
   release:
     needs: verify

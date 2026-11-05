@@ -5,9 +5,13 @@ default:
 build:
     ./scripts/build.sh
 
-# Run local CI gates (go vet, gofmt, go test, tsc, biome, vitest)
+# Run local CI gates (Go, web checks, unit and mobile browser tests)
 ci:
     ./scripts/ci.sh
+
+# Build the SPA and run real Chromium phone-browser tests
+test-e2e:
+    cd web && npm run test:e2e
 
 # Run Go tests only
 test-go *args:
