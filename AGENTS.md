@@ -40,7 +40,7 @@ just apk        # Build Android debug APK
 Verified (M0):
 
 - `./scripts/build.sh`: builds the React SPA (when npm is present), then `go build` to `bin/couch-pi`.
-- `go vet ./...` and `gofmt -l .` must both be clean before a commit; `just ci` also runs `go test -race ./internal/pi ./internal/server ./internal/update`. Web adds `tsc`, `biome`, `vitest` (run via web/node_modules/.bin), and real Chromium mobile E2E (`just test-e2e`). The E2E harness needs Chrome/Chromium or `CHROME_BIN`, uses no extra npm dependency, and writes screenshots to `web/test-results/mobile/`; see `web/e2e/README.md`.
+- `go vet ./...` and `gofmt -l .` must both be clean before a commit; `just ci` also runs `go test -race ./internal/pi ./internal/server ./internal/update`. Web adds `tsc` (including `extensions/tsconfig.json` through `npm run check:extension`), `biome`, `vitest` (run via web/node_modules/.bin), and real Chromium mobile E2E (`just test-e2e`). The E2E harness needs Chrome/Chromium or `CHROME_BIN`, uses no extra npm dependency, and writes screenshots to `web/test-results/mobile/`; see `web/e2e/README.md`.
 - `go test ./...`: parser and index tests; the real-sessions integration test skips itself when the dir is absent.
 - Run: `bin/couch-pi --addr 127.0.0.1:8090` (loopback only). `curl localhost:8090/healthz` expects `ok`.
 - herdr probes: `herdr api schema --json`, `herdr api snapshot`, `herdr agent --help`.

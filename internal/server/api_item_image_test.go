@@ -7,6 +7,44 @@ import (
 	"testing"
 )
 
+func TestItemImageUsesSafeMIMEAndNosniff(t *testing.T) {
+	tests := []struct {
+		mime string
+		want string
+	}{
+		{mime: "image/png", want: "image/png"},
+		{mime: "image/jpeg", want: "image/jpeg"},
+		{mime: "image/gif", want: "image/gif"},
+		{mime: "image/webp", want: "image/webp"},
+		{mime: "image/bmp", want: "image/bmp"},
+		{mime: "image/svg+xml", want: "application/octet-stream"},
+		{mime: "text/html", want: "application/octet-stream"},
+		{mime: "application/octet-stream", want: "application/octet-stream"},
+		{mime: "", want: "application/octet-stream"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.mime, func(t *testing.T) {
+			_, sub, h := streamTestApp(t)
+			writeLines(t, filepath.Join(sub, "s1.jsonl"),
+				`{"type":"message","id":"c","parentId":"a","timestamp":"2026-10-10T12:00:03.000Z","message":{"role":"toolResult","toolName":"read","content":[{"type":"image","data":"aGVsbG8=","mimeType":"`+tc.mime+`"}],"timestamp":1760000003000}}`,
+			)
+			req := httptest.NewRequest(http.MethodGet, "/api/sessions/s1/items/1/image", nil)
+			req.Host = "127.0.0.1:8090"
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("got %d %s", rec.Code, rec.Body.String())
+			}
+			if got := rec.Header().Get("Content-Type"); got != tc.want {
+				t.Errorf("Content-Type = %q, want %q", got, tc.want)
+			}
+			if got := rec.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+				t.Errorf("X-Content-Type-Options = %q, want nosniff", got)
+			}
+		})
+	}
+}
+
 func TestItemServesImage(t *testing.T) {
 	a, sub, h := streamTestApp(t)
 	_ = a

@@ -83,7 +83,8 @@ Overall verdict: the architecture is sound. No critical production security issu
 
 ### 7. The bridge still permits the subscription mistake that previously broke it
 
-- [ ] **Status: pending**
+- [x] **Status: completed 2026-11-06**
+- Verification: the generic lifecycle overload is gone. A mutation adding `pi.on("rpiv:ask-user:prompt", ...)` fails with TS2769, the valid bridge typechecks through `extensions/tsconfig.json`, and `web npm run check` runs that gate locally and in release CI.
 - Locations: `extensions/couch-pi-bridge.ts:55-61`, `web/tsconfig.json:20`, `scripts/ci.sh`
 - Finding: the local `ExtensionAPI` retains a generic `pi.on(event: string, ...)` overload, so TypeScript would accept another incorrect `pi.on("rpiv:...")` subscription even though cross-extension events require `pi.events.on`. The extension also sits outside the normal TypeScript project's `include` set, so regular `tsc` does not check it.
 - Fix: remove the generic lifecycle `on` overload. Add a dedicated extension TypeScript configuration and run it in CI. Keep the existing runtime event-bus regression tests.
@@ -92,7 +93,8 @@ Overall verdict: the architecture is sound. No critical production security issu
 
 ### 8. Bridge HTTP delivery is duplicated
 
-- [ ] **Status: pending**
+- [x] **Status: completed 2026-11-06**
+- Verification: `dial` now only builds its payload over `postBridge`, leaving one request, authentication, timeout, and warning path. All 11 bridge runtime tests pass, including exact dialog and ask endpoint URL assertions.
 - Location: `extensions/couch-pi-bridge.ts:111-139,174-203`
 - Finding: `postBridge` and `dial` repeat request construction, headers, timeout, rejection logging, and failure handling. Authorization header construction also has a second copy inside `dial`.
 - Fix: make `dial` a small payload builder over `postBridge`. Keep one request and warning path.
@@ -121,7 +123,8 @@ Overall verdict: the architecture is sound. No critical production security issu
 
 ### 11. Image responses trust the session-provided MIME type
 
-- [ ] **Status: pending hardening decision**
+- [x] **Status: completed 2026-11-06**
+- Verification: the response table failed before the fix for SVG/HTML passthrough and missing `nosniff`. PNG, JPEG, GIF, WebP, and BMP keep their MIME types; SVG, HTML, empty, and unknown values now use `application/octet-stream`, and every response carries `X-Content-Type-Options: nosniff`.
 - Location: `internal/server/api_item.go:41-44`
 - Finding: the endpoint writes the stored MIME type directly. An unexpected `text/html` or active image format would be served under the application origin. The normal `<img>` path limits practical exposure, so this is hardening rather than a demonstrated exploit.
 - Fix: allow only supported image MIME types and add `X-Content-Type-Options: nosniff`.

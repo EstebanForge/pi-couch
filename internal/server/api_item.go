@@ -27,6 +27,7 @@ func (a *app) apiItem(w http.ResponseWriter, r *http.Request) {
 // <img> tag is the only consumer. Session entries are append-only, so
 // the response caches forever.
 func (a *app) apiItemImage(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	key := r.PathValue("key")
 	seq, err := strconv.Atoi(r.PathValue("seq"))
 	if err != nil {
@@ -37,6 +38,11 @@ func (a *app) apiItemImage(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
+	}
+	switch mime {
+	case "image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp":
+	default:
+		mime = "application/octet-stream"
 	}
 	w.Header().Set("Content-Type", mime)
 	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")

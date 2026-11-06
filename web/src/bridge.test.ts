@@ -105,6 +105,10 @@ function authHeader(callIndex: number): string | undefined {
 	return (init.headers as Record<string, string>).authorization;
 }
 
+function requestURL(callIndex: number): string {
+	return String(vi.mocked(fetch).mock.calls[callIndex][0]);
+}
+
 describe("couch-pi bridge extension", () => {
 	beforeEach(() => {
 		vi.stubEnv("HERDR_ENV", "1");
@@ -129,6 +133,7 @@ describe("couch-pi bridge extension", () => {
 		fire("ui_prompt_start", startEvent);
 
 		expect(fetch).toHaveBeenCalledTimes(1);
+		expect(requestURL(0)).toBe("http://127.0.0.1:8090/api/bridge/dialog");
 		expect(authHeader(0)).toBe("Bearer tok123");
 		const bodies = await postBodies();
 		expect(bodies[0].phase).toBe("start");
@@ -165,6 +170,8 @@ describe("couch-pi bridge extension", () => {
 		fireEvent("rpiv:ask-user:blocked", { active: false, toolCallId: "call-1" });
 
 		const bodies = await postBodies();
+		expect(requestURL(0)).toBe("http://127.0.0.1:8090/api/bridge/ask");
+		expect(requestURL(1)).toBe("http://127.0.0.1:8090/api/bridge/ask");
 		expect(bodies[0]).toMatchObject({
 			phase: "open",
 			tool_call_id: "call-1",

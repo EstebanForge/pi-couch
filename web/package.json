@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "check": "tsc --noEmit && biome check src e2e",
+    "check": "tsc --noEmit && npm run check:extension && biome check src e2e",
+    "check:extension": "tsc -p ../extensions/tsconfig.json",
     "test:e2e": "npm run build && node --test --test-concurrency=1 --test-timeout=120000 e2e/mobile.mjs"
   },
   "dependencies": {

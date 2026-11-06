@@ -66,8 +66,6 @@ interface ExtensionAPI {
 	on(event: "ui_prompt_start", handler: (event: PromptEvent) => void): () => void;
 	on(event: "ui_prompt_end", handler: (event: PromptEvent) => void): () => void;
 	on(event: "session_start", handler: (event: unknown, ctx: ExtensionContext) => void): () => void;
-	// Cross-extension event contracts (rpiv:*, herdr:*).
-	on(event: string, handler: (data: unknown) => void): () => void;
 }
 
 const HERDR_ENV = process.env.HERDR_ENV;
@@ -112,8 +110,8 @@ function accessTokenForDial(): string {
 // event bus. One poll tick of latency per answer.
 const ASK_POLL_MS = 700;
 
-// Fire-and-forget POST for the ask endpoints, same dial discipline as
-// dial(): dialogs surface while the server is up, failures warn once.
+// One fire-and-forget POST path for dialogs and the ask relay.
+// Dialogs surface while the server is up; failures warn once.
 function postBridge(path: string, body: unknown): void {
 	try {
 		fetch(`${COUCHPI_URL}${path}`, {
@@ -172,33 +170,7 @@ function newDialogID(): string {
 }
 
 function dial(phase: "start" | "end", kind: string, title: string | undefined, sessionPath: string | undefined, id: string | undefined): void {
-	const body = JSON.stringify({ phase, kind, title, id, session_path: sessionPath });
-	try {
-		const token = accessTokenForDial();
-		fetch(`${COUCHPI_URL}/api/bridge/dialog`, {
-			method: "POST",
-			headers: {
-				"content-type": "application/json",
-				...(token ? { authorization: `Bearer ${token}` } : {}),
-			},
-			body,
-			signal: AbortSignal.timeout(1500),
-		})
-			.then((res) => {
-				if (!res.ok && !warned) {
-					warned = true;
-					console.error(`couch-pi bridge: POST rejected (HTTP ${res.status}); check PICOUCH_ACCESS_TOKEN`);
-				}
-			})
-			.catch(() => {
-				if (!warned) {
-					warned = true;
-					console.error("couch-pi bridge: cannot reach the server; dialogs surface only while it is up");
-				}
-			});
-	} catch {
-		// no fetch, no server, no problem: herdr blocked state still carries
-	}
+	postBridge("/api/bridge/dialog", { phase, kind, title, id, session_path: sessionPath });
 }
 
 let labelWarned = false;
