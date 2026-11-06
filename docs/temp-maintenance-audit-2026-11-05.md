@@ -103,7 +103,8 @@ Overall verdict: the architecture is sound. No critical production security issu
 
 ### 9. Stream lifecycle tests cover only backoff arithmetic
 
-- [ ] **Status: pending**
+- [x] **Status: completed 2026-11-06**
+- Verification: seven deterministic lifecycle tests now cover error backoff and frame delivery, silence reconnect and frame activity, active and pending background shutdown, foreground recovery, online/pageshow wakeups, and close cleanup. A contract-accurate fake EventSource, native event targets with listener counts, and fake timers require no production hook or new dependency; all 8 stream tests pass.
 - Locations: `web/src/stream.ts:22-115`, `web/src/stream.test.ts:1-11`
 - Finding: production code handles reconnection, silence detection, visibility changes, pageshow, and cleanup, but the unit test checks only `nextBackoffMs`.
 - Fix: use a fake `EventSource` to test reconnects, background shutdown, foreground recovery, silence timeout, and cleanup. Keep real mobile browser E2E for interaction behavior.
