@@ -203,6 +203,11 @@ func (a *app) answerAskForPath(sessionPath string, req askPhoneAnswer) askAnswer
 	}
 	p.wire.RequestID = p.requestID
 	a.askMu.Lock()
+	// Run builds the app without pre-seeding this map (tests seed it
+	// by hand); first answer parks lazily, same as the bridge map.
+	if a.askPends == nil {
+		a.askPends = map[string]*askPending{}
+	}
 	if _, busy := a.askPends[req.ToolCallID]; busy {
 		a.askMu.Unlock()
 		return askAnswerResult{Code: "busy", Reason: "an answer is already in flight"}

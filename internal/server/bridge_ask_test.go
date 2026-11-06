@@ -172,6 +172,59 @@ func TestBridgeAskPollAndVerdict(t *testing.T) {
 	}
 }
 
+// Production Run builds the app without pre-seeding askPends; tests
+// seed it by hand. The first real phone answer must park cleanly
+// anyway, not panic the handler into a proxy 502.
+func TestBridgeAskAnswersWithoutASeededMap(t *testing.T) {
+	a := &app{logger: testLogger()}
+	askOpen(t, a, testAskOpenBody())
+
+	old := askVerdictWait
+	askVerdictWait = 5 * time.Second
+	t.Cleanup(func() { askVerdictWait = old })
+
+	done := make(chan string, 1)
+	go func() {
+		res := a.answerAskForPath("/s/a.jsonl", askPhoneAnswer{
+			ToolCallID: testAskID,
+			Answers: []askAnswerEntry{
+				{QuestionIndex: 0, OptionIndexes: []int{1}},
+				{QuestionIndex: 1, OptionIndexes: []int{0, 1}},
+			},
+		})
+		b, _ := json.Marshal(res)
+		done <- string(b)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	req := httptest.NewRequest(http.MethodGet, "/api/bridge/ask/answer?tool_call_id="+testAskID, nil)
+	req.Host = "127.0.0.1:8090"
+	rec := httptest.NewRecorder()
+	a.apiBridgeAskAnswer(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("poll: code=%d, want 200", rec.Code)
+	}
+	var got askAnswerWire
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("poll body: %v", err)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/bridge/ask/verdict", strings.NewReader(
+		`{"request_id":"`+got.RequestID+`","tool_call_id":"`+testAskID+`","ok":true}`))
+	req.Host = "127.0.0.1:8090"
+	rec = httptest.NewRecorder()
+	a.apiBridgeAskVerdict(rec, req)
+
+	select {
+	case out := <-done:
+		if !strings.Contains(out, `"ok":true`) {
+			t.Fatalf("phone POST result = %s", out)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("phone POST never resolved")
+	}
+}
+
 // A verdict for an unknown request id must not block or 500.
 func TestBridgeAskVerdictUnknown(t *testing.T) {
 	a := &app{logger: testLogger()}
