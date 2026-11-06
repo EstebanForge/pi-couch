@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { getModels, type ModelRow, uploadImage } from "../api";
+import { getModels, type ModelRow } from "../api";
+import {
+	MAX_FILES,
+	prepareAttachments,
+	uploadAttachments,
+	useAttachmentState,
+} from "../attachments";
 import { clampThinking, levelsForModel } from "../thinking";
 import { FaCaretDown, FaPaperclip, FaXmark } from "./fa";
 import { Spinner } from "./Spinner";
-
-const MAX_FILES = 10;
-const MAX_BYTES = 10 * 1024 * 1024;
-
-type Pick = { id: number; name: string; path?: string; error?: string };
 
 export type LaunchFields = { body: string; model?: string; thinking?: string; uploading: boolean };
 
@@ -25,7 +26,7 @@ export function AgentLauncherFields({
 	onChange: (v: LaunchFields) => void;
 }) {
 	const [prompt, setPrompt] = useState("");
-	const [files, setFiles] = useState<Pick[]>([]);
+	const { files, filesRef, setFiles } = useAttachmentState();
 	const [models, setModels] = useState<ModelRow[] | null>(null);
 	const [model, setModel] = useState("");
 	const [thinking, setThinking] = useState("");
@@ -47,7 +48,7 @@ export function AgentLauncherFields({
 		setModel("");
 		setThinking("");
 		setPick("none");
-	}, [opened]);
+	}, [opened, setFiles]);
 
 	const uploading = files.some((f) => !f.path && !f.error);
 
@@ -67,21 +68,16 @@ export function AgentLauncherFields({
 	}, [prompt, files, model, thinking, uploading]);
 
 	const onFiles = (list: FileList | null) => {
-		if (!list) return;
-		for (const file of list) {
-			if (files.length >= MAX_FILES) break;
-			const id = nextId.current++;
-			setFiles((cur) => [...cur, { id, name: file.name }]);
-			if (file.size > MAX_BYTES) {
-				setFiles((cur) => cur.map((f) => (f.id === id ? { ...f, error: "over 10 MB" } : f)));
-				continue;
-			}
-			uploadImage(file)
-				.then((path) => setFiles((cur) => cur.map((f) => (f.id === id ? { ...f, path } : f))))
-				.catch(() =>
-					setFiles((cur) => cur.map((f) => (f.id === id ? { ...f, error: "upload failed" } : f))),
-				);
-		}
+		const { picked, batch } = prepareAttachments(
+			list,
+			filesRef.current.length,
+			() => nextId.current++,
+		);
+		if (batch.length === 0) return;
+		setFiles((cur) => [...cur, ...batch]);
+		void uploadAttachments(picked, batch, (id, patch) => {
+			setFiles((cur) => cur.map((file) => (file.id === id ? { ...file, ...patch } : file)));
+		});
 	};
 
 	const picker =

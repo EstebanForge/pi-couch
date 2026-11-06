@@ -42,12 +42,14 @@ func (a *app) createBudget() time.Duration {
 	return agentCreateTimeout
 }
 
+var herdrRetryBackoff = 1200 * time.Millisecond
+
 // herdrRetry rides out herdr's transient socket stalls: under load
 // the unix socket intermittently answers dial timeouts while the
 // process is fine moments later, and one timeout must not abort a
 // create. Only wire-safe for calls that are reads or whose failure
 // means herdr never received the request.
-func herdrRetry[T any](f func() (T, error)) (T, error) {
+func herdrRetry[T any](ctx context.Context, f func() (T, error)) (T, error) {
 	var zero T
 	var err error
 	for i := 0; i < 8; i++ {
@@ -58,14 +60,23 @@ func herdrRetry[T any](f func() (T, error)) (T, error) {
 			return v, err
 		}
 		slog.Warn("herdr dial stalled", slog.Int("attempt", i+1), slog.Float64("elapsed_s", time.Since(start).Seconds()), slog.String("error", err.Error()))
-		time.Sleep(1200 * time.Millisecond)
+		if i == 7 {
+			break
+		}
+		timer := time.NewTimer(herdrRetryBackoff)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return zero, ctx.Err()
+		case <-timer.C:
+		}
 	}
 	return zero, err
 }
 
 // herdrRetryErr is herdrRetry for error-only calls.
-func herdrRetryErr(f func() error) error {
-	_, err := herdrRetry(func() (struct{}, error) { return struct{}{}, f() })
+func herdrRetryErr(ctx context.Context, f func() error) error {
+	_, err := herdrRetry(ctx, func() (struct{}, error) { return struct{}{}, f() })
 	return err
 }
 
@@ -360,7 +371,7 @@ func (a *app) createInWorkspace(ctx context.Context, workspaceID, prompt string,
 			}
 		}
 	}
-	paneID, err := herdrRetry(func() (string, error) { return a.herdr.SplitPane(ctx, workspaceID, "down") })
+	paneID, err := herdrRetry(ctx, func() (string, error) { return a.herdr.SplitPane(ctx, workspaceID, "down") })
 	if err != nil {
 		return "", "", fmt.Errorf("pane split: %w", err)
 	}
@@ -485,7 +496,7 @@ func (t *teardown) disarm() { t.off.Store(true) }
 func (a *app) runAgent(ctx context.Context, paneID, name, prompt string, piArgs []string, undo, disarm func()) error {
 	var err error
 	for i := 0; i < 5; i++ {
-		if _, err = herdrRetry(func() (herdr.Agent, error) {
+		if _, err = herdrRetry(ctx, func() (herdr.Agent, error) {
 			return a.herdr.AgentStart(ctx, name, "pi", paneID, piArgs)
 		}); err == nil ||
 			!strings.Contains(err.Error(), "not an available shell") && !strings.Contains(err.Error(), "herdr: dial:") {
@@ -525,7 +536,7 @@ func (a *app) runAgent(ctx context.Context, paneID, name, prompt string, piArgs 
 		// cap lost creates whose gate ran longer than the cap covered.
 		promptDeadline := time.Now().Add(promptRetryDeadline)
 		for {
-			err := herdrRetryErr(func() error { return a.herdr.Prompt(ctx, name, prompt) })
+			err := herdrRetryErr(ctx, func() error { return a.herdr.Prompt(ctx, name, prompt) })
 			if err == nil {
 				break
 			}
@@ -581,7 +592,7 @@ func (a *app) ensureTurnStarted(ctx context.Context, paneID, name, prompt string
 		}
 		if strings.Contains(plain, frag) {
 			// The text landed; only the submit-enter was lost.
-			if err := herdrRetryErr(func() error { return a.herdr.PaneSendInput(ctx, paneID, "", []string{"enter"}) }); err != nil {
+			if err := herdrRetryErr(ctx, func() error { return a.herdr.PaneSendInput(ctx, paneID, "", []string{"enter"}) }); err != nil {
 				a.logger.Warn("prompt submit failed", slog.String("error", err.Error()))
 				return
 			}

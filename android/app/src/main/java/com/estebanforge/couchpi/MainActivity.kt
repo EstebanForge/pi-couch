@@ -428,7 +428,7 @@ class MainActivity : Activity() {
                         val text = results
                             .getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                             ?.firstOrNull()
-                        Log.i(TAG, "results: wanting=$wanting text=${text?.take(40)}")
+                        Log.i(TAG, "results: wanting=$wanting length=${text?.length ?: 0}")
                         if (!text.isNullOrBlank()) emit("onFinal", text)
                         if (wanting) listen(lang) else finish()
                     }

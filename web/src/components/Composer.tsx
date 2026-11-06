@@ -19,8 +19,13 @@ import {
 	sendPrompt,
 	setModel,
 	setThinking,
-	uploadImage,
 } from "../api";
+import {
+	MAX_FILES,
+	prepareAttachments,
+	uploadAttachments,
+	useAttachmentState,
+} from "../attachments";
 import { dispositionFor } from "../chat/disposition";
 import { ESC_SETTLE_MS, orderKeys, type QuickKey } from "../chat/quick-keys";
 import { hapticConfirm, hapticTick } from "../haptics";
@@ -51,12 +56,6 @@ import {
 import { stalledApply } from "./modelApply";
 import { Spinner } from "./Spinner";
 
-const MAX_FILES = 10;
-const MAX_PARALLEL = 3;
-const MAX_BYTES = 10 << 20; // mirrors the server cap
-
-type Attachment = { id: number; name: string; path?: string; error?: string };
-
 export const Composer = memo(function Composer(props: {
 	sessionKey: string;
 	status: string;
@@ -76,7 +75,7 @@ export const Composer = memo(function Composer(props: {
 	const { sessionKey, status } = props;
 	const draftStoreKey = prefKey(`draft.${sessionKey}`);
 	const [text, setText] = useState(() => readPref(draftStoreKey) ?? "");
-	const [files, setFiles] = useState<Attachment[]>([]);
+	const { files, filesRef, setFiles } = useAttachmentState();
 	const [notice, setNotice] = useState("");
 	const [toast, setToast] = useState("");
 	const [sheet, setSheet] = useState<"none" | "model" | "thinking" | "commands" | "attach">("none");
@@ -289,48 +288,17 @@ export const Composer = memo(function Composer(props: {
 	};
 
 	const pickFiles = async (list: FileList | null) => {
-		if (!list || list.length === 0) return;
-		const picked = [...list].slice(0, MAX_FILES - files.length);
-		if (list.length > MAX_FILES - files.length) {
-			setNotice(`Only ${MAX_FILES} files per prompt; extras dropped.`);
-		}
-		const batch = picked.map((f) => ({
-			id: nextId.current++,
-			name: f.name,
-		}));
-		setFiles((cur) => [...cur, ...batch]);
-		// Three uploads in flight at a time, in pick order.
-		let active = 0;
-		await Promise.all(
-			batch.map(
-				(slot, idx) =>
-					new Promise<void>((resolve) => {
-						const start = () => {
-							active++;
-							const file = picked[idx];
-							const done = (path?: string, error?: string) => {
-								setFiles((cur) => cur.map((f) => (f.id === slot.id ? { ...f, path, error } : f)));
-								active--;
-								resolve();
-							};
-							if (file.size > MAX_BYTES) {
-								done(undefined, "too large");
-								return;
-							}
-							uploadImage(file).then(
-								(path) => done(path),
-								() => done(undefined, "failed"),
-							);
-						};
-						const wait = setInterval(() => {
-							if (active < MAX_PARALLEL) {
-								clearInterval(wait);
-								start();
-							}
-						}, 25);
-					}),
-			),
+		const { picked, batch, dropped } = prepareAttachments(
+			list,
+			filesRef.current.length,
+			() => nextId.current++,
 		);
+		if (dropped > 0) setNotice(`Only ${MAX_FILES} files per prompt; extras dropped.`);
+		if (batch.length === 0) return;
+		setFiles((cur) => [...cur, ...batch]);
+		await uploadAttachments(picked, batch, (id, patch) => {
+			setFiles((cur) => cur.map((file) => (file.id === id ? { ...file, ...patch } : file)));
+		});
 	};
 
 	const runKey = (k: QuickKey) => {

@@ -46,6 +46,8 @@ async function readBody(req) {
 	return body ? JSON.parse(body) : {};
 }
 
+const sleep = (ms) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
+
 export async function startFixture() {
 	const recorded = JSON.parse(await readFile(resolve(here, "../dev/fixture-session.json"), "utf8"));
 	const state = {
@@ -58,6 +60,10 @@ export async function startFixture() {
 		prompts: [],
 		agents: [],
 		failCreates: 0,
+		uploads: 0,
+		activeUploads: 0,
+		maxActiveUploads: 0,
+		uploadDelay: 120,
 	};
 	const sessions = [structuredClone(demoSession)];
 	const transcriptStreams = new Set();
@@ -112,6 +118,10 @@ export async function startFixture() {
 		state.prompts.length = 0;
 		state.agents.length = 0;
 		state.failCreates = 0;
+		state.uploads = 0;
+		state.activeUploads = 0;
+		state.maxActiveUploads = 0;
+		state.uploadDelay = 120;
 		sessions.splice(1);
 	};
 	const closeDialog = () => {
@@ -172,6 +182,19 @@ export async function startFixture() {
 			}
 			if (path === "/api/models/refresh" && req.method === "POST") {
 				json(res, 200, [{ id: "fixture/fake-model", levels: ["low", "medium", "high"] }]);
+				return;
+			}
+			if (path === "/api/upload" && req.method === "POST") {
+				for await (const _chunk of req) {
+					// Drain multipart data before answering.
+				}
+				state.uploads += 1;
+				const upload = state.uploads;
+				state.activeUploads += 1;
+				state.maxActiveUploads = Math.max(state.maxActiveUploads, state.activeUploads);
+				await sleep(state.uploadDelay);
+				state.activeUploads -= 1;
+				json(res, 200, { path: `/tmp/demo/upload-${upload}` });
 				return;
 			}
 			if (path === "/api/agents" && req.method === "POST") {

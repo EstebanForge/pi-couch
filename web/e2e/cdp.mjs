@@ -174,6 +174,16 @@ async function connect(url) {
 		});
 	};
 
+	const setFiles = async (expression, files) => {
+		const result = await send("Runtime.evaluate", { expression, returnByValue: false });
+		if (!result.result.objectId) throw new Error("file input expression returned no element");
+		await send("DOM.enable");
+		await send("DOM.getDocument", { depth: 0 });
+		const { nodeId } = await send("DOM.requestNode", { objectId: result.result.objectId });
+		await send("DOM.setFileInputFiles", { nodeId, files });
+		await send("Runtime.releaseObject", { objectId: result.result.objectId });
+	};
+
 	const screenshot = async (artifacts, name) => {
 		const { data } = await send("Page.captureScreenshot", {
 			format: "png",
@@ -203,6 +213,7 @@ async function connect(url) {
 		tapText,
 		fill,
 		pressEnter,
+		setFiles,
 		screenshot,
 		close,
 		exceptions,

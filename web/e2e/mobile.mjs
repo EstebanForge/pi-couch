@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { after, afterEach, before, test } from "node:test";
 import { launchBrowser } from "./cdp.mjs";
@@ -288,4 +289,81 @@ test("quick-create failure re-enables the sheet and retry opens the created sess
 	assert.deepEqual(fixture.state.agents[0], fixture.state.agents[1]);
 	assert.equal(fixture.state.agents[1].prompt, "Retry this create");
 	await page.screenshot(artifacts, "11-create-retried");
+});
+
+test("quick-create attachments keep the ten-file cap and three-upload limit", async () => {
+	fixture.reset();
+	await open();
+	await page.evaluate("localStorage.setItem('pi-couch.quickPath', '/tmp/demo')");
+	await page.tap('[aria-label="New agent"]');
+	await page.tapText("Quick agent");
+	await page.waitFor(
+		"document.querySelector('textarea[placeholder=\"First prompt for the agent…\"]')",
+		"quick attachment sheet",
+	);
+	await sleep(500);
+	const files = await Promise.all(
+		Array.from({ length: 11 }, async (_, index) => {
+			const path = resolve(artifacts, `attachment-${index}.png`);
+			await writeFile(path, `attachment ${index}`);
+			return path;
+		}),
+	);
+	await page.setFiles(
+		`(() => {
+			const area = [...document.querySelectorAll('textarea[placeholder="First prompt for the agent…"]')].find((node) => {
+				const rect = node.getBoundingClientRect();
+				return node.checkVisibility() && rect.top >= 0 && rect.bottom <= innerHeight;
+			});
+			return area?.parentElement.querySelector('input[type="file"]') ?? null;
+		})()`,
+		files,
+	);
+	await eventually(() => fixture.state.uploads >= 10, "capped upload batch");
+	await sleep(300);
+	assert.equal(fixture.state.uploads, 10, "the eleventh file must be dropped");
+	assert.equal(fixture.state.activeUploads, 0, "all uploads finished");
+	assert.ok(
+		fixture.state.maxActiveUploads <= 3,
+		`observed ${fixture.state.maxActiveUploads} simultaneous uploads`,
+	);
+	await page.screenshot(artifacts, "12-attachments-capped");
+});
+
+test("incremental attachment batches share the cap and upload slots", async () => {
+	fixture.reset();
+	await open();
+	await page.evaluate("localStorage.setItem('pi-couch.quickPath', '/tmp/demo')");
+	await page.tap('[aria-label="New agent"]');
+	await page.tapText("Quick agent");
+	await page.waitFor(
+		"document.querySelector('textarea[placeholder=\"First prompt for the agent…\"]')",
+		"incremental attachment sheet",
+	);
+	await sleep(500);
+	const input = `(() => {
+		const area = [...document.querySelectorAll('textarea[placeholder="First prompt for the agent…"]')].find((node) => {
+			const rect = node.getBoundingClientRect();
+			return node.checkVisibility() && rect.top >= 0 && rect.bottom <= innerHeight;
+		});
+		return area?.parentElement.querySelector('input[type="file"]') ?? null;
+	})()`;
+	const files = async (prefix) =>
+		Promise.all(
+			Array.from({ length: 6 }, async (_, index) => {
+				const path = resolve(artifacts, `${prefix}-${index}.png`);
+				await writeFile(path, `${prefix} ${index}`);
+				return path;
+			}),
+		);
+	await page.setFiles(input, await files("first-batch"));
+	await page.setFiles(input, await files("second-batch"));
+	await eventually(() => fixture.state.uploads >= 10, "incremental upload batches");
+	await sleep(300);
+	assert.equal(fixture.state.uploads, 10, "incremental selections must share the cap");
+	assert.ok(
+		fixture.state.maxActiveUploads <= 3,
+		`observed ${fixture.state.maxActiveUploads} simultaneous uploads across batches`,
+	);
+	await page.screenshot(artifacts, "13-attachments-incremental");
 });
