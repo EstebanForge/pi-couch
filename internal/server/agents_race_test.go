@@ -14,7 +14,8 @@ import (
 
 func TestWaitAgentActiveRequiresTheStartedName(t *testing.T) {
 	sess := ""
-	status := "working"
+	var status atomic.Value
+	status.Store("working")
 	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sess, status: &status, agentName: "other"})
 	client := herdr.NewAt(sock)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Millisecond)
@@ -26,7 +27,8 @@ func TestWaitAgentActiveRequiresTheStartedName(t *testing.T) {
 
 func TestWaitAgentActiveRequiresBoundSession(t *testing.T) {
 	sess := ""
-	status := "working"
+	var status atomic.Value
+	status.Store("working")
 	var unbound atomic.Bool
 	unbound.Store(true)
 	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sess, status: &status, agentName: "wanted", sessionUnbound: &unbound})
@@ -40,7 +42,8 @@ func TestWaitAgentActiveRequiresBoundSession(t *testing.T) {
 
 func TestWaitAgentActiveWaitsForTheSessionBind(t *testing.T) {
 	sess := ""
-	status := "working"
+	var status atomic.Value
+	status.Store("working")
 	var unbound atomic.Bool
 	unbound.Store(true)
 	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sess, status: &status, agentName: "wanted", sessionUnbound: &unbound})
@@ -62,7 +65,8 @@ func TestRunAgentPromptSurvivesABindingGap(t *testing.T) {
 	if err := os.WriteFile(sess, []byte("{}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	status := "working"
+	var status atomic.Value
+	status.Store("working")
 	ready := "0.0%/1.0M"
 	var unbound atomic.Bool
 	unbound.Store(true)
@@ -93,7 +97,8 @@ func TestRunAgentPromptOutlastsALongGateGap(t *testing.T) {
 	if err := os.WriteFile(sess, []byte("{}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	status := "working"
+	var status atomic.Value
+	status.Store("working")
 	ready := "0.0%/1.0M"
 	var sends int32
 	sock := herdrFake(t, fakeHerdrOpts{
@@ -117,7 +122,8 @@ func TestCreateKeepsTheAgentWhenNoSessionVerifies(t *testing.T) {
 	defer func() { promptRetryEvery, promptRetryDeadline, sessionVerifyWait = every, deadline, verify }()
 	dir := t.TempDir()
 	phantom := filepath.Join(dir, "never.jsonl")
-	status := "working"
+	var status atomic.Value
+	status.Store("working")
 	ready := "0.0%/1.0M"
 	var sends, closes int32
 	// herdr reports the bind while the agent readies, then it stops
@@ -151,7 +157,8 @@ func TestRunAgentRetriesTransientInactiveName(t *testing.T) {
 	if err := os.WriteFile(sess, []byte("{}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	status := "working"
+	var status atomic.Value
+	status.Store("working")
 	ready := "0.0%/1.0M"
 	var prompts int32
 	var sends int32

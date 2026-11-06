@@ -59,6 +59,7 @@ export async function startFixture() {
 		askAnswers: [],
 		prompts: [],
 		agents: [],
+		scripts: [],
 		failCreates: 0,
 		uploads: 0,
 		activeUploads: 0,
@@ -117,6 +118,7 @@ export async function startFixture() {
 		state.askAnswers.length = 0;
 		state.prompts.length = 0;
 		state.agents.length = 0;
+		state.scripts.length = 0;
 		state.failCreates = 0;
 		state.uploads = 0;
 		state.activeUploads = 0;
@@ -265,6 +267,7 @@ export async function startFixture() {
 			} catch {
 				file = resolve(assets, "index.html");
 			}
+			if (extname(file) === ".js") state.scripts.push(path);
 			let body;
 			try {
 				body = await readFile(file);

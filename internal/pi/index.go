@@ -65,11 +65,12 @@ func (m SessionMeta) DisplayName() string {
 // Index walks the sessions root and caches list metadata per file.
 // Safe for concurrent use: SSE streams and page handlers share one Index.
 type Index struct {
-	root    string
-	mu      sync.Mutex
-	cache   map[string]metaCache
-	tail    *tailCache
-	parsing map[string]*parseFlight
+	root      string
+	mu        sync.Mutex
+	cache     map[string]metaCache
+	tails     map[string]*tailCache
+	tailOrder []string
+	parsing   map[string]*parseFlight
 }
 
 // parseFlight merges concurrent meta misses for one session: without
@@ -81,10 +82,9 @@ type parseFlight struct {
 	ok   bool
 }
 
-// tailCache holds the parsed entries of the session currently being
-// viewed so transcript streams parse only appended bytes. One session
-// at a time; a full parse of a large active session per watcher tick
-// starved both the server and its clients.
+// tailCache holds one session's parsed entries so transcript streams
+// parse only appended bytes. Index retains the four most recently used
+// tails; one global slot forced alternating streams into full reparses.
 type tailCache struct {
 	key     string
 	path    string
@@ -141,8 +141,43 @@ func tailWindow(path string, size int64) ([]byte, error) {
 	return windowAt(f, size)
 }
 
+const tailCacheLimit = 4
+
 func NewIndex(root string) *Index {
 	return &Index{root: root, cache: map[string]metaCache{}}
+}
+
+// cachedTailLocked returns and marks a tail as most recently used.
+func (ix *Index) cachedTailLocked(key string) *tailCache {
+	tc := ix.tails[key]
+	if tc != nil {
+		ix.touchTailLocked(key)
+	}
+	return tc
+}
+
+func (ix *Index) touchTailLocked(key string) {
+	for i, cachedKey := range ix.tailOrder {
+		if cachedKey != key {
+			continue
+		}
+		copy(ix.tailOrder[i:], ix.tailOrder[i+1:])
+		ix.tailOrder[len(ix.tailOrder)-1] = key
+		return
+	}
+	ix.tailOrder = append(ix.tailOrder, key)
+	if len(ix.tailOrder) > tailCacheLimit {
+		delete(ix.tails, ix.tailOrder[0])
+		ix.tailOrder = ix.tailOrder[1:]
+	}
+}
+
+func (ix *Index) storeTailLocked(tc *tailCache) {
+	if ix.tails == nil {
+		ix.tails = make(map[string]*tailCache, tailCacheLimit)
+	}
+	ix.tails[tc.key] = tc
+	ix.touchTailLocked(tc.key)
 }
 
 // List returns every session file's metadata, newest first.
@@ -677,7 +712,7 @@ func (ix *Index) tailEntries(key, path string, st os.FileInfo) ([]Entry, error) 
 	size := st.Size()
 	for attempt := 0; attempt < 3; attempt++ {
 		ix.mu.Lock()
-		tc := ix.tail
+		tc := ix.cachedTailLocked(key)
 		same := tc != nil && tc.key == key && tc.path == path && tc.id == statID(st)
 		if same && tc.offset == size {
 			out := tc.entries
@@ -721,8 +756,8 @@ func (ix *Index) tailEntries(key, path string, st os.FileInfo) ([]Entry, error) 
 				entries = append(entries, fresh...)
 				next := &tailCache{key: key, path: path, offset: nextOffset, entries: entries, id: statID(st), tail: nwin}
 				ix.mu.Lock()
-				if ix.tail == base { // nobody advanced the cache meanwhile
-					ix.tail = next
+				if ix.tails[key] == base { // nobody advanced this session's cache meanwhile
+					ix.storeTailLocked(next)
 					ix.mu.Unlock()
 					return next.entries, nil
 				}
@@ -762,7 +797,7 @@ func (ix *Index) tailEntries(key, path string, st os.FileInfo) ([]Entry, error) 
 	win := append([]byte(nil), data[wstart:consumed]...)
 	entries := ParseEntries(bytes.NewReader(data[:consumed]))
 	ix.mu.Lock()
-	ix.tail = &tailCache{key: key, path: path, offset: consumed, entries: entries, id: statID(st), tail: win}
+	ix.storeTailLocked(&tailCache{key: key, path: path, offset: consumed, entries: entries, id: statID(st), tail: win})
 	ix.mu.Unlock()
 	return entries, nil
 }

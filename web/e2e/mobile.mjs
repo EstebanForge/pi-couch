@@ -91,10 +91,15 @@ test("home opens a session with real touch and no horizontal overflow", async ()
 	fixture.reset();
 	await open();
 	await page.waitFor("document.body.innerText.includes('Fixture session')", "home session row");
+	const homeScripts = fixture.state.scripts.length;
 	await page.screenshot(artifacts, "01-home");
 	await page.tapText("Fixture session", "button", false);
 	await page.waitFor("location.pathname === '/sessions/demo'", "session navigation");
 	await page.waitFor("document.querySelector('textarea')", "session composer");
+	assert.ok(
+		fixture.state.scripts.slice(homeScripts).some((path) => path.endsWith(".js")),
+		"the session route did not load a deferred script",
+	);
 	await page.screenshot(artifacts, "02-session");
 });
 

@@ -29,7 +29,8 @@ Overall verdict: the architecture is sound. No critical production security issu
 
 ### 2. The race detector fails on test fixtures
 
-- [ ] **Status: pending**
+- [x] **Status: completed 2026-11-06**
+- Verification: the original race run failed on fake-status writes and concurrent ResponseRecorder access. Atomic fake status and a real HTTP terminal stream fixed both; the targeted race suite passes and now runs in `scripts/ci.sh`.
 - Locations: `internal/server/api_dialog_memo_test.go:108`, `internal/server/api_sessions_driven_test.go:37`, `internal/server/hc_terminal_test.go:274-276`
 - Finding: the fake herdr server reads `o.status` while a test writes it. `TestHCTerminalStreamsDeltas` also reads `httptest.ResponseRecorder.Body` while the stream writes to it. These are test-harness races, not demonstrated production races, but they prevent race detection from serving as a reliable gate.
 - Fix: protect fake state with a mutex or atomic value. Use a real `httptest.Server` or synchronize access to the terminal response body. Add a targeted race gate to `scripts/ci.sh` after the suite is clean.
@@ -50,7 +51,8 @@ Overall verdict: the architecture is sound. No critical production security issu
 
 ### 4. One transcript cache causes repeated full parses across sessions
 
-- [ ] **Status: pending**
+- [x] **Status: completed 2026-11-06**
+- Verification: the alternating-session regression failed on the single slot. Four per-session LRU tails now retain the four latest parsed entries and evict the oldest on the fifth; rewrite, replacement, concurrent-reader, and race tests pass.
 - Location: `internal/pi/index.go:63-70,662-770`
 - Finding: `Index` holds one `tailCache`. Simultaneous transcript streams for different sessions replace each other's cache entry, so subsequent calls repeatedly perform a full `io.ReadAll` and parse instead of using the incremental path.
 - Fix: replace the single slot with a small bounded cache keyed by session, approximately 2 to 4 entries. Keep the existing delta validation and concurrency rules.
@@ -59,7 +61,8 @@ Overall verdict: the architecture is sound. No critical production security issu
 
 ### 5. The initial client download is larger than necessary
 
-- [ ] **Status: pending**
+- [x] **Status: completed 2026-11-06**
+- Verification: the browser regression required a deferred script on session navigation and failed before route splitting. The initial chunk is now 349.28 kB (107.14 kB gzip), down from 660.96 kB (196.52 kB gzip); Session and Terminal load separately.
 - Location: `web/src/App.tsx:5-12`
 - Finding: only Terminal is lazy-loaded. Session, Changes, Files, Settings, and Quotas load at startup even when Home is the only visible screen. The audited build produced a 660.63 kB initial chunk, 196.34 kB gzip, plus a separate 294.36 kB Terminal chunk, 70.55 kB gzip.
 - Fix: keep Home eager and lazy-load Session and secondary screens. Start with route-level splitting before considering manual chunk configuration.

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -19,7 +20,8 @@ import (
 func TestSessionsStreamStatusOnlyChange(t *testing.T) {
 	var sends int32
 	var sessPath string
-	status := "working"
+	var status atomic.Value
+	status.Store("working")
 	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath, sends: &sends, status: &status})
 	_, sub, h := streamTestAppWithHerdr(t, sock)
 	sessPath = filepath.Join(sub, "s1.jsonl")
@@ -34,7 +36,7 @@ func TestSessionsStreamStatusOnlyChange(t *testing.T) {
 	frames := readFrames(t, resp.Body)
 
 	waitFrame(t, frames, 5*time.Second, "reset")
-	status = "blocked"
+	status.Store("blocked")
 	f := waitFrame(t, frames, 8*time.Second, "reset")
 	var patch sessionPatch
 	if err := json.Unmarshal([]byte(f.data), &patch); err != nil {
@@ -111,7 +113,8 @@ func TestSessionsCarriesDrivenInfo(t *testing.T) {
 func TestSessionsStreamFieldDelta(t *testing.T) {
 	var sends int32
 	var sessPath string
-	status := "blocked"
+	var status atomic.Value
+	status.Store("blocked")
 	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath, sends: &sends, status: &status})
 	a, sub, h := streamTestAppWithHerdr(t, sock)
 	sessPath = filepath.Join(sub, "s1.jsonl")
@@ -167,7 +170,7 @@ func TestSessionsStreamFieldDelta(t *testing.T) {
 
 	// A driver status flip rides the next file tick: badges and driven
 	// come back, awaiting stays out.
-	status = "working"
+	status.Store("working")
 	writeLines(t, filepath.Join(sub, "s3.jsonl"), sessHeader)
 	f = waitFrame(t, frames, 8*time.Second, "reset")
 	k = keys(f)

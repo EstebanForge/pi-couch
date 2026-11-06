@@ -41,24 +41,24 @@ type fakeHerdrOpts struct {
 	lastPrompt               *string // agent.prompt target name
 	failFirstSend            bool
 	failFirstStart           bool
-	onEnter                  func()       // fires on a pane.send_input whose keys contain "enter"
-	onPrompt                 func()       // fires on every agent.prompt
-	paneReady                *string      // pre-prompt pane.read override: the screen before any agent.prompt
-	lastStartArgs            *[]string    // agent.start args (the pi flags)
-	status                   *string      // agent_status in agent.list; blocked when nil
-	agentName                string       // agent name in agent.list; pi when empty
-	failFirstPromptNotActive bool         // first agent.prompt refuses the new name
-	promptRefuseUntil        time.Time    // agent.prompt refuses the new name until this instant
-	sessionUnbound           *atomic.Bool // agent.list serves agent_session null while true
-	paneText                 *string      // pane.read text; the menu fixture when nil
-	readSeq                  []string     // per-read states: read n serves readSeq[min(n-1, len-1)]
-	paneAfterSend            *string      // pane.read text once a send_input landed
-	paneSeq                  []string     // per-send states: after send n, serve paneSeq[min(n-1, len-1)]
-	lastText                 *string      // last send_input text param
-	lastTexts                *[]string    // every send_input text param
-	keysLog                  *[][]string  // every non-empty send_input keys call
-	paneCloses               *int32       // pane.close count
-	wsCloses                 *int32       // workspace.close count
+	onEnter                  func()        // fires on a pane.send_input whose keys contain "enter"
+	onPrompt                 func()        // fires on every agent.prompt
+	paneReady                *string       // pre-prompt pane.read override: the screen before any agent.prompt
+	lastStartArgs            *[]string     // agent.start args (the pi flags)
+	status                   *atomic.Value // agent_status in agent.list; blocked when nil
+	agentName                string        // agent name in agent.list; pi when empty
+	failFirstPromptNotActive bool          // first agent.prompt refuses the new name
+	promptRefuseUntil        time.Time     // agent.prompt refuses the new name until this instant
+	sessionUnbound           *atomic.Bool  // agent.list serves agent_session null while true
+	paneText                 *string       // pane.read text; the menu fixture when nil
+	readSeq                  []string      // per-read states: read n serves readSeq[min(n-1, len-1)]
+	paneAfterSend            *string       // pane.read text once a send_input landed
+	paneSeq                  []string      // per-send states: after send n, serve paneSeq[min(n-1, len-1)]
+	lastText                 *string       // last send_input text param
+	lastTexts                *[]string     // every send_input text param
+	keysLog                  *[][]string   // every non-empty send_input keys call
+	paneCloses               *int32        // pane.close count
+	wsCloses                 *int32        // workspace.close count
 }
 
 func herdrFake(t *testing.T, o fakeHerdrOpts) string {
@@ -105,7 +105,7 @@ func herdrFake(t *testing.T, o fakeHerdrOpts) string {
 					}
 					agentStatus := "blocked"
 					if o.status != nil {
-						agentStatus = *o.status
+						agentStatus = o.status.Load().(string)
 					}
 					b, _ := json.Marshal(*o.sessPath)
 					sessJSON := `"agent_session":{"kind":"path","value":` + string(b) + `}`

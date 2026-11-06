@@ -1,15 +1,14 @@
 import { App as KApp } from "konsta/react";
 import { lazy, Suspense } from "react";
 import { usePath } from "./nav";
-import ChangesScreen from "./screens/Changes";
-import FilesScreen from "./screens/Files";
 import HomeScreen from "./screens/HomeList";
-import QuotasScreen from "./screens/Quotas";
-import SessionScreen from "./screens/Session";
-import SettingsScreen from "./screens/Settings";
 
-// xterm is a third of the bundle and only the terminal screen needs
-// it, so it ships as its own chunk fetched on first visit.
+// Home stays eager. Session and secondary screens load on first visit.
+const ChangesScreen = lazy(() => import("./screens/Changes"));
+const FilesScreen = lazy(() => import("./screens/Files"));
+const QuotasScreen = lazy(() => import("./screens/Quotas"));
+const SessionScreen = lazy(() => import("./screens/Session"));
+const SettingsScreen = lazy(() => import("./screens/Settings"));
 const TerminalScreen = lazy(() => import("./screens/Terminal"));
 
 function Screen() {
@@ -27,11 +26,7 @@ function Screen() {
 	m = path.match(/^\/sessions\/(.+)\/terminal$/);
 	if (m) {
 		const key = decodeURIComponent(m[1]);
-		return (
-			<Suspense fallback={null}>
-				<TerminalScreen key={`${key}:terminal`} sessionKey={key} />
-			</Suspense>
-		);
+		return <TerminalScreen key={`${key}:terminal`} sessionKey={key} />;
 	}
 	m = path.match(/^\/sessions\/(.+)$/);
 	if (m) {
@@ -50,7 +45,9 @@ function Screen() {
 export default function App() {
 	return (
 		<KApp theme="material" dark className="dark">
-			<Screen />
+			<Suspense fallback={null}>
+				<Screen />
+			</Suspense>
 		</KApp>
 	);
 }

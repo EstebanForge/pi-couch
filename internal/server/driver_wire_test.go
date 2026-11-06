@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/EstebanForge/couch-pi/internal/herdr"
@@ -134,7 +135,8 @@ func TestHCCommandSurfacePrompts(t *testing.T) {
 // only the herdr client wired serves status from it.
 func TestStatusFallsBackToHerdr(t *testing.T) {
 	sess := filepath.Join(t.TempDir(), "s.jsonl")
-	status := "working"
+	var status atomic.Value
+	status.Store("working")
 	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sess, status: &status})
 	a := &app{herdr: herdr.NewAt(sock)}
 	if a.statusFor() != a.herdr {

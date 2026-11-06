@@ -17,6 +17,9 @@ fi
 echo "== go test"
 go test ./...
 
+echo "== go test -race"
+go test -race ./internal/pi ./internal/server ./internal/update
+
 echo "== web: npm ci"
 (cd web && npm ci --no-audit --no-fund)
 

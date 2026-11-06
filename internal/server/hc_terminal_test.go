@@ -266,27 +266,36 @@ func waitForServer(t *testing.T, cond func() bool) {
 
 func TestHCTerminalStreamsDeltas(t *testing.T) {
 	a, _ := hcStreamApp(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.SetPathValue("key", "s1")
+		a.streamTerminal(w, r)
+	}))
+	defer srv.Close()
 	ctx, cancel := context.WithCancel(context.Background())
-	req := httptest.NewRequest(http.MethodGet, "/stream/terminal/s1?cols=100&rows=30", nil).WithContext(ctx)
-	req.SetPathValue("key", "s1")
-	w := httptest.NewRecorder()
-	done := make(chan struct{})
-	go func() { a.streamTerminal(w, req); close(done) }()
-	waitForServer(t, func() bool {
-		return strings.Contains(w.Body.String(), base64.StdEncoding.EncodeToString([]byte("delta-1")))
-	})
-	cancel()
-	select {
-	case <-done:
-	case <-time.After(3 * time.Second):
-		t.Fatal("stream never ended after cancel")
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/stream/terminal/s1?cols=100&rows=30", nil)
+	if err != nil {
+		t.Fatal(err)
 	}
-	body := w.Body.String()
-	if !strings.Contains(body, "event: delta") {
-		t.Fatalf("no delta events in %q", body)
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
 	}
+	defer resp.Body.Close()
+	frames := readFrames(t, resp.Body)
+	waitFrame(t, frames, 3*time.Second, "size")
 	want0 := base64.StdEncoding.EncodeToString([]byte("paint-0"))
 	want1 := base64.StdEncoding.EncodeToString([]byte("delta-1"))
+	var payloads strings.Builder
+	for !strings.Contains(payloads.String(), want0) || !strings.Contains(payloads.String(), want1) {
+		f := waitFrame(t, frames, 3*time.Second, "delta")
+		payloads.WriteString(f.data)
+	}
+	cancel()
+	if err := resp.Body.Close(); err != nil {
+		t.Fatal(err)
+	}
+	body := payloads.String()
 	if !strings.Contains(body, want0) || !strings.Contains(body, want1) {
 		t.Fatalf("paint and delta missing from %q", body)
 	}
