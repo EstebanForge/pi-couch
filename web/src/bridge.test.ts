@@ -181,6 +181,62 @@ describe("couch-pi bridge extension", () => {
 		expect(bodies[1]).toMatchObject({ phase: "close", tool_call_id: "call-1" });
 	});
 
+	// rpiv's answer channel reads camelCase (toolCallId / requestId /
+	// questionIndex); the server wire is snake_case. The poll must
+	// translate before emitting, or rpiv refuses every answer and
+	// cancel and the phone times out.
+	it("translates polled answers to rpiv's camelCase contract", async () => {
+		const wire = {
+			request_id: "req-1",
+			tool_call_id: "call-1",
+			answers: [
+				{ question_index: 0, option_indexes: [1] },
+				{ question_index: 1, text: "own answer" },
+			],
+			cancel: false,
+		};
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (url: unknown) => {
+				if (String(url).includes("/api/bridge/ask/answer")) {
+					return { status: 200, json: async () => wire };
+				}
+				return { ok: true, status: 200 };
+			}),
+		);
+		const factory = await loadFactory();
+		const { pi, fire, fireEvent, emitted } = fakePi();
+		factory(pi);
+		fire("session_start", {}, sessionCtx);
+		fireEvent("rpiv:ask-user:prompt", {
+			toolCallId: "call-1",
+			questions: [
+				{ question: "Pick?", options: [{ label: "A" }, { label: "B" }] },
+				{ question: "Notes?" },
+			],
+		});
+
+		await vi.waitFor(
+			() => {
+				expect(emitted.some((e) => e.name === "rpiv:ask-user:answer")).toBe(true);
+			},
+			{ timeout: 3000 },
+		);
+		const out = emitted.find((e) => e.name === "rpiv:ask-user:answer")?.data as Record<
+			string,
+			unknown
+		>;
+		expect(out.toolCallId).toBe("call-1");
+		expect(out.requestId).toBe("req-1");
+		expect(out.cancel).toBeUndefined();
+		expect(out.tool_call_id).toBeUndefined();
+		expect(out.request_id).toBeUndefined();
+		expect(out.answers).toEqual([
+			{ questionIndex: 0, optionIndexes: [1] },
+			{ questionIndex: 1, text: "own answer" },
+		]);
+	});
+
 	it("recovers dialog state when a new session starts after a lost end", async () => {
 		const factory = await loadFactory();
 		const { pi, fire } = fakePi();

@@ -110,6 +110,35 @@ function accessTokenForDial(): string {
 // event bus. One poll tick of latency per answer.
 const ASK_POLL_MS = 700;
 
+// rpiv's answer channel reads camelCase (toolCallId / requestId /
+// questionIndex / optionIndexes); the server wire is snake_case, so
+// the poll must translate before emitting or rpiv refuses everything.
+type AskAnswerWireShape = {
+	request_id?: unknown;
+	tool_call_id?: unknown;
+	answers?: unknown;
+	cancel?: unknown;
+};
+
+function askAnswerForRpiv(wire: AskAnswerWireShape): Record<string, unknown> {
+	const answers = Array.isArray(wire.answers)
+		? (wire.answers as { question_index?: unknown; option_indexes?: unknown; text?: unknown }[]).map(
+				(entry): Record<string, unknown> => {
+					const out: Record<string, unknown> = { questionIndex: entry.question_index };
+					if (Array.isArray(entry.option_indexes)) out.optionIndexes = entry.option_indexes;
+					if (typeof entry.text === "string" && entry.text !== "") out.text = entry.text;
+					return out;
+				},
+		  )
+		: undefined;
+	return {
+		...(typeof wire.tool_call_id === "string" ? { toolCallId: wire.tool_call_id } : {}),
+		...(typeof wire.request_id === "string" ? { requestId: wire.request_id } : {}),
+		...(answers ? { answers } : {}),
+		...(wire.cancel === true ? { cancel: true } : {}),
+	};
+}
+
 // One fire-and-forget POST path for dialogs and the ask relay.
 // Dialogs surface while the server is up; failures warn once.
 function postBridge(path: string, body: unknown): void {
@@ -244,9 +273,9 @@ export default function couchPiBridge(pi: ExtensionAPI) {
 			fetchAskAnswer(id)
 				.then((payload) => {
 					if (!payload || askID !== id) return;
-					const reqID = (payload as { request_id?: unknown }).request_id;
-					askRequestID = typeof reqID === "string" ? reqID : undefined;
-					pi.events.emit("rpiv:ask-user:answer", payload);
+					const wire = payload as AskAnswerWireShape;
+					askRequestID = typeof wire.request_id === "string" ? wire.request_id : undefined;
+					pi.events.emit("rpiv:ask-user:answer", askAnswerForRpiv(wire));
 				})
 				.catch(() => {
 					// server down: keep ticking, the dialog outlives the outage
