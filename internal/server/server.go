@@ -70,6 +70,7 @@ type app struct {
 	wakeSubs      map[chan struct{}]struct{} // per-stream wake channels; a dialog changed
 	observes      *observeHub                // per-pane `herdr observe` subprocesses fanned to terminal viewers
 	quotas        *quotas.Service            // provider quotas & limits tracker
+	systemMetrics systemMetricsSampler       // host CPU and RAM samples for the quotas screen
 }
 
 var _ StatusReader = (*hc.Driver)(nil)
@@ -144,7 +145,7 @@ func Run(ctx context.Context, logger *slog.Logger, cfg *config.Config, idx *pi.I
 	if status == nil {
 		status = hr
 	}
-	a := &app{logger: logger, idx: idx, herdr: hr, status: status, watcher: w, st: st, pusher: pusher, allowedOrigin: cfg.Origin, accessToken: cfg.AccessToken, uploadDir: cfg.UploadsDir, home: home, answered: newDialogMemos(), models: newModelsCache(filepath.Join(st.Dir(), "models.json")), memory: newMemoryProbe(cfg.MemoryURL, cfg.MemorySecret), dialogLatch: map[string]*dialogWire{}, quotas: quotas.NewService()}
+	a := &app{logger: logger, idx: idx, herdr: hr, status: status, watcher: w, st: st, pusher: pusher, allowedOrigin: cfg.Origin, accessToken: cfg.AccessToken, uploadDir: cfg.UploadsDir, home: home, answered: newDialogMemos(), models: newModelsCache(filepath.Join(st.Dir(), "models.json")), memory: newMemoryProbe(cfg.MemoryURL, cfg.MemorySecret), dialogLatch: map[string]*dialogWire{}, quotas: quotas.NewService(), systemMetrics: newSystemMetricsSampler()}
 	if hr != nil {
 		// Terminal mirroring stays herdr-only until its attach wave.
 		a.observes = newObserveHub(hr.SocketPath())
@@ -324,6 +325,7 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("POST /api/push/subscribe", a.pushSubscribe)
 	mux.HandleFunc("POST /api/push/unsubscribe", a.pushUnsubscribe)
 	mux.HandleFunc("GET /api/quotas", a.apiQuotas)
+	mux.HandleFunc("GET /api/system/metrics", a.apiSystemMetrics)
 	return mux
 }
 

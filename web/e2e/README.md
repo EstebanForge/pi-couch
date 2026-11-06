@@ -2,7 +2,7 @@
 
 Run `just test-e2e`, or `npm run test:e2e` under `web/`. The command builds the production SPA, starts an isolated synthetic API, drives system Chrome or Chromium through the DevTools protocol, and uses Node's built-in test runner. No npm test dependency or live agent is required.
 
-The browser uses a 393×873 Pixel-class mobile viewport, device scale factor 2, touch emulation, and an Android user agent. Tests dispatch real touch, keyboard, and file-input changes and assert navigation, request payloads, visibility, composer behavior, and horizontal overflow. The nine scenarios cover home/session navigation, structured option answers, custom answers, cancellation, TODO clearing, multiline touch composition, quick-create failure/retry, and single-batch and incremental attachment limits.
+The browser uses a 393×873 Pixel-class mobile viewport, device scale factor 2, touch emulation, and an Android user agent. Tests dispatch real touch, keyboard, and file-input changes and assert navigation, request payloads, visibility, composer behavior, and horizontal overflow. The ten scenarios cover home/session navigation, structured option answers, custom answers, cancellation, TODO clearing, multiline touch composition, quick-create failure/retry, single-batch and incremental attachment limits, and five-second system metric refresh with teardown on navigation.
 
 Screenshots and the Chrome log land in `web/test-results/mobile/`. Set `E2E_ARTIFACTS` to change that directory and `CHROME_BIN` when the browser is not discoverable as `google-chrome`, `google-chrome-stable`, `chromium`, or `chromium-browser`.
 

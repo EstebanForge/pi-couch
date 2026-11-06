@@ -565,3 +565,16 @@ export async function getQuotas(): Promise<QuotasSnapshot> {
 	if (!res.ok) throw new Error(`quotas ${res.status}`);
 	return (await res.json()) as QuotasSnapshot;
 }
+
+export type SystemMetricsSample = {
+	cpu_percent: number;
+	memory_used_bytes: number;
+	memory_total_bytes: number;
+	sampled_at: string;
+};
+
+export async function getSystemMetrics(signal?: AbortSignal): Promise<SystemMetricsSample> {
+	const res = await fetch("/api/system/metrics", { cache: "no-store", signal });
+	if (!res.ok) throw new Error(`system metrics ${res.status}`);
+	return (await res.json()) as SystemMetricsSample;
+}

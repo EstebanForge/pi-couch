@@ -65,6 +65,7 @@ export async function startFixture() {
 		activeUploads: 0,
 		maxActiveUploads: 0,
 		uploadDelay: 120,
+		metricsRequests: 0,
 	};
 	const sessions = [structuredClone(demoSession)];
 	const transcriptStreams = new Set();
@@ -124,6 +125,7 @@ export async function startFixture() {
 		state.activeUploads = 0;
 		state.maxActiveUploads = 0;
 		state.uploadDelay = 120;
+		state.metricsRequests = 0;
 		sessions.splice(1);
 	};
 	const closeDialog = () => {
@@ -172,6 +174,21 @@ export async function startFixture() {
 					parent: "/tmp",
 					truncated: false,
 					dirs: [{ name: "project", path: "/tmp/demo/project" }],
+				});
+				return;
+			}
+			if (path === "/api/quotas") {
+				json(res, 200, { providers: [], updated_at: "2026-11-06T12:00:00Z" });
+				return;
+			}
+			if (path === "/api/system/metrics") {
+				const second = state.metricsRequests > 0;
+				state.metricsRequests += 1;
+				json(res, 200, {
+					cpu_percent: second ? 68.9 : 22.4,
+					memory_used_bytes: (second ? 8 : 6) * 1024 ** 3,
+					memory_total_bytes: 16 * 1024 ** 3,
+					sampled_at: new Date().toISOString(),
 				});
 				return;
 			}

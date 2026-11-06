@@ -372,3 +372,33 @@ test("incremental attachment batches share the cap and upload slots", async () =
 	);
 	await page.screenshot(artifacts, "13-attachments-incremental");
 });
+
+test("quotas refresh CPU history and RAM every five seconds only while open", async () => {
+	fixture.reset();
+	await open("/quotas");
+	await page.waitFor("document.body.innerText.includes('22.4%')", "initial CPU sample");
+	assert.equal(
+		await page.evaluate(
+			"document.querySelector('[role=progressbar][aria-label=\"Memory usage\"]')?.getAttribute('aria-valuenow')",
+		),
+		"37.5",
+	);
+	assert.equal(
+		await page.evaluate("document.querySelector('svg[aria-label^=\"CPU history\"]') !== null"),
+		true,
+		"CPU history must be graphical",
+	);
+	await page.waitFor("document.body.innerText.includes('68.9%')", "five-second CPU refresh");
+	assert.ok(fixture.state.metricsRequests >= 2, "the second metrics request did not arrive");
+	assert.equal(
+		await page.evaluate(
+			"document.querySelector('[role=progressbar][aria-label=\"Memory usage\"]')?.getAttribute('aria-valuenow')",
+		),
+		"50",
+	);
+	await page.screenshot(artifacts, "14-system-metrics");
+	await open("/");
+	const stoppedAt = fixture.state.metricsRequests;
+	await sleep(5500);
+	assert.equal(fixture.state.metricsRequests, stoppedAt, "closed quotas must stop sampling");
+});

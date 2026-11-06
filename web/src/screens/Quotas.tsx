@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getQuotas, type ProviderQuota, type QuotasSnapshot, type WindowQuota } from "../api";
 import { FaChevronLeft, FaGaugeHigh } from "../components/fa";
 import { Spinner } from "../components/Spinner";
+import SystemMetrics from "../components/SystemMetrics";
 import { relTime } from "../fmt";
 import { prefKey, readPref, writePref } from "../prefs";
 
@@ -124,6 +125,10 @@ export default function QuotasScreen() {
 			</header>
 
 			<main className="flex-1 px-4 pt-[74px] pb-12">
+				<div className="mb-5">
+					<SystemMetrics />
+				</div>
+
 				{updatedAt && (
 					<div className="mb-4 flex items-center justify-between px-1 text-[12px] text-muted">
 						{refreshing && quotas.length > 0 ? (
