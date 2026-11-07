@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/EstebanForge/couch-pi/internal/hc"
 )
 
 // rewindFixture seeds a session with one user message (entry "a") and
@@ -252,6 +254,24 @@ func TestBridgeRewindVerdictMatching(t *testing.T) {
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || !out.OK {
 		t.Fatalf("body: %s err %v", rec.Body.String(), err)
+	}
+}
+
+func TestRewindRefusesHCWithoutAClearVerb(t *testing.T) {
+	a, _, h, lastPrompt, keys := rewindFixture(t, false)
+	// hc carries the dialog primitives but no keys verb: the desk
+	// refill would sit uncleared in the pane editor.
+	a.hcDrv = hc.NewDriver(hc.NewAt(filepath.Join(t.TempDir(), "hc.sock")))
+
+	rec := rewindPost(t, h, "s1", `{"seq":0}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("code: %d %s", rec.Code, rec.Body.String())
+	}
+	if promptSent(lastPrompt) != "" {
+		t.Fatalf("prompt dispatched: %q", promptSent(lastPrompt))
+	}
+	if len(*keys) != 0 {
+		t.Fatalf("clear keys dispatched: %v", *keys)
 	}
 }
 

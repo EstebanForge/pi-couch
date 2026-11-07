@@ -30,5 +30,6 @@ Constraints carried forward:
 
 - The bridge now senses (ADR-0007), answers (ADR-0009), and drives session state (this ADR). It still only ever acts through pi's own public extension APIs.
 - Sessions need a bridge reload before `/couchpi-rewind` exists; older sessions show the phone a clear error from the server.
+- hc sessions refuse rewinds (409 unsupported-driver) until hc grows a keys verb: pi's desk refill would leave the rewound text in the pane editor with no way to clear it, and the next typed prompt would append to it.
 - Pi's leaf is in-memory only: a rewind followed by quitting without a resend reverts on restart. This is pi's own desk behavior, inherited unchanged.
 - If a prompt-delivered command ever stops dispatching in a future pi, the rewind POST fails visibly with the unknown-command path and the phone shows the refusal; no silent corruption is possible because the flow never touches the file directly.

@@ -44,6 +44,13 @@ func (a *app) apiRewind(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "notfound"})
 		return
 	}
+	// hc has no keys verb, so pi's desk refill could not be cleared and
+	// the next typed prompt would append to the stale buffer: refuse
+	// until hc grows one (ADR-0010).
+	if a.hcDrv != nil {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "unsupported-driver"})
+		return
+	}
 	// Rewinding under a live turn would fork mid-stream: pi refuses it,
 	// and the honest answer is the same busy the composer already shows.
 	badges, _ := a.statusFor().DriveStatus(r.Context())
