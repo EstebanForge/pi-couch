@@ -80,6 +80,7 @@ Boundaries:
 - Repo discovery: scan for `.git` with rg/fd semantics plus a denylist: node_modules, dist, build, target, vendor, .venv, caches, hidden dirs. Never raw `find`.
 - Steer versus follow-up rides on pi's queue mode. Not a UI toggle; documented limit (ADR-0001).
 - The herdr socket has no attach lock and no `--takeover`; only the desk CLI attach is exclusive. Terminal tab: read-only peek by default, interactive on explicit tap, coexistence banner when the desk holds attach (M0 findings).
+- Compression scope: the Vite build emits `.gz` sidecars for hashed assets and the Go embed serves them only when the client sends `Accept-Encoding: gzip` (curl and the native door get raw bytes); plain `/api` JSON responses and the transcript SSE compress (buffered vs per-frame flush respectively), while the terminal and sessions SSE streams stay raw on purpose: tiny frequent frames lose more to flush overhead than compression saves. Any change to response writing must keep the `WriteHeader`-before-body discipline in mind, since the gzip wrappers stamp headers at `WriteHeader`.
 - Ephemeral sessions (`--no-session`) are invisible by design.
 - No backward-compat layers or fallback paths; remove obsolete code instead (project rule, ADR consequences included).
 

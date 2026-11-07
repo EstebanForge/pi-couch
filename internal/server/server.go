@@ -326,7 +326,7 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("POST /api/push/unsubscribe", a.pushUnsubscribe)
 	mux.HandleFunc("GET /api/quotas", a.apiQuotas)
 	mux.HandleFunc("GET /api/system/metrics", a.apiSystemMetrics)
-	return mux
+	return gzipAPI(mux)
 }
 
 // sessionsWire is the JSON snapshot the React SPA boots from (rewrite-plan.md).
