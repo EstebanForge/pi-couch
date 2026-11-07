@@ -15,6 +15,7 @@ import {
 	type TranscriptReset,
 	type TranscriptStatus,
 } from "../api";
+import { isAskTool, stepsAskClass } from "../askTools";
 import { Composer } from "../components/Composer";
 import { DialogActions } from "../components/DialogActions";
 import {
@@ -232,7 +233,11 @@ function ToolStep({
 					{open ? <FaCaretDown size={12} /> : <FaCaretRight size={12} />}
 				</span>
 				{pair.call && (
-					<span className="shrink-0 text-base-content">{toolVerb(pair.call.tool_name || "")}</span>
+					<span
+						className={`shrink-0 ${isAskTool(pair.call.tool_name || "") ? "text-emerald-300" : "text-base-content"}`}
+					>
+						{toolVerb(pair.call.tool_name || "")}
+					</span>
 				)}
 				<span className="truncate font-mono text-[11px] text-muted">{summary}</span>
 				{live && pair.call?.time ? (
@@ -655,17 +660,21 @@ const Block = memo(function Block({
 	// result lands, then the group folds back.
 	const open = override ?? live;
 	const names = [...new Set(block.items.map((i) => i.tool_name || i.kind))].slice(0, 3).join(", ");
+	const itemNames = block.items.map((i) => i.tool_name || i.kind);
+	const askCard = stepsAskClass(itemNames);
 	return (
 		<div className="px-3 py-1">
 			<button
 				type="button"
-				className="press-scale flex min-h-[38px] w-full items-center gap-2 rounded-xl border border-base-content/6 bg-base-200/75 px-3 py-2 text-left text-[12px] text-muted shadow-surface-sm"
+				className={`press-scale flex min-h-[38px] w-full items-center gap-2 rounded-xl border px-3 py-2 text-left text-[12px] shadow-surface-sm ${askCard}`}
 				onClick={() => setOverride(!open)}
 			>
 				<span className="text-muted/80">
 					{open ? <FaCaretDown size={12} /> : <FaCaretRight size={12} />}
 				</span>
-				<span className="font-medium text-base-content/85">
+				<span
+					className={`font-medium ${askCard.includes("emerald") ? "text-emerald-100/90" : "text-base-content/85"}`}
+				>
 					{block.items.length} {block.items.length === 1 ? "step" : "steps"} · {names}
 					{block.items.length > 3 ? "…" : ""}
 				</span>
