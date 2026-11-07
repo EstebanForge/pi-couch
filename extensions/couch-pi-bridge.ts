@@ -66,6 +66,16 @@ interface ExtensionAPI {
 	on(event: "ui_prompt_start", handler: (event: PromptEvent) => void): () => void;
 	on(event: "ui_prompt_end", handler: (event: PromptEvent) => void): () => void;
 	on(event: "session_start", handler: (event: unknown, ctx: ExtensionContext) => void): () => void;
+	registerCommand(name: string, opts: { description?: string; handler: (args: string, ctx: CommandContext) => void | Promise<void> }): void;
+}
+
+// What the rewind handler touches of pi's command context. pi completes
+// the navigateTree action in interactive mode (ADR-0010).
+interface CommandContext {
+	sessionManager: {
+		getEntry(id: string): { type?: string; message?: { role?: string } } | undefined;
+	};
+	navigateTree(targetId: string, options?: { summarize?: boolean }): Promise<{ cancelled: boolean }>;
 }
 
 const HERDR_ENV = process.env.HERDR_ENV;
@@ -380,5 +390,38 @@ export default function couchPiBridge(pi: ExtensionAPI) {
 			...(event.code ? { code: event.code } : {}),
 			...(event.reason ? { reason: event.reason } : {}),
 		});
+	});
+
+	// Rewind relay (ADR-0010): the server fires this command through the
+	// prompt path and pi performs the branch itself; the bridge only
+	// validates the target and reports the outcome.
+	pi.registerCommand("couchpi-rewind", {
+		description: "Couch Pi: rewind to before a sent user message",
+		handler: async (args, ctx) => {
+			const id = args.trim();
+			const report = (ok: boolean, reason?: string): void => {
+				postBridge("/api/bridge/rewind", {
+					session_path: sessionPath,
+					entry_id: id,
+					ok,
+					...(reason ? { reason } : {}),
+				});
+			};
+			if (!/^\S{1,128}$/.test(id)) {
+				report(false, "invalid_entry");
+				return;
+			}
+			const entry = ctx.sessionManager.getEntry(id);
+			if (!entry || entry.type !== "message" || entry.message?.role !== "user") {
+				report(false, "not_user_message");
+				return;
+			}
+			try {
+				await ctx.navigateTree(id, { summarize: false });
+				report(true);
+			} catch (err) {
+				report(false, err instanceof Error ? err.message : "navigate_failed");
+			}
+		},
 	});
 }

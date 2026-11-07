@@ -36,9 +36,10 @@ func confirmPaint(title string) string {
 // value suffices for the common read-only flow.
 type fakeHerdrOpts struct {
 	sessPath                 *string
-	sends                    *int32  // pane.send_input count
-	prompts                  *int32  // agent.prompt count
-	lastPrompt               *string // agent.prompt target name
+	sends                    *int32        // pane.send_input count
+	prompts                  *int32        // agent.prompt count
+	lastPrompt               *string       // agent.prompt target name
+	lastPromptText           *atomic.Value // agent.prompt text (atomic: the socket goroutine writes it)
 	failFirstSend            bool
 	failFirstStart           bool
 	onEnter                  func()        // fires on a pane.send_input whose keys contain "enter"
@@ -151,6 +152,7 @@ func herdrFake(t *testing.T, o fakeHerdrOpts) string {
 				case "agent.prompt":
 					var p struct {
 						Target string `json:"target"`
+						Text   string `json:"text"`
 					}
 					_ = json.Unmarshal(m.Params, &p)
 					if o.prompts != nil {
@@ -173,6 +175,9 @@ func herdrFake(t *testing.T, o fakeHerdrOpts) string {
 					}
 					if o.lastPrompt != nil {
 						*o.lastPrompt = p.Target
+					}
+					if o.lastPromptText != nil {
+						o.lastPromptText.Store(p.Text)
 					}
 					resp = `{"id":"x","result":{"type":"ok"}}`
 				case "pane.read":

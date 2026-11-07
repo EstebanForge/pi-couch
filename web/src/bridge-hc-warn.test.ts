@@ -17,6 +17,7 @@ function fakePi() {
 			list.push(h);
 			handlers.set(event, list);
 		},
+		registerCommand: () => {},
 	};
 	const fire = (event: string, arg: unknown, ctx?: unknown) => {
 		for (const h of handlers.get(event) ?? []) h(arg, ctx);

@@ -199,6 +199,30 @@ test("cancel sends the structured cancellation and closes the sheet", async () =
 	await page.screenshot(artifacts, "06-ask-cancelled");
 });
 
+test("long-pressing the last user message rewinds and refills the composer", async () => {
+	fixture.reset();
+	await openSession();
+	await page.waitFor("document.querySelector('textarea')", "session composer");
+	fixture.setIdle();
+
+	const lastUserText = "Second steer: continue with the strip.";
+	await page.waitFor(
+		"document.querySelector('[data-testid=\"rewindable\"]')?.textContent.includes('Second steer')",
+		"rewindable last user bubble",
+	);
+	await page.holdSel('[data-testid="rewindable"]');
+	await page.waitFor("document.body.innerText.includes('Rewind message')", "rewind confirm dialog");
+	await page.screenshot(artifacts, "07-rewind-dialog");
+	await page.tapText("Rewind");
+	await eventually(() => fixture.state.rewinds.length === 1, "rewind request");
+	assert.deepEqual(fixture.state.rewinds[0], { key: "demo", seq: 9 });
+	await page.waitFor(
+		`document.querySelector('textarea').value === ${JSON.stringify(lastUserText)}`,
+		"composer refilled with the rewound message",
+	);
+	await page.screenshot(artifacts, "08-rewind-refilled");
+});
+
 test("an empty TODO status frame removes the visible checklist", async () => {
 	fixture.reset();
 	fixture.setTodos([

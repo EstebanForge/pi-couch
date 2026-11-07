@@ -135,6 +135,16 @@ async function connect(url) {
 		await sleep(80);
 	};
 
+	// Hold past the app's LONG_PRESS_MS (500) so the long-press fires
+	// instead of the tap.
+	const holdPoint = async ({ x, y }) => {
+		const touchPoints = [{ x: Math.round(x), y: Math.round(y), radiusX: 8, radiusY: 8, force: 1 }];
+		await send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints });
+		await sleep(750);
+		await send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+		await sleep(80);
+	};
+
 	const tap = async (selector) => tapPoint(await pointFor(selector, undefined, true));
 	const tapText = async (text, selector = "button", exact = true) =>
 		tapPoint(await pointFor(selector, text, exact));
@@ -211,6 +221,9 @@ async function connect(url) {
 		navigate,
 		tap,
 		tapText,
+		holdText: async (text, selector = "div", exact = true) =>
+			holdPoint(await pointFor(selector, text, exact)),
+		holdSel: async (selector) => holdPoint(await pointFor(selector)),
 		fill,
 		pressEnter,
 		setFiles,

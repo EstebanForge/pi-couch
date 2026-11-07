@@ -6,9 +6,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 type Handler = (event: unknown, ctx?: unknown) => void;
 
+type CommandOpts = {
+	description?: string;
+	handler: (args: string, ctx: unknown) => void | Promise<void>;
+};
+
 function fakePi() {
 	const handlers = new Map<string, Handler[]>();
 	const eventHandlers = new Map<string, Handler[]>();
+	const commands = new Map<string, CommandOpts>();
 	const emitted: { name: string; data: unknown }[] = [];
 	const pi = {
 		events: {
@@ -24,14 +30,22 @@ function fakePi() {
 			list.push(h);
 			handlers.set(event, list);
 		},
+		registerCommand: (name: string, opts: CommandOpts) => {
+			commands.set(name, opts);
+		},
 	};
 	const fire = (event: string, arg: unknown, ctx?: unknown) => {
 		for (const h of handlers.get(event) ?? []) h(arg, ctx);
 	};
+	const fireCommand = async (name: string, args: string, ctx: unknown) => {
+		const opts = commands.get(name);
+		if (!opts) throw new Error(`command ${name} not registered`);
+		return opts.handler(args, ctx);
+	};
 	const fireEvent = (event: string, arg: unknown) => {
 		for (const h of eventHandlers.get(event) ?? []) h(arg);
 	};
-	return { pi, fire, fireEvent, emitted };
+	return { pi, fire, fireEvent, fireCommand, commands, emitted };
 }
 
 const sessionCtx = {
@@ -374,6 +388,86 @@ describe("couch-pi bridge extension", () => {
 			expect(fetch).toHaveBeenCalledTimes(1);
 			expect(emitted.filter((e) => e.name === "herdr:blocked")).toHaveLength(0);
 			core.close();
+		});
+	});
+
+	describe("rewind relay", () => {
+		function rewindCtx(entries: Record<string, unknown>, navigate?: () => Promise<void>) {
+			return {
+				sessionManager: { getEntry: (id: string) => entries[id] },
+				navigateTree: vi.fn(navigate ?? (async () => ({ cancelled: false }))),
+			};
+		}
+		const userEntry = { type: "message", message: { role: "user" } };
+
+		it("registers the command the server fires through the prompt path", async () => {
+			const factory = await loadFactory();
+			const { pi } = fakePi();
+			factory(pi);
+			// typed via the invoke helper in later cases
+		});
+
+		it("navigates without a summary and reports ok", async () => {
+			const factory = await loadFactory();
+			const { pi, fire, fireCommand } = fakePi();
+			factory(pi);
+			fire("session_start", {}, sessionCtx);
+			const ctx = rewindCtx({ msg1: userEntry });
+			await fireCommand("couchpi-rewind", "msg1", ctx);
+
+			expect(ctx.navigateTree).toHaveBeenCalledWith("msg1", { summarize: false });
+			const bodies = await postBodies();
+			const last = bodies[bodies.length - 1];
+			expect(last).toMatchObject({
+				session_path: "/home/me/.pi/sessions/s.jsonl",
+				entry_id: "msg1",
+				ok: true,
+			});
+		});
+
+		it("refuses targets that are not sent user messages", async () => {
+			const factory = await loadFactory();
+			const { pi, fire, fireCommand } = fakePi();
+			factory(pi);
+			fire("session_start", {}, sessionCtx);
+			const ctx = rewindCtx({
+				asst: { type: "message", message: { role: "assistant" } },
+			});
+			await fireCommand("couchpi-rewind", "asst", ctx);
+			await fireCommand("couchpi-rewind", "missing", rewindCtx({}));
+			await fireCommand("couchpi-rewind", "two words", rewindCtx({}));
+
+			expect(ctx.navigateTree).not.toHaveBeenCalled();
+			const bodies = await postBodies();
+			const reports = bodies.filter((b) => b.entry_id !== undefined);
+			expect(reports).toHaveLength(3);
+			expect(reports[0]).toMatchObject({ entry_id: "asst", ok: false, reason: "not_user_message" });
+			expect(reports[1]).toMatchObject({
+				entry_id: "missing",
+				ok: false,
+				reason: "not_user_message",
+			});
+			expect(reports[2]).toMatchObject({
+				entry_id: "two words",
+				ok: false,
+				reason: "invalid_entry",
+			});
+		});
+
+		it("reports the navigate failure when pi refuses", async () => {
+			const factory = await loadFactory();
+			const { pi, fire, fireCommand } = fakePi();
+			factory(pi);
+			fire("session_start", {}, sessionCtx);
+			const ctx = rewindCtx({ msg1: userEntry }, async () => {
+				throw new Error("Wait for the current response to finish");
+			});
+			await fireCommand("couchpi-rewind", "msg1", ctx);
+
+			const bodies = await postBodies();
+			const last = bodies[bodies.length - 1];
+			expect(last.ok).toBe(false);
+			expect(last.reason).toBe("Wait for the current response to finish");
 		});
 	});
 });

@@ -436,6 +436,8 @@ type ViewItem struct {
 	// Seq is the item's position on the active branch, stable across
 	// tail cuts and cache rereads, so stream clients can key rows by it.
 	Seq int `json:"seq"`
+	// ID is the jsonl entry id the item came from; the rewind target.
+	ID string `json:"id,omitempty"`
 	// Time is the entry's timestamp in epoch ms; the chat ticks live
 	// elapsed time for running tools from the call's time.
 	Time int64 `json:"time,omitempty"`
@@ -664,9 +666,10 @@ func (ix *Index) branchItems(key string, textLimit int) ([]ViewItem, error) {
 	// the same item identity whether it asked for everything or a tail.
 	items := make([]ViewItem, 0, len(path))
 	seq := 0
-	bump := func(vs []ViewItem) {
+	bump := func(e Entry, vs []ViewItem) {
 		for i := range vs {
 			vs[i].Seq = seq
+			vs[i].ID = e.ID
 			seq++
 		}
 		items = append(items, vs...)
@@ -674,17 +677,17 @@ func (ix *Index) branchItems(key string, textLimit int) ([]ViewItem, error) {
 	for _, e := range path {
 		switch {
 		case e.Message != nil:
-			bump(messageItems(e, textLimit))
+			bump(e, messageItems(e, textLimit))
 		case e.Type == "custom":
-			bump(nativeEventItems(e))
+			bump(e, nativeEventItems(e))
 		case e.Type == "compaction":
-			bump([]ViewItem{{Kind: "marker", Text: fmt.Sprintf("Context compacted (%d tokens before)", e.TokensBefore)}})
+			bump(e, []ViewItem{{Kind: "marker", Text: fmt.Sprintf("Context compacted (%d tokens before)", e.TokensBefore)}})
 		case e.Type == "model_change":
-			bump([]ViewItem{{Kind: "marker", Text: "Model -> " + e.Provider + "/" + e.ModelID}})
+			bump(e, []ViewItem{{Kind: "marker", Text: "Model -> " + e.Provider + "/" + e.ModelID}})
 		case e.Type == "branch_summary":
-			bump([]ViewItem{{Kind: "marker", Text: "Branch summary: " + truncate(e.Summary, 140)}})
+			bump(e, []ViewItem{{Kind: "marker", Text: "Branch summary: " + truncate(e.Summary, 140)}})
 		case e.Type == "custom_message":
-			bump([]ViewItem{{Kind: "custom", Text: "custom: " + truncate(e.CustomType, 40)}})
+			bump(e, []ViewItem{{Kind: "custom", Text: "custom: " + truncate(e.CustomType, 40)}})
 		}
 	}
 	return items, nil

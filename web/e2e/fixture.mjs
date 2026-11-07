@@ -66,6 +66,7 @@ export async function startFixture() {
 		maxActiveUploads: 0,
 		uploadDelay: 120,
 		metricsRequests: 0,
+		rewinds: [],
 	};
 	const sessions = [structuredClone(demoSession)];
 	const transcriptStreams = new Set();
@@ -126,10 +127,16 @@ export async function startFixture() {
 		state.maxActiveUploads = 0;
 		state.uploadDelay = 120;
 		state.metricsRequests = 0;
+		state.rewinds.length = 0;
 		sessions.splice(1);
 	};
 	const closeDialog = () => {
 		state.dialog = null;
+		state.status = "done";
+		broadcast();
+	};
+	// The rewind affordance needs an idle driven session.
+	const setIdle = () => {
 		state.status = "done";
 		broadcast();
 	};
@@ -201,6 +208,13 @@ export async function startFixture() {
 			}
 			if (path === "/api/models/refresh" && req.method === "POST") {
 				json(res, 200, [{ id: "fixture/fake-model", levels: ["low", "medium", "high"] }]);
+				return;
+			}
+			const rewindMatch = path.match(/^\/api\/sessions\/([^/]+)\/rewind$/);
+			if (rewindMatch && req.method === "POST") {
+				const body = await readBody(req);
+				state.rewinds.push({ key: decodeURIComponent(rewindMatch[1]), seq: body.seq });
+				json(res, 200, { ok: true });
 				return;
 			}
 			if (path === "/api/upload" && req.method === "POST") {
@@ -312,6 +326,7 @@ export async function startFixture() {
 			state.dialog = { id, kind: "ask", title: questions[0]?.header ?? "Question", questions };
 			state.status = "blocked";
 		},
+		setIdle,
 		setTodos(todos) {
 			state.todos = todos;
 			broadcast();

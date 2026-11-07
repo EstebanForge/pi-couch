@@ -61,7 +61,9 @@ type app struct {
 	bridge        map[string]bridgeEntry // session path -> open pi dialog (bridge extension)
 	askMu         sync.Mutex
 	askPends      map[string]*askPending // rpiv tool call id -> pending phone answer (ADR-0009)
-	answered      *dialogMemos           // per-dialog answer claims; dedupes double taps
+	rewindMu      sync.Mutex
+	rewindPends   map[string]*rewindPending // session key -> pending rewind awaiting the bridge verdict (ADR-0010)
+	answered      *dialogMemos              // per-dialog answer claims; dedupes double taps
 	dialogMu      sync.Mutex
 	dialogLatch   map[string]*dialogWire // last good wire parse per session; a flaked tick must not drop the card's body
 	models        *modelsCache           // pi catalog: memory, state file, then pi
@@ -302,9 +304,11 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("POST /api/sessions/{key}/resume", a.apiSessionResume)
 	mux.HandleFunc("POST /api/sessions/{key}/dialog/answer", a.apiDialogAnswer)
 	mux.HandleFunc("POST /api/sessions/{key}/ask/answer", a.apiAskAnswer)
+	mux.HandleFunc("POST /api/sessions/{key}/rewind", a.apiRewind)
 	mux.HandleFunc("POST /api/sessions/{key}/model", a.apiModel)
 	mux.HandleFunc("POST /api/sessions/{key}/thinking", a.apiThinking)
 	mux.HandleFunc("POST /api/bridge/dialog", a.apiBridgeDialog)
+	mux.HandleFunc("POST /api/bridge/rewind", a.apiBridgeRewind)
 	mux.HandleFunc("POST /api/bridge/ask", a.apiBridgeAsk)
 	mux.HandleFunc("GET /api/bridge/ask/answer", a.apiBridgeAskAnswer)
 	mux.HandleFunc("POST /api/bridge/ask/verdict", a.apiBridgeAskVerdict)

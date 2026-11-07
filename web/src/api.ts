@@ -463,6 +463,14 @@ export const answerAsk = (key: string, body: AskAnswerRequest) =>
 		10_000,
 	);
 
+export type RewindResult = { ok: boolean; code?: string; reason?: string };
+
+/** Rewind to just before a sent user message (ADR-0010): the server
+ * fires /couchpi-rewind through the agent and waits out the bridge
+ * verdict, bounded past the server's 8s wait like answerAsk. */
+export const rewindLast = (key: string, seq: number) =>
+	postJSONBody<RewindResult>(`/api/sessions/${encodeURIComponent(key)}/rewind`, { seq }, 12_000);
+
 export const setModel = (key: string, pattern: string) =>
 	postJSONBody(`/api/sessions/${encodeURIComponent(key)}/model`, { pattern });
 export const setThinking = (key: string, level: string) =>

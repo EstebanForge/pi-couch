@@ -6,6 +6,7 @@ import {
 	getItemText,
 	getTranscriptPage,
 	resumeSession,
+	rewindLast,
 	type SessionsPatch,
 	type StreamItem,
 	sendPrompt,
@@ -31,10 +32,13 @@ import {
 	FaPencilAlt,
 	FaXmark,
 } from "../components/fa";
+import { useLongPress } from "../components/longPress";
 import { Markdown } from "../components/Markdown";
 import { Spinner } from "../components/Spinner";
+import { hapticLongPress } from "../haptics";
 import { navigate, useSheetBack } from "../nav";
 import { prefKey, readPref, writePref } from "../prefs";
+import { rewindErrorCopy, rewindOffer } from "../rewind";
 import { TOOLS, toolEnabled } from "../session-tools";
 import { useSessions } from "../state/sessions";
 import {
@@ -285,32 +289,64 @@ function ToolStep({
 	);
 }
 
+function UserBubble({
+	item,
+	sessionKey,
+	zoom,
+	rewindable,
+	onRewind,
+}: {
+	item: StreamItem;
+	sessionKey: string;
+	zoom: (src: string) => void;
+	rewindable: boolean;
+	onRewind: (it: StreamItem) => void;
+}) {
+	const press = useLongPress(() => {
+		hapticLongPress();
+		onRewind(item);
+	});
+	const exp = parseSkillExpansion(item.text);
+	return (
+		<div className="flex justify-end px-3.5 py-1.5">
+			<div
+				{...(rewindable ? { ...press, "data-testid": "rewindable" } : {})}
+				className={`max-w-[85%] rounded-2xl rounded-br-sm border border-primary/25 bg-gradient-to-br from-primary/25 to-primary/15 px-3.5 py-2.5 text-[15px] leading-relaxed shadow-surface-sm whitespace-pre-wrap [overflow-wrap:anywhere] ${rewindable ? "select-none" : ""}`}
+			>
+				{exp && <SkillCard exp={exp} />}
+				{exp ? exp.rest : item.text}
+				{!!item.images && (
+					<ChatImage
+						src={`/api/sessions/${encodeURIComponent(sessionKey)}/items/${item.seq}/image`}
+						zoom={zoom}
+						alt="attachment"
+						className="mt-1.5 max-h-64 rounded-xl border border-primary/20"
+					/>
+				)}
+			</div>
+		</div>
+	);
+}
+
 function itemRow(
 	it: StreamItem,
 	expanded: boolean,
 	sessionKey: string,
 	zoom: (src: string) => void,
+	rewindable: boolean,
+	onRewind: (it: StreamItem) => void,
 ) {
 	switch (it.kind) {
-		case "user": {
-			const exp = parseSkillExpansion(it.text);
+		case "user":
 			return (
-				<div className="flex justify-end px-3.5 py-1.5">
-					<div className="max-w-[85%] rounded-2xl rounded-br-sm border border-primary/25 bg-gradient-to-br from-primary/25 to-primary/15 px-3.5 py-2.5 text-[15px] leading-relaxed shadow-surface-sm whitespace-pre-wrap [overflow-wrap:anywhere]">
-						{exp && <SkillCard exp={exp} />}
-						{exp ? exp.rest : it.text}
-						{!!it.images && (
-							<ChatImage
-								src={`/api/sessions/${encodeURIComponent(sessionKey)}/items/${it.seq}/image`}
-								zoom={zoom}
-								alt="attachment"
-								className="mt-1.5 max-h-64 rounded-xl border border-primary/20"
-							/>
-						)}
-					</div>
-				</div>
+				<UserBubble
+					item={it}
+					sessionKey={sessionKey}
+					zoom={zoom}
+					rewindable={rewindable}
+					onRewind={onRewind}
+				/>
 			);
-		}
 		case "text":
 			return <Markdown text={it.text} />;
 		case "marker":
@@ -591,10 +627,14 @@ const Block = memo(function Block({
 	block,
 	sessionKey,
 	zoom,
+	rewindable,
+	onRewind,
 }: {
 	block: WorkBlock;
 	sessionKey: string;
 	zoom: (src: string) => void;
+	rewindable: (it: StreamItem) => boolean;
+	onRewind: (it: StreamItem) => void;
 }) {
 	const [override, setOverride] = useState<boolean | null>(null);
 	if (block.type === "pending") {
@@ -643,7 +683,7 @@ const Block = memo(function Block({
 		return <ThinkingGroup items={block.items} />;
 	}
 	if (block.type === "item") {
-		return itemRow(block.item, true, sessionKey, zoom);
+		return itemRow(block.item, true, sessionKey, zoom, rewindable(block.item), onRewind);
 	}
 	// Steps stay collapsed unless the reader opens them; the live stream
 	// already carries the Working marker, so auto-expansion is noise.
@@ -702,6 +742,11 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 	const [query, setQuery] = useState<string | null>(null);
 	const [overflow, setOverflow] = useState(false);
 	const [confirmClose, setConfirmClose] = useState(false);
+	// Long-press rewind (ADR-0010): the confirm target, the in-flight
+	// flag, and the composer refill after pi accepts the branch move.
+	const [rewindTarget, setRewindTarget] = useState<StreamItem | null>(null);
+	const [rewindBusy, setRewindBusy] = useState(false);
+	const [prefill, setPrefill] = useState<{ text: string; nonce: number } | null>(null);
 	const [renameOpen, setRenameOpen] = useState(false);
 	const [renameVal, setRenameVal] = useState("");
 	// Reverse pagination: firstItemIndex drops as older pages prepend so
@@ -901,9 +946,33 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 		}),
 		[loadingOlder, moreHistory, hasItems],
 	);
+	// Long-press rewind (ADR-0010): the offer rides the live items ref;
+	// only the last user message of an idle driven session gets it.
+	const itemsRef = useRef(state.items);
+	itemsRef.current = state.items;
+	const rewindApi = useMemo(
+		() => ({
+			canRewind: (it: StreamItem) =>
+				rewindOffer(itemsRef.current, it, {
+					undriven,
+					resuming,
+					waiting: isWaiting(state.status),
+				}),
+			onRewind: (it: StreamItem) => setRewindTarget(it),
+		}),
+		[undriven, resuming, state.status],
+	);
 	const renderItem = useCallback(
-		(_: number, b: WorkBlock) => <Block block={b} sessionKey={sessionKey} zoom={setLightbox} />,
-		[sessionKey],
+		(_: number, b: WorkBlock) => (
+			<Block
+				block={b}
+				sessionKey={sessionKey}
+				zoom={setLightbox}
+				rewindable={rewindApi.canRewind}
+				onRewind={rewindApi.onRewind}
+			/>
+		),
+		[sessionKey, rewindApi],
 	);
 	const addPendingCb = useCallback((text: string, queued: boolean) => {
 		const id = nextPendingId();
@@ -1002,6 +1071,21 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 		setOverflow(false);
 		const r = await stopSession(sessionKey);
 		if (!r.ok) setNotice(r.error === "notdriven" ? "No driver runs this session." : "Stop failed.");
+	};
+
+	const runRewind = async () => {
+		const item = rewindTarget;
+		if (!item || rewindBusy) return;
+		setRewindBusy(true);
+		const r = await rewindLast(sessionKey, item.seq);
+		setRewindBusy(false);
+		setRewindTarget(null);
+		if (r.ok) {
+			setPrefill({ text: item.text, nonce: Date.now() });
+			setNotice("Rewound. Edit the message and send it again.");
+		} else {
+			setNotice(rewindErrorCopy(r.error, r.code));
+		}
 	};
 
 	// pi's /name command writes a session_info entry, which rides the
@@ -1236,6 +1320,7 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 				removePending={removePendingCb}
 				resume={undriven ? startResume : undefined}
 				disabled={resuming}
+				prefill={prefill}
 			/>
 
 			{/* The answering sheet: slides over the composer bottom-to-top
@@ -1355,6 +1440,32 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 				}
 			>
 				Close this session? The pi agent exits; the transcript stays readable.
+			</Dialog>
+
+			<Dialog
+				opened={!!rewindTarget}
+				onBackdropClick={() => {
+					if (!rewindBusy) setRewindTarget(null);
+				}}
+				title="Rewind message"
+				buttons={
+					<>
+						<DialogButton onClick={() => setRewindTarget(null)}>Cancel</DialogButton>
+						<DialogButton disabled={rewindBusy} onClick={() => void runRewind()}>
+							Rewind
+						</DialogButton>
+					</>
+				}
+			>
+				{rewindTarget && (
+					<div>
+						<div className="mb-1.5 line-clamp-3 rounded-lg bg-base-200/60 px-2 py-1.5 text-[13px] text-muted">
+							{rewindTarget.text}
+						</div>
+						pi drops this message and everything after it. Its text replaces the composer draft for
+						editing.
+					</div>
+				)}
 			</Dialog>
 
 			{/* rename drops from the top, where the title lives */}

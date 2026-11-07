@@ -96,6 +96,13 @@ func TestTranscriptActiveBranchOnly(t *testing.T) {
 	if items[1].Images != 1 || !strings.Contains(items[1].Text, "Branch msg") {
 		t.Fatalf("image chip missing: %+v", items[1])
 	}
+	// Items carry their jsonl entry id so clients can target a rewind.
+	wantIDs := []string{"e2", "e6", "e7"}
+	for i, id := range wantIDs {
+		if items[i].ID != id {
+			t.Fatalf("item %d id: got %q, want %q", i, items[i].ID, id)
+		}
+	}
 }
 
 func TestTranscriptLimit(t *testing.T) {

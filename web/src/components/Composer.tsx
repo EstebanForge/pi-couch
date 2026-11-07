@@ -71,6 +71,9 @@ export const Composer = memo(function Composer(props: {
 	resume?: (body: string) => Promise<{ ok: boolean; error?: string }>;
 	/** Greys and kills every control: a resume is in flight. */
 	disabled?: boolean;
+	/** A rewind refill (ADR-0010): the nonce re-triggers on repeated
+	 * rewinds of identical text; the draft is replaced, not appended. */
+	prefill?: { text: string; nonce: number } | null;
 }) {
 	const { sessionKey, status } = props;
 	const draftStoreKey = prefKey(`draft.${sessionKey}`);
@@ -211,6 +214,17 @@ export const Composer = memo(function Composer(props: {
 	useEffect(() => {
 		writePref(draftStoreKey, text === "" ? null : text);
 	}, [draftStoreKey, text]);
+
+	// A rewind replaces the draft with the rewound message; focusing
+	// the box makes the edit the obvious next step. Session sends a
+	// fresh object per rewind, so identity changes re-trigger even for
+	// identical text.
+	const prefill = props.prefill;
+	useEffect(() => {
+		if (!prefill) return;
+		setText(prefill.text);
+		ta.current?.focus();
+	}, [prefill]);
 
 	// Autosize: grow with content, cap at half the visual viewport.
 	// Clearing (send) skips the read entirely: height auto followed by
