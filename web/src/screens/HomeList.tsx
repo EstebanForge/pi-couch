@@ -490,7 +490,9 @@ function SessionCard({
 				</span>
 				{(drivenMeta?.label || drivenMeta?.title) && (
 					<span className="mt-0.5 block truncate text-[11px] font-mono text-muted/75">
-						{[drivenMeta.label, drivenMeta.title].filter(Boolean).join(" · ")}
+						{drivenMeta.label && <span className="font-semibold">{drivenMeta.label}</span>}
+						{drivenMeta.label && drivenMeta.title ? " · " : ""}
+						{drivenMeta.title}
 					</span>
 				)}
 			</span>
