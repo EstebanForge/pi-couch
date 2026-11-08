@@ -30,7 +30,8 @@ var mimeByExt = map[string]string{
 // assets (assets/*) cache immutably; public files (sw.js, the manifest,
 // icons) are unhashed, so they revalidate on every load. Every other
 // path falls back to index.html so the client router owns the URL, and
-// no-cache on the HTML keeps deploys honest in the WebView.
+// no-store on the HTML keeps deploys honest in the WebView: a cached shell
+// would pin the old immutable asset set for a year.
 func App() http.Handler {
 	sub, err := fs.Sub(appFS, "app")
 	if err != nil {
@@ -143,7 +144,7 @@ func appHandler(sub fs.FS) http.Handler {
 						"img-src 'self' data:; connect-src 'self'; font-src 'self'; "+
 						"base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
 				w.Header().Set("Content-Type", "text/html; charset=utf-8")
-				w.Header().Set("Cache-Control", "no-cache")
+				w.Header().Set("Cache-Control", "no-store")
 				_, _ = w.Write(gzData)
 				return
 			}
@@ -156,7 +157,7 @@ func appHandler(sub fs.FS) http.Handler {
 				"img-src 'self' data:; connect-src 'self'; font-src 'self'; "+
 				"base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Cache-Control", "no-store")
 		_, _ = w.Write(data)
 	})
 }

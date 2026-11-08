@@ -34,8 +34,8 @@ func TestAppServesIndex(t *testing.T) {
 	if ct := res.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
 		t.Fatalf("content type %q, want text/html", ct)
 	}
-	if cc := res.Header.Get("Cache-Control"); cc != "no-cache" {
-		t.Fatalf("index cache-control %q, want no-cache", cc)
+	if cc := res.Header.Get("Cache-Control"); cc != "no-store" {
+		t.Fatalf("index cache-control %q, want no-store", cc)
 	}
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
@@ -79,8 +79,8 @@ func TestAppSpaRouteFallsBackToIndex(t *testing.T) {
 	if res.StatusCode != 200 {
 		t.Fatalf("GET /sessions/somekey = %d, want 200 from the spa fallback", res.StatusCode)
 	}
-	if cc := res.Header.Get("Cache-Control"); cc != "no-cache" {
-		t.Fatalf("spa fallback cache-control %q, want no-cache", cc)
+	if cc := res.Header.Get("Cache-Control"); cc != "no-store" {
+		t.Fatalf("spa fallback cache-control %q, want no-store", cc)
 	}
 }
 
