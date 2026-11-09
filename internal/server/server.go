@@ -22,7 +22,6 @@ import (
 
 	"github.com/EstebanForge/couch-pi/internal/config"
 	"github.com/EstebanForge/couch-pi/internal/hc"
-	"github.com/EstebanForge/couch-pi/internal/herdr"
 	"github.com/EstebanForge/couch-pi/internal/pi"
 	"github.com/EstebanForge/couch-pi/internal/push"
 	"github.com/EstebanForge/couch-pi/internal/quotas"
@@ -36,19 +35,14 @@ const defaultTail = 40
 // heartbeat re-renders badges even when no session file moves.
 const heartbeat = 30 * time.Second
 
-// terminalPoll is the pane.read tick. herdr 0.9.3 has no output push.
-const terminalPoll = time.Second
-
 // changesPoll is the working-tree scan tick (settled R4 throttle).
 const changesPoll = 3 * time.Second
 
 type app struct {
 	logger        *slog.Logger
 	idx           *pi.Index
-	herdr         *herdr.Client
-	status        StatusReader // the active status surface; nil falls back to herdr
-	hcDrv         *hc.Driver   // hc dialog primitives; nil under herdr
-	watcher       *pi.Watcher  // nil: heartbeat-only updates
+	hcDrv         *hc.Driver  // the hc session map: status quad, commands, attach
+	watcher       *pi.Watcher // nil: heartbeat-only updates
 	st            *store.Store
 	pusher        *push.Sender
 	vapidPublic   string
@@ -70,99 +64,21 @@ type app struct {
 	memory        *memoryProbe           // agent memory server health
 	wakeMu        sync.Mutex
 	wakeSubs      map[chan struct{}]struct{} // per-stream wake channels; a dialog changed
-	observes      *observeHub                // per-pane `herdr observe` subprocesses fanned to terminal viewers
 	quotas        *quotas.Service            // provider quotas & limits tracker
 	systemMetrics systemMetricsSampler       // host CPU and RAM samples for the quotas screen
 }
 
-var _ StatusReader = (*hc.Driver)(nil)
-
-// StatusReader is the per-tick status surface both drivers serve
-// (ADR-0008): herdr.Client satisfies it with socket dials, hc.Driver
-// from its label map without dials.
-type StatusReader interface {
-	Badges(ctx context.Context) map[string]string
-	Driven(ctx context.Context) map[string]herdr.DrivenInfo
-	DriveStatus(ctx context.Context) (map[string]string, map[string]herdr.DrivenInfo)
-	TargetForPath(ctx context.Context, path string) (string, error)
-}
-
-func (a *app) statusFor() StatusReader {
-	if a.status != nil {
-		return a.status
-	}
-	return a.herdr
-}
-
-// CommandDriver is the in-session command surface both drivers serve
-// (ADR-0008 wave 4): prompt, abort, close, addressed by the driver
-// target TargetForPath hands out.
-type CommandDriver interface {
-	Prompt(ctx context.Context, target, text string) error
-	Stop(ctx context.Context, target string) error
-	Close(ctx context.Context, target string) error
-}
-
-var _ CommandDriver = (*herdr.Client)(nil)
-var _ CommandDriver = (*hc.Driver)(nil)
-
-// cmdFor returns the command surface: herdr when wired, else the hc
-// driver. Nil means no driver can take commands.
-// cmdBudget keeps hc's raised handler deadlines off the herdr path.
-func (a *app) cmdBudget(hcBudget, herdrBudget time.Duration) time.Duration {
-	if a.hcDrv != nil {
-		return hcBudget
-	}
-	return herdrBudget
-}
-
-func (a *app) cmdFor() CommandDriver {
-	// hc wins even when a herdr client is also non-nil: an hc address
-	// must never reach the herdr socket.
-	if a.hcDrv != nil {
-		return a.hcDrv
-	}
-	if a.herdr != nil {
-		return a.herdr
-	}
-	if d, ok := a.status.(CommandDriver); ok {
-		return d
-	}
-	return nil
-}
-
-// requireHerdr gates the herdr-only surfaces while the hc waves land:
-// the hc state is herdr==nil with an explicit status driver wired.
-// Literals with neither (tests) keep exercising the herdr paths.
-func (a *app) requireHerdr(w http.ResponseWriter) bool {
-	if a.herdr != nil || a.status == nil {
-		return true
-	}
-	writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "unsupported-driver"})
-	return false
-}
-
-func Run(ctx context.Context, logger *slog.Logger, cfg *config.Config, idx *pi.Index, hr *herdr.Client, status StatusReader, w *pi.Watcher, st *store.Store, pusher *push.Sender) error {
+// Run wires the HTTP surface around the hc driver (ADR-0011: the only
+// driver). A nil driver serves sessions without status, prompts or
+// terminals.
+func Run(ctx context.Context, logger *slog.Logger, cfg *config.Config, idx *pi.Index, drv *hc.Driver, w *pi.Watcher, st *store.Store, pusher *push.Sender) error {
 	home, _ := os.UserHomeDir()
-	if status == nil {
-		status = hr
-	}
-	a := &app{logger: logger, idx: idx, herdr: hr, status: status, watcher: w, st: st, pusher: pusher, allowedOrigin: cfg.Origin, accessToken: cfg.AccessToken, uploadDir: cfg.UploadsDir, home: home, answered: newDialogMemos(), models: newModelsCache(filepath.Join(st.Dir(), "models.json")), memory: newMemoryProbe(cfg.MemoryURL, cfg.MemorySecret), dialogLatch: map[string]*dialogWire{}, quotas: quotas.NewService(), systemMetrics: newSystemMetricsSampler()}
-	if hr != nil {
-		// Terminal mirroring stays herdr-only until its attach wave.
-		a.observes = newObserveHub(hr.SocketPath())
-	}
-	if drv, ok := status.(*hc.Driver); ok {
-		// hc keeps the pane watching too: the driver renders the labeled
-		// terminals as the detector's agent source (ADR-0008 wave 5).
-		// Only the observe hub waits for the attach wave.
-		a.hcDrv = drv
+	a := &app{logger: logger, idx: idx, hcDrv: drv, watcher: w, st: st, pusher: pusher, allowedOrigin: cfg.Origin, accessToken: cfg.AccessToken, uploadDir: cfg.UploadsDir, home: home, answered: newDialogMemos(), models: newModelsCache(filepath.Join(st.Dir(), "models.json")), memory: newMemoryProbe(cfg.MemoryURL, cfg.MemorySecret), dialogLatch: map[string]*dialogWire{}, quotas: quotas.NewService(), systemMetrics: newSystemMetricsSampler()}
+	if drv != nil {
+		// The driver's labeled terminals are the detector's agent source:
+		// one events subscription feeds the status quad and the dialog
+		// pane reads alike.
 		a.awaiting = newAwaitingDetector(drv, time.Second)
-		a.awaiting.onChange = a.wakeDialog
-		go a.awaiting.run(ctx)
-	}
-	if hr != nil && a.awaiting == nil {
-		a.awaiting = newAwaitingDetector(hr, time.Second)
 		a.awaiting.onChange = a.wakeDialog
 		go a.awaiting.run(ctx)
 	}
@@ -313,7 +229,7 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("GET /api/bridge/ask/answer", a.apiBridgeAskAnswer)
 	mux.HandleFunc("POST /api/bridge/ask/verdict", a.apiBridgeAskVerdict)
 	mux.HandleFunc("GET /api/dirs", a.apiDirs)
-	mux.HandleFunc("GET /api/workspaces", a.apiWorkspaces)
+	mux.HandleFunc("GET /api/spaces", a.apiSpaces)
 	mux.HandleFunc("POST /api/agents", a.apiAgents)
 	mux.HandleFunc("POST /api/exec", a.apiExec)
 	mux.HandleFunc("POST /api/sessions/{key}/terminal/input", a.terminalInput)
@@ -341,9 +257,9 @@ type sessionsWire struct {
 	// windowed client knows how much lies beyond its page.
 	Total  int               `json:"total"`
 	Badges map[string]string `json:"badges"`
-	// Driven carries the live driver state per session path: status,
-	// pane title and workspace label, empty for undriven sessions.
-	Driven map[string]herdr.DrivenInfo `json:"driven"`
+	// Driven carries the live driver state per session path: status
+	// and pane title, empty for undriven sessions.
+	Driven map[string]hc.DrivenInfo `json:"driven"`
 	// Awaiting marks sessions whose agent sits in a blocking pi dialog
 	// (write review, questionnaire). Keyed by session path like badges.
 	Awaiting map[string]bool `json:"awaiting"`
@@ -357,7 +273,7 @@ const sessionUpsertCap = 64
 // sessionPatch is one sessions-stream frame. The entry delta rides
 // upserts (new or changed metas) and removed (client keys); a first
 // frame or an over-cap tick rides the whole list in sessions. Total is
-// always present: the header count lives on it. The herdr map fields
+// always present: the header count lives on it. The status map fields
 // reuse their marshaled bytes and omit when unchanged.
 type sessionPatch struct {
 	Sessions []pi.SessionMeta `json:"sessions,omitempty"`
@@ -405,18 +321,21 @@ func (a *app) apiSessions(w http.ResponseWriter, r *http.Request) {
 		badges = map[string]string{}
 	}
 	if driven == nil {
-		driven = map[string]herdr.DrivenInfo{}
+		driven = map[string]hc.DrivenInfo{}
 	}
 	writeJSON(w, http.StatusOK, sessionsWire{Sessions: sessions, Total: total, Badges: badges, Driven: driven, Awaiting: awaiting})
 }
 
-func (a *app) snapshot(r *http.Request) ([]pi.SessionMeta, map[string]string, map[string]herdr.DrivenInfo, map[string]bool) {
+func (a *app) snapshot(r *http.Request) ([]pi.SessionMeta, map[string]string, map[string]hc.DrivenInfo, map[string]bool) {
 	sessions, err := a.idx.List()
 	if err != nil {
 		a.logger.Error("session list", "err", err)
 		sessions = nil
 	}
-	badges, driven := a.statusFor().DriveStatus(r.Context())
+	badges, driven := map[string]string{}, map[string]hc.DrivenInfo{}
+	if a.hcDrv != nil {
+		badges, driven = a.hcDrv.DriveStatus(r.Context())
+	}
 	return sessions, badges, driven, a.awaiting.snapshot()
 }
 
@@ -432,18 +351,17 @@ func (a *app) promptAgent(key, text string) error {
 		return errNotFound
 	}
 	// hc's send pipeline paces itself (quiet, settle, first-paint
-	// retry), so the ceiling is generous; herdr answers in milliseconds.
-	ctx, cancel := context.WithTimeout(context.Background(), a.cmdBudget(25*time.Second, 10*time.Second))
+	// retry), so the ceiling is generous.
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
-	target, err := a.statusFor().TargetForPath(ctx, meta.Path)
+	if a.hcDrv == nil {
+		return hc.ErrNotDriven
+	}
+	target, err := a.hcDrv.TargetForPath(ctx, meta.Path)
 	if err != nil {
-		return herdr.ErrNotDriven
+		return hc.ErrNotDriven
 	}
-	cmd := a.cmdFor()
-	if cmd == nil {
-		return herdr.ErrNotDriven
-	}
-	if err := cmd.Prompt(ctx, target, text); err != nil {
+	if err := a.hcDrv.Prompt(ctx, target, text); err != nil {
 		a.logger.Error("prompt", "err", err)
 		return errPromptFail
 	}

@@ -15,7 +15,6 @@ import (
 
 	"github.com/EstebanForge/couch-pi/internal/config"
 	"github.com/EstebanForge/couch-pi/internal/hc"
-	"github.com/EstebanForge/couch-pi/internal/herdr"
 	"github.com/EstebanForge/couch-pi/internal/pi"
 	"github.com/EstebanForge/couch-pi/internal/push"
 	"github.com/EstebanForge/couch-pi/internal/server"
@@ -87,16 +86,15 @@ func main() {
 		watcher = nil
 	}
 
-	hr := herdr.New()
-
 	st, err := store.New()
 	if err != nil {
 		logger.Error("state dir", "err", err)
 		os.Exit(1)
 	}
 
-	// P5 web push: VAPID identity on first run, then one agent.wait watcher
-	// per live agent (ADR-0005) pushing stable transitions to subscribers.
+	// P5 web push: VAPID identity on first run, then one events
+	// subscription (ADR-0005 as amended by ADR-0011) pushing stable
+	// transitions to subscribers.
 	vapid, err := st.VAPID()
 	if err != nil {
 		logger.Error("vapid keys", "err", err)
@@ -110,33 +108,23 @@ func main() {
 		Timeout:    10 * time.Second,
 	}
 
-	// hc driver (ADR-0008): the status quad comes from the hc session
-	// map and the push watcher waits for the events wave; herdr stays
-	// the default and keeps both.
-	var status server.StatusReader
-	if cfg.Driver == "hc" {
-		var hcc *hc.Client
-		if cfg.HCSocket != "" {
-			hcc = hc.NewAt(cfg.HCSocket)
-		} else {
-			hcc = hc.New()
-		}
-		drv := hc.NewDriver(hcc)
-		go drv.Run(ctx)
-		status = drv
-		// One events connection replaces the per-agent waits (ADR-0008).
-		hcw := push.NewHCWatcher(hcc)
-		hcw.OnEvent = notifyFunc(logger, idx, st, pusher)
-		hcw.Log = logger
-		go hcw.Run(ctx)
-		// Commands must never dial the herdr socket with an hc address.
-		hr = nil
+	// The hc driver (ADR-0011, the only driver): the status quad comes
+	// from the hc session map, one events connection replaces the
+	// per-agent waits, and the driver's Run keeps the map synced.
+	var hcc *hc.Client
+	if cfg.HCSocket != "" {
+		hcc = hc.NewAt(cfg.HCSocket)
 	} else {
-		onEvent := notifyFunc(logger, idx, st, pusher)
-		go (&push.Watcher{HC: hr, Reconcile: 15 * time.Second, Stability: 2 * time.Second, WaitMax: 15 * time.Minute, Rearm: 5 * time.Second, OnEvent: onEvent, Log: logger}).Run(ctx)
+		hcc = hc.New()
 	}
+	drv := hc.NewDriver(hcc)
+	go drv.Run(ctx)
+	hcw := push.NewHCWatcher(hcc)
+	hcw.OnEvent = notifyFunc(logger, idx, st, pusher)
+	hcw.Log = logger
+	go hcw.Run(ctx)
 
-	if err := server.Run(ctx, logger, &cfg, idx, hr, status, watcher, st, pusher); err != nil {
+	if err := server.Run(ctx, logger, &cfg, idx, drv, watcher, st, pusher); err != nil {
 		logger.Error("server exited", "err", err)
 		os.Exit(1)
 	}

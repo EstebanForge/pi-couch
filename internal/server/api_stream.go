@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/EstebanForge/couch-pi/internal/herdr"
+	"github.com/EstebanForge/couch-pi/internal/hc"
 	"github.com/EstebanForge/couch-pi/internal/pi"
 )
 
@@ -337,7 +337,10 @@ func (a *app) apiStreamTranscript(w http.ResponseWriter, r *http.Request) {
 		}
 		cur := itemFps(items)
 		mem := a.memory.class(r.Context())
-		badges := a.statusFor().Badges(r.Context())
+		badges := map[string]string{}
+		if a.hcDrv != nil {
+			badges = a.hcDrv.Badges(r.Context())
+		}
 		st := badges[meta.Path]
 		awaiting := a.awaiting.isAwaiting(meta.Path)
 		queue := a.awaiting.queued(meta.Path)
@@ -394,7 +397,7 @@ func (a *app) apiStreamTranscript(w http.ResponseWriter, r *http.Request) {
 
 // apiStreamSessions is the JSON twin of streamSessions. Frames carry
 // entry deltas: upserts for new or changed metas, removed for gone
-// ones, total always, and each herdr map only when its bytes changed.
+// ones, total always, and each status map only when its bytes changed.
 // A first frame or a tick touching more than sessionUpsertCap entries
 // collapses to a full reset. The REST snapshot stays whole.
 func (a *app) apiStreamSessions(w http.ResponseWriter, r *http.Request) {
@@ -429,7 +432,7 @@ func (a *app) apiStreamSessions(w http.ResponseWriter, r *http.Request) {
 			badges = map[string]string{}
 		}
 		if driven == nil {
-			driven = map[string]herdr.DrivenInfo{}
+			driven = map[string]hc.DrivenInfo{}
 		}
 		if awaiting == nil {
 			awaiting = map[string]bool{}
@@ -456,7 +459,7 @@ func (a *app) apiStreamSessions(w http.ResponseWriter, r *http.Request) {
 		}
 		reset := lastEntries == nil || len(upserts) > sessionUpsertCap
 		lastEntries = entries
-		// A herdr-only change (dialog opens, driver flips blocked) touches
+		// A dialog change (opens, driver flips blocked) touches
 		// no session file, so the map fields must open the gate themselves
 		// or the phone sits on stale status until some unrelated write.
 		emit := false
@@ -521,24 +524,22 @@ var (
 	errPromptFail = errors.New("prompt failed")
 )
 
-// stopAgent sends ctrl+c to the herdr agent driving the session. Shared
-// by the templ form handler and the JSON endpoint.
+// stopAgent aborts the hc terminal driving the session.
 func (a *app) stopAgent(key string) error {
 	meta, ok := a.idx.Meta(key)
 	if !ok {
 		return errNotFound
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), a.cmdBudget(15*time.Second, 10*time.Second))
+	if a.hcDrv == nil {
+		return hc.ErrNotDriven
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	target, err := a.statusFor().TargetForPath(ctx, meta.Path)
+	target, err := a.hcDrv.TargetForPath(ctx, meta.Path)
 	if err != nil {
-		return herdr.ErrNotDriven
+		return hc.ErrNotDriven
 	}
-	cmd := a.cmdFor()
-	if cmd == nil {
-		return herdr.ErrNotDriven
-	}
-	if err := cmd.Stop(ctx, target); err != nil {
+	if err := a.hcDrv.Stop(ctx, target); err != nil {
 		a.logger.Error("stop", "err", err)
 		return errStopFail
 	}
@@ -552,18 +553,17 @@ func (a *app) closeWorkspace(key string) error {
 	if !ok {
 		return errNotFound
 	}
+	if a.hcDrv == nil {
+		return hc.ErrNotDriven
+	}
 	// hc's graceful wait wants room before the kill escalation.
-	ctx, cancel := context.WithTimeout(context.Background(), a.cmdBudget(20*time.Second, 10*time.Second))
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	target, err := a.statusFor().TargetForPath(ctx, meta.Path)
+	target, err := a.hcDrv.TargetForPath(ctx, meta.Path)
 	if err != nil {
-		return herdr.ErrNotDriven
+		return hc.ErrNotDriven
 	}
-	cmd := a.cmdFor()
-	if cmd == nil {
-		return herdr.ErrNotDriven
-	}
-	if err := cmd.Close(ctx, target); err != nil {
+	if err := a.hcDrv.Close(ctx, target); err != nil {
 		return errCloseFail
 	}
 	return nil
@@ -589,10 +589,9 @@ func (a *app) apiPrompt(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "badrequest"})
 		return
 	}
-	// whenBusy carries the submitter's disposition. herdr exposes one
-	// verb, so follow-up is the only placement that exists; refusing
-	// the rest keeps the wire honest instead of guessing pi's queue
-	// mode (ADR-0001).
+	// whenBusy carries the submitter's disposition. Follow-up is the
+	// only placement that exists; refusing the rest keeps the wire
+	// honest instead of guessing pi's queue mode (ADR-0001).
 	switch in.WhenBusy {
 	case "", "followUp":
 	default:
@@ -607,7 +606,7 @@ func (a *app) apiPrompt(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "empty"})
 	case errors.Is(err, errNotFound):
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "notfound"})
-	case errors.Is(err, herdr.ErrNotDriven):
+	case errors.Is(err, hc.ErrNotDriven):
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "notdriven"})
 	default:
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "failed"})
@@ -624,7 +623,7 @@ func (a *app) writeOutcome(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	case errors.Is(err, errNotFound):
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "notfound"})
-	case errors.Is(err, herdr.ErrNotDriven):
+	case errors.Is(err, hc.ErrNotDriven):
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "notdriven"})
 	default:
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "failed"})

@@ -1,30 +1,67 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
-	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/EstebanForge/couch-pi/internal/pi"
 )
 
-// The home cards render the live driver state: the pane title and the
-// workspace label ride next to the status, joined by session path.
-// A driver status flip with no jsonl write must still reach clients:
-// dialogs open and herdr flips blocked without touching session files,
-// and the home list has to show it on the next tick.
+// streamHCApp is the stream fixture over an hc fake: watcher live,
+// detector running on the 1s poll with the wake wired (Run's shape).
+func streamHCApp(t *testing.T) (*app, *hcFakeCore, string, http.Handler) {
+	t.Helper()
+	root := t.TempDir()
+	sub := filepath.Join(root, "sess")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(sub, "s1.jsonl")
+	writeLines(t, path, sessHeader, userLine("a", "", "first"))
+	w, err := pi.StartWatcher(t.Context(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &app{
+		logger:      slog.New(slog.NewTextHandler(testDiscard{}, nil)),
+		idx:         pi.NewIndex(root),
+		home:        testHome(),
+		watcher:     w,
+		answered:    newDialogMemos(),
+		models:      newModelsCache(filepath.Join(t.TempDir(), "models.json")),
+		memory:      newMemoryProbe("", ""),
+		dialogLatch: map[string]*dialogWire{},
+		bridge:      map[string]bridgeEntry{},
+	}
+	drv, f := startHCFake(t, path, "plain transcript lines\nnothing dialog shaped here\n")
+	wireHC(a, drv)
+	a.awaiting.poll = time.Second
+	a.awaiting.onChange = a.wakeDialog
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
+	go a.awaiting.run(ctx)
+	waitForHC(t, func() bool {
+		_, err := a.hcDrv.TargetForPath(context.Background(), path)
+		return err == nil
+	})
+	return a, f, sub, a.guard(a.routes())
+}
+
+// The home cards render the live driver state: the pane title rides
+// next to the status, joined by session path. A driver status flip
+// with no jsonl write must still reach clients: dialogs open and the
+// core flips blocked without touching session files, and the home
+// list has to show it on the next tick.
 func TestSessionsStreamStatusOnlyChange(t *testing.T) {
-	var sends int32
-	var sessPath string
-	var status atomic.Value
-	status.Store("working")
-	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath, sends: &sends, status: &status})
-	_, sub, h := streamTestAppWithHerdr(t, sock)
-	sessPath = filepath.Join(sub, "s1.jsonl")
+	_, f, _, h := streamHCApp(t)
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
@@ -36,14 +73,22 @@ func TestSessionsStreamStatusOnlyChange(t *testing.T) {
 	frames := readFrames(t, resp.Body)
 
 	waitFrame(t, frames, 5*time.Second, "reset")
-	status.Store("blocked")
-	f := waitFrame(t, frames, 8*time.Second, "reset")
+	f.mu.Lock()
+	// The snapshot carries the fake's status state field.
+	f.state = "blocked"
+	f.mu.Unlock()
+	// The core would notify; the fake pushes the same event.
+	f.event("status", "t1", map[string]any{
+		"status":   map[string]any{"state": "blocked", "app": "pi"},
+		"reported": true,
+	})
+	fram := waitFrame(t, frames, 8*time.Second, "reset")
 	var patch sessionPatch
-	if err := json.Unmarshal([]byte(f.data), &patch); err != nil {
+	if err := json.Unmarshal([]byte(fram.data), &patch); err != nil {
 		t.Fatal(err)
 	}
 	if patch.Badges == nil && patch.Driven == nil {
-		t.Fatalf("status-only flip sent no map fields: %s", f.data)
+		t.Fatalf("status-only flip sent no map fields: %s", fram.data)
 	}
 }
 
@@ -73,11 +118,8 @@ func TestDialogWakeReachesEverySubscriber(t *testing.T) {
 }
 
 func TestSessionsCarriesDrivenInfo(t *testing.T) {
-	var sends int32
-	var sessPath string
-	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath, sends: &sends})
-	a, sub, h := streamTestAppWithHerdr(t, sock)
-	sessPath = filepath.Join(sub, "s1.jsonl")
+	a, _, sub, h := streamHCApp(t)
+	sessPath := filepath.Join(sub, "s1.jsonl")
 
 	req := httptest.NewRequest(http.MethodGet, "/api/sessions", nil)
 	req.Host = "127.0.0.1:8090"
@@ -94,30 +136,30 @@ func TestSessionsCarriesDrivenInfo(t *testing.T) {
 	if !ok {
 		t.Fatalf("no driven entry for %s", sessPath)
 	}
-	if d.Status != "blocked" {
-		t.Errorf("status=%q, want blocked", d.Status)
+	if d.Status != "working" {
+		t.Errorf("status=%q, want the fake's working", d.Status)
 	}
-	if d.Title != "pi - s1:running..." {
+	if d.Title != "Pi · t1" {
 		t.Errorf("title=%q", d.Title)
 	}
-	if d.Label != "Forge" {
-		t.Errorf("label=%q", d.Label)
-	}
-	_ = sub
 	_ = a
 }
 
 // Entry-delta frames: the sessions stream sends only what changed per
 // tick — new or touched sessions ride upserts, gone ones ride removed —
-// and the herdr maps still ride only on their own bytes.
+// and the status maps still ride only on their own bytes.
 func TestSessionsStreamFieldDelta(t *testing.T) {
-	var sends int32
-	var sessPath string
-	var status atomic.Value
-	status.Store("blocked")
-	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath, sends: &sends, status: &status})
-	a, sub, h := streamTestAppWithHerdr(t, sock)
-	sessPath = filepath.Join(sub, "s1.jsonl")
+	a, fake, sub, h := streamHCApp(t)
+	// The flip below needs a different state than the snapshot's.
+	fake.mu.Lock()
+	fake.state = "blocked"
+	fake.mu.Unlock()
+	fake.event("status", "t1", map[string]any{
+		"status":   map[string]any{"state": "blocked", "app": "pi"},
+		"reported": true,
+	})
+	time.Sleep(50 * time.Millisecond)
+	sessPath := filepath.Join(sub, "s1.jsonl")
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
@@ -170,7 +212,13 @@ func TestSessionsStreamFieldDelta(t *testing.T) {
 
 	// A driver status flip rides the next file tick: badges and driven
 	// come back, awaiting stays out.
-	status.Store("working")
+	fake.mu.Lock()
+	fake.state = "working"
+	fake.mu.Unlock()
+	fake.event("status", "t1", map[string]any{
+		"status":   map[string]any{"state": "working", "app": "pi"},
+		"reported": true,
+	})
 	writeLines(t, filepath.Join(sub, "s3.jsonl"), sessHeader)
 	f = waitFrame(t, frames, 8*time.Second, "reset")
 	k = keys(f)
@@ -193,6 +241,8 @@ func TestSessionsStreamFieldDelta(t *testing.T) {
 		t.Fatalf("removed payload: total=%d removed=%v", patch.Total, patch.Removed)
 	}
 	_ = a
+	_ = fake
+	_ = sessPath
 }
 
 // A tick that changes more entries than the upsert cap collapses into a

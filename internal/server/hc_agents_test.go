@@ -160,30 +160,48 @@ func TestHCResumeSpawnsWithTheSessionFile(t *testing.T) {
 	}
 }
 
-func TestHCWorkspacesListIsEmpty(t *testing.T) {
-	a, _ := hcDialogApp(t)
-	drv, _ := startHCFake(t, "/x/s1.jsonl")
-	wireHC(a, drv)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/workspaces", nil)
-	rec := httptest.NewRecorder()
-	a.apiWorkspaces(rec, req)
-	if rec.Code != 200 {
-		t.Fatalf("workspaces code = %d, want 200", rec.Code)
+func TestSpacesListsTheAppDocument(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	proj := filepath.Join(home, "proj")
+	if err := os.MkdirAll(proj, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	var ws []map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &ws); err != nil || len(ws) != 0 {
-		t.Fatalf("workspaces = %s, want []", rec.Body.String())
+	a, _ := hcDialogApp(t)
+	drv, f := startHCFake(t, "/x/s1.jsonl")
+	wireHC(a, drv)
+	f.mu.Lock()
+	f.docs["herdr-app"] = map[string]any{
+		"spaces": []any{
+			map[string]any{"id": "sp1", "name": "", "folder": proj, "tabs": []any{map[string]any{"id": "tb1"}}},
+		},
+	}
+	f.mu.Unlock()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/spaces", nil)
+	rec := httptest.NewRecorder()
+	a.apiSpaces(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("spaces code = %d, want 200", rec.Code)
+	}
+	var spaces []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &spaces); err != nil || len(spaces) != 1 {
+		t.Fatalf("spaces = %s, want one", rec.Body.String())
+	}
+	// Unnamed spaces fold to the folder basename, the derived name the
+	// app itself paints.
+	if spaces[0]["name"] != "proj" || spaces[0]["folder"] != proj {
+		t.Fatalf("space = %v", spaces[0])
 	}
 }
 
-func TestHCAgentsWorkspaceModeRefused(t *testing.T) {
+func TestHCAgentsUnknownSpaceRefused(t *testing.T) {
 	a, _ := hcDialogApp(t)
 	drv, _ := startHCFake(t, "/x/s1.jsonl")
 	wireHC(a, drv)
 
-	rec := hcPost(t, a, "/api/agents", "", map[string]any{"workspace_id": "w1", "prompt": "x"})
+	rec := hcPost(t, a, "/api/agents", "", map[string]any{"space_id": "w1", "prompt": "x"})
 	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("workspace-mode create code = %d, want 400", rec.Code)
+		t.Fatalf("unknown-space create code = %d, want 400", rec.Code)
 	}
 }

@@ -2,14 +2,14 @@ package server
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"github.com/EstebanForge/couch-pi/internal/hc"
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/EstebanForge/couch-pi/internal/hc"
 )
 
 func (a *app) streamTerminal(w http.ResponseWriter, r *http.Request) {
@@ -19,12 +19,16 @@ func (a *app) streamTerminal(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if a.hcDrv == nil {
+		http.NotFound(w, r)
+		return
+	}
 	flusher := http.NewResponseController(w)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 
 	ctx := r.Context()
-	target, err := a.statusFor().TargetForPath(ctx, meta.Path)
+	target, err := a.hcDrv.TargetForPath(ctx, meta.Path)
 	if err != nil {
 		// A resync is temporary: reconnect, never declare the session
 		// gone while the core is reseeding.
@@ -38,57 +42,11 @@ func (a *app) streamTerminal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cols, rows := terminalDims(r)
-	if a.hcDrv != nil {
-		a.streamTerminalHC(w, r, target, cols, rows)
-		return
-	}
-	ch, unsub := a.observes.subscribe(target, cols, rows)
-	defer unsub()
-	ticker := time.NewTicker(keepaliveEvery)
-	defer ticker.Stop()
-	for {
-		select {
-		case f, ok := <-ch:
-			if !ok {
-				return
-			}
-			if f.reset {
-				// This viewer stalled and was evicted: end the stream so
-				// the client reconnects into a fresh full repaint.
-				if !writeSSE(w, "reset", "{}") {
-					return
-				}
-				flusher.Flush()
-				return
-			}
-			if f.failed {
-				// No herdr binary to observe with: legacy snapshot loop.
-				a.pollTerminal(w, r, target)
-				return
-			}
-			if f.closed {
-				if !writeSSE(w, "gone", "{}") {
-					return
-				}
-				flusher.Flush()
-				return
-			}
-			frame, err := json.Marshal(map[string]string{"bytes": f.bytes})
-			if err != nil || !writeSSE(w, "delta", string(frame)) {
-				return
-			}
-		case <-ticker.C:
-			if !writeSSE(w, "ping", "{}") {
-				return
-			}
-		case <-ctx.Done():
-			return
-		}
-	}
+	a.streamTerminalHC(w, r, target, cols, rows)
 }
 
-// terminalDims reads the viewer's xterm fit size so herdr frames the
-// observe viewport to the same grid.
+// terminalDims reads the viewer's xterm fit size so the attach frames
+// the same grid the phone renders.
 func terminalDims(r *http.Request) (int, int) {
 	cols, rows := 100, 30
 	if v, err := strconv.Atoi(r.URL.Query().Get("cols")); err == nil && v >= 40 && v <= 500 {
@@ -98,42 +56,6 @@ func terminalDims(r *http.Request) (int, int) {
 		rows = v
 	}
 	return cols, rows
-}
-
-// pollTerminal is the pre-observe fallback: a hash-gated whole-screen
-// pane.read snapshot loop, kept for boxes without the herdr CLI.
-func (a *app) pollTerminal(w http.ResponseWriter, r *http.Request, target string) {
-	ctx := r.Context()
-	lastHash := ""
-	lastSent := time.Now()
-	for {
-		read, err := a.herdr.PaneRead(ctx, target, "recent", 400)
-		if err != nil {
-			return
-		}
-		sum := sha256.Sum256([]byte(read.Text))
-		hash := string(sum[:])
-		if hash != lastHash {
-			lastHash = hash
-			lastSent = time.Now()
-			payload, err := json.Marshal(map[string]any{"text": read.Text, "revision": read.Revision})
-			if err != nil || !writeSSE(w, "term", string(payload)) {
-				return
-			}
-		} else if time.Since(lastSent) >= keepaliveEvery {
-			// A quiet pane sends nothing otherwise; the client's silence
-			// watchdog would kill a healthy stream.
-			lastSent = time.Now()
-			if !writeSSE(w, "ping", "{}") {
-				return
-			}
-		}
-		select {
-		case <-time.After(terminalPoll):
-		case <-ctx.Done():
-			return
-		}
-	}
 }
 
 // writeSSE emits one SSE event; false means the client is gone. Each
@@ -151,7 +73,7 @@ func writeSSE(w http.ResponseWriter, event, data string) bool {
 	return true
 }
 
-// terminalInput forwards wheel input: text runs, or named keys.
+// terminalInput forwards wheel input: named keys, or text runs.
 func (a *app) terminalInput(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
 	meta, ok := a.idx.Meta(key)
@@ -168,40 +90,35 @@ func (a *app) terminalInput(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "empty input", http.StatusBadRequest)
 		return
 	}
+	if a.hcDrv == nil {
+		http.Error(w, "no driver", http.StatusServiceUnavailable)
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
-	target, err := a.statusFor().TargetForPath(ctx, meta.Path)
+	target, err := a.hcDrv.TargetForPath(ctx, meta.Path)
 	if err != nil {
 		http.Error(w, "no driver", http.StatusConflict)
 		return
 	}
-	if a.hcDrv != nil {
-		if in.Text != "" {
-			// hc's Send always appends Enter: raw typing would submit
-			// half-written text. Same refusal as editor answers.
-			http.Error(w, "raw text input needs the herdr driver", http.StatusConflict)
-			return
-		}
-		if err := a.hcDrv.PressKeys(ctx, target, in.Keys); err != nil {
-			a.logger.Error("hc terminal input", "err", err)
-			http.Error(w, "input failed", http.StatusBadGateway)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
+	if in.Text != "" {
+		// hc's Send always appends Enter: raw typing would submit
+		// half-written text. Same refusal as editor answers.
+		http.Error(w, "raw text input is not supported", http.StatusConflict)
 		return
 	}
-	if err := a.herdr.PaneSendInput(ctx, target, in.Text, in.Keys); err != nil {
-		a.logger.Error("terminal input", "err", err)
+	if err := a.hcDrv.PressKeys(ctx, target, in.Keys); err != nil {
+		a.logger.Error("hc terminal input", "err", err)
 		http.Error(w, "input failed", http.StatusBadGateway)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// streamTerminalHC fans an hc attach out as the same delta SSE frames
-// the herdr observe hub emits: raw pty bytes, base64'd. The first
-// frame is hc's full paint. A stalled stream ends as reset so the
-// client reconnects into a fresh paint instead of double-painting.
+// streamTerminalHC fans an hc attach out as delta SSE frames: raw pty
+// bytes, base64'd. The first frame is hc's full paint. A stalled
+// stream ends as reset so the client reconnects into a fresh paint
+// instead of double-painting.
 func (a *app) streamTerminalHC(w http.ResponseWriter, r *http.Request, target string, cols, rows int) {
 	stream, err := a.hcDrv.Attach(r.Context(), target, cols, rows)
 	if err != nil {
@@ -218,7 +135,7 @@ func (a *app) streamTerminalHC(w http.ResponseWriter, r *http.Request, target st
 	}
 	defer stream.Close()
 	flusher := http.NewResponseController(w)
-	// Observe viewers never set the core's grid: tell xterm the real
+	// Attach viewers never set the core's grid: tell xterm the real
 	// size before the first paint, or cursor-addressed output lands
 	// on the wrong cells.
 	size, _ := json.Marshal(map[string]int{"cols": stream.Cols, "rows": stream.Rows})

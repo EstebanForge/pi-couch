@@ -12,7 +12,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/EstebanForge/couch-pi/internal/herdr"
 	"github.com/EstebanForge/couch-pi/internal/pi"
 	"github.com/EstebanForge/couch-pi/internal/store"
 )
@@ -69,7 +68,6 @@ func repoTestApp(t *testing.T, cwd string) (http.Handler, string) {
 	a := &app{
 		logger:  slog.New(slog.NewTextHandler(testDiscard{}, nil)),
 		idx:     pi.NewIndex(root),
-		herdr:   herdr.New(),
 		watcher: w,
 		st:      st,
 	}

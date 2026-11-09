@@ -10,8 +10,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/EstebanForge/couch-pi/internal/herdr"
 )
 
 // record builds a public terminal record as the core would list it.
@@ -130,7 +128,7 @@ func TestDriverTracksSessionLabels(t *testing.T) {
 	if err != nil || addr != "t1" {
 		t.Fatalf("target = %q, %v, want t1", addr, err)
 	}
-	if _, err := d.TargetForPath(context.Background(), "/home/me/.pi/sessions/none.jsonl"); !errors.Is(err, herdr.ErrNotDriven) {
+	if _, err := d.TargetForPath(context.Background(), "/home/me/.pi/sessions/none.jsonl"); !errors.Is(err, ErrNotDriven) {
 		t.Fatalf("unknown session err = %v, want ErrNotDriven", err)
 	}
 
@@ -161,7 +159,7 @@ func TestDriverTracksSessionLabels(t *testing.T) {
 	}
 	waitFor(t, func() bool {
 		_, err := d.TargetForPath(context.Background(), "/home/me/.pi/sessions/a.jsonl")
-		return errors.Is(err, herdr.ErrNotDriven)
+		return errors.Is(err, ErrNotDriven)
 	})
 	if badges, _ := d.DriveStatus(context.Background()); len(badges) != 1 {
 		t.Fatalf("badges after finish = %v, want only b.jsonl", badges)
@@ -217,7 +215,7 @@ func TestDriverResubscribesAfterStreamLoss(t *testing.T) {
 		addr, err := d.TargetForPath(context.Background(), "/home/me/.pi/sessions/moved.jsonl")
 		return err == nil && addr == "t1"
 	})
-	if _, err := d.TargetForPath(context.Background(), "/home/me/.pi/sessions/a.jsonl"); !errors.Is(err, herdr.ErrNotDriven) {
+	if _, err := d.TargetForPath(context.Background(), "/home/me/.pi/sessions/a.jsonl"); !errors.Is(err, ErrNotDriven) {
 		t.Fatalf("stale path still resolved: %v", err)
 	}
 	if n := len(f.seen("events.subscribe")); n < 2 {
@@ -495,7 +493,7 @@ func TestDriverSpawnRunsPiAndWaitsForTheFirstReport(t *testing.T) {
 	}
 	done := make(chan spawnRes, 1)
 	go func() {
-		t9, err := d.Spawn(context.Background(), "/home/me/proj", "pi-demo", []string{"--model", "x/y"})
+		t9, err := d.Spawn(context.Background(), "/home/me/proj", "pi-demo", []string{"--model", "x/y"}, nil)
 		done <- spawnRes{t9.Address, err}
 	}()
 
@@ -560,7 +558,7 @@ func TestDriverSpawnTimesOutWhenPiNeverReports(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("no held subscribe conn")
 	}
-	rec, err := d.Spawn(context.Background(), "/home/me", "pi-x", nil)
+	rec, err := d.Spawn(context.Background(), "/home/me", "pi-x", nil, nil)
 	if err == nil {
 		t.Fatal("spawn without a first report must fail")
 	}
@@ -780,7 +778,7 @@ func TestDriverSpawnFailsFastWhenPiExits(t *testing.T) {
 		_, _ = conn.Write(eventLine("finished", "t9", map[string]any{}))
 	}()
 	start := time.Now()
-	if _, err := d.Spawn(context.Background(), "/home/me", "pi-x", nil); err == nil {
+	if _, err := d.Spawn(context.Background(), "/home/me", "pi-x", nil, nil); err == nil {
 		t.Fatal("a dead pi must fail the spawn")
 	}
 	if time.Since(start) > time.Second {

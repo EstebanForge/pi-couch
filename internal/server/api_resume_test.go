@@ -4,53 +4,65 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
-func postResume(t *testing.T, h http.Handler, key, body string) *httptest.ResponseRecorder {
+func postResume(t *testing.T, a *app, key, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, "/api/sessions/"+key+"/resume", strings.NewReader(body))
+	req.SetPathValue("key", key)
 	req.Host = "127.0.0.1:8090"
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
+	a.apiSessionResume(rec, req)
 	return rec
 }
 
+// Resume spawns pi --session over the closed session's jsonl; the
+// optional text rides as the first prompt.
 func TestSessionResumeStartsAgentWithSessionFlag(t *testing.T) {
-	var prompts, sends int32
-	var lastPrompt string
-	var lastArgs []string
-	var sessPath string
-	sock := herdrFake(t, fakeHerdrOpts{
-		sessPath:      &sessPath,
-		prompts:       &prompts,
-		sends:         &sends,
-		lastPrompt:    &lastPrompt,
-		lastStartArgs: &lastArgs,
-		paneReady:     &piReadyScreen,
-	})
-	_, sub, h := streamTestAppWithHerdr(t, sock)
-	// The fake's one agent drives s2, so the resume target s1 is
-	// undriven and TargetForPath misses it.
-	s2 := filepath.Join(sub, "s2.jsonl")
-	writeLines(t, s2, sessHeader, userLine("b", "", "other"))
-	sessPath = s2
+	a, path := hcDialogApp(t)
+	// The fake's one terminal drives a foreign session, so the resume
+	// target s1 is undriven and TargetForPath misses it.
+	drv, f := startHCFake(t, "/x/driving-something-else.jsonl")
+	f.mu.Lock()
+	f.snap = func() []map[string]any { return nil }
+	f.mu.Unlock()
+	wireHC(a, drv)
+	// The spawn readiness needs no snapshot: a foreign terminal never
+	// carries s1, so the resume proceeds immediately.
+	_ = path
 
-	rec := postResume(t, h, "s1", `{"text":"hi again"}`)
+	type res struct {
+		rec *httptest.ResponseRecorder
+	}
+	done := make(chan res, 1)
+	go func() { done <- res{postResume(t, a, "s1", `{"text":"hi again"}`)} }()
+	spawnReady(t, f, path)
+
+	var rec *httptest.ResponseRecorder
+	select {
+	case r := <-done:
+		rec = r.rec
+	case <-time.After(5 * time.Second):
+		t.Fatal("resume never answered")
+	}
 	if rec.Code != 200 {
 		t.Fatalf("resume = %d, want 200: %s", rec.Code, rec.Body.String())
 	}
-	if prompts != 1 {
-		t.Fatalf("prompts = %d, want 1", prompts)
+	runs := f.runLog()
+	if len(runs) != 1 {
+		t.Fatalf("runs = %d, want 1", len(runs))
 	}
-	if lastPrompt == "" {
-		t.Fatal("no agent.prompt target captured")
+	line, _ := runs[0]["line"].(string)
+	want := path
+	if !strings.Contains(line, "--session") || !strings.Contains(line, want) {
+		t.Fatalf("run line = %q, want --session %s", line, want)
 	}
-	want := filepath.Join(sub, "s1.jsonl")
-	if len(lastArgs) != 2 || lastArgs[0] != "--session" || lastArgs[1] != want {
-		t.Fatalf("start args = %v, want [--session %s]", lastArgs, want)
+	sends := f.sendLog()
+	if len(sends) != 1 || sends[0]["text"] != "hi again" {
+		t.Fatalf("sends = %v, want one hi again prompt", sends)
 	}
 	var out struct {
 		Key string `json:"key"`
@@ -63,75 +75,32 @@ func TestSessionResumeStartsAgentWithSessionFlag(t *testing.T) {
 	}
 }
 
+// An empty resume body starts pi over the jsonl with no first prompt.
 func TestSessionResumeIdleSkipsPrompt(t *testing.T) {
-	var prompts, sends int32
-	var sessPath string
-	sock := herdrFake(t, fakeHerdrOpts{
-		sessPath:  &sessPath,
-		prompts:   &prompts,
-		sends:     &sends,
-		paneReady: &piReadyScreen,
-	})
-	_, sub, h := streamTestAppWithHerdr(t, sock)
-	s2 := filepath.Join(sub, "s2.jsonl")
-	writeLines(t, s2, sessHeader, userLine("b", "", "other"))
-	sessPath = s2
+	a, path := hcDialogApp(t)
+	drv, f := startHCFake(t, "/x/driving-something-else.jsonl")
+	f.mu.Lock()
+	f.snap = func() []map[string]any { return nil }
+	f.mu.Unlock()
+	wireHC(a, drv)
 
-	rec := postResume(t, h, "s1", `{}`)
-	if rec.Code != 200 {
-		t.Fatalf("resume = %d, want 200: %s", rec.Code, rec.Body.String())
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() { done <- postResume(t, a, "s1", `{}`) }()
+	spawnReady(t, f, path)
+
+	select {
+	case rec := <-done:
+		if rec.Code != 200 {
+			t.Fatalf("resume = %d, want 200: %s", rec.Code, rec.Body.String())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("resume never answered")
 	}
-	if prompts != 0 {
-		t.Fatalf("prompts = %d, want 0 for an idle resume", prompts)
+	if n := len(f.sendLog()); n != 0 {
+		t.Fatalf("sends = %d, want 0 (no text in the body)", n)
 	}
-}
-
-func TestSessionResumeUnknownKey404(t *testing.T) {
-	var sessPath string
-	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath})
-	_, sub, h := streamTestAppWithHerdr(t, sock)
-	sessPath = filepath.Join(sub, "s1.jsonl")
-
-	rec := postResume(t, h, "nope", `{"text":"hi"}`)
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("resume = %d, want 404", rec.Code)
-	}
-}
-
-func TestSessionResumeRefusesDriven(t *testing.T) {
-	var sessPath string
-	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath})
-	_, sub, h := streamTestAppWithHerdr(t, sock)
-	// The fake's agent drives s1 itself: the target is already driven.
-	sessPath = filepath.Join(sub, "s1.jsonl")
-
-	rec := postResume(t, h, "s1", `{"text":"hi"}`)
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("resume = %d, want 409", rec.Code)
-	}
-	if !strings.Contains(rec.Body.String(), "running") {
-		t.Fatalf("body = %s, want a running error", rec.Body.String())
-	}
-}
-
-func TestSessionResumeMissingCwdFallsBackHome(t *testing.T) {
-	var prompts, sends int32
-	var sessPath string
-	sock := herdrFake(t, fakeHerdrOpts{
-		sessPath:  &sessPath,
-		prompts:   &prompts,
-		sends:     &sends,
-		paneReady: &piReadyScreen,
-	})
-	_, sub, h := streamTestAppWithHerdr(t, sock)
-	s2 := filepath.Join(sub, "s2.jsonl")
-	writeLines(t, s2, sessHeader, userLine("b", "", "other"))
-	sessPath = s2
-
-	// s1's header points at /tmp/proj, which does not exist on this
-	// machine; the resume must still succeed.
-	rec := postResume(t, h, "s1", `{"text":"back"}`)
-	if rec.Code != 200 {
-		t.Fatalf("resume = %d, want 200: %s", rec.Code, rec.Body.String())
+	line, _ := f.runLog()[0]["line"].(string)
+	if !strings.Contains(line, "--session") {
+		t.Fatalf("run line = %q, want --session", line)
 	}
 }

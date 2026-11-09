@@ -9,12 +9,12 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/EstebanForge/couch-pi/internal/herdr"
+	"github.com/EstebanForge/couch-pi/internal/hc"
 )
 
 // pi's TUI intercepts "/model <pattern>" and "/thinking <level>" in the
-// editor before anything reaches the LLM (interactive-mode.js), and herdr
-// prompts submit through that editor, so sending them as prompts switches
+// editor before anything reaches the LLM (interactive-mode.js), and prompts
+// submit through that editor, so sending them as prompts switches
 // the session mid-flight. Queued while working, applied at the next turn
 // boundary.
 
@@ -69,7 +69,7 @@ func (a *app) writeModelOutcome(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid"})
 	case errors.Is(err, errNotFound):
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "notfound"})
-	case errors.Is(err, herdr.ErrNotDriven):
+	case errors.Is(err, hc.ErrNotDriven):
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "notdriven"})
 	default:
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "failed"})
@@ -86,17 +86,16 @@ func (a *app) modelAgent(key, pattern string) error {
 	if !ok {
 		return errNotFound
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), a.cmdBudget(25*time.Second, 10*time.Second))
+	if a.hcDrv == nil {
+		return hc.ErrNotDriven
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
-	target, err := a.statusFor().TargetForPath(ctx, meta.Path)
+	target, err := a.hcDrv.TargetForPath(ctx, meta.Path)
 	if err != nil {
-		return herdr.ErrNotDriven
+		return hc.ErrNotDriven
 	}
-	cmd := a.cmdFor()
-	if cmd == nil {
-		return herdr.ErrNotDriven
-	}
-	if err := cmd.Prompt(ctx, target, "/model "+pattern); err != nil {
+	if err := a.hcDrv.Prompt(ctx, target, "/model "+pattern); err != nil {
 		a.logger.Error("model set", "err", err)
 		return errModelFail
 	}
@@ -114,7 +113,7 @@ func (a *app) modelSet(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, back+"?err=badmodel", http.StatusSeeOther)
 	case errors.Is(err, errNotFound):
 		http.NotFound(w, r)
-	case errors.Is(err, herdr.ErrNotDriven):
+	case errors.Is(err, hc.ErrNotDriven):
 		http.Redirect(w, r, back+"?err=notdriven", http.StatusSeeOther)
 	default:
 		http.Redirect(w, r, back+"?err=modelfail", http.StatusSeeOther)
@@ -130,17 +129,16 @@ func (a *app) thinkingAgent(key, level string) error {
 	if !ok {
 		return errNotFound
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), a.cmdBudget(25*time.Second, 10*time.Second))
+	if a.hcDrv == nil {
+		return hc.ErrNotDriven
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
-	target, err := a.statusFor().TargetForPath(ctx, meta.Path)
+	target, err := a.hcDrv.TargetForPath(ctx, meta.Path)
 	if err != nil {
-		return herdr.ErrNotDriven
+		return hc.ErrNotDriven
 	}
-	cmd := a.cmdFor()
-	if cmd == nil {
-		return herdr.ErrNotDriven
-	}
-	if err := cmd.Prompt(ctx, target, "/thinking "+level); err != nil {
+	if err := a.hcDrv.Prompt(ctx, target, "/thinking "+level); err != nil {
 		a.logger.Error("thinking set", "err", err)
 		return errThinkingFail
 	}
@@ -158,7 +156,7 @@ func (a *app) thinkingSet(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, back+"?err=badthinking", http.StatusSeeOther)
 	case errors.Is(err, errNotFound):
 		http.NotFound(w, r)
-	case errors.Is(err, herdr.ErrNotDriven):
+	case errors.Is(err, hc.ErrNotDriven):
 		http.Redirect(w, r, back+"?err=notdriven", http.StatusSeeOther)
 	default:
 		http.Redirect(w, r, back+"?err=thinkingfail", http.StatusSeeOther)

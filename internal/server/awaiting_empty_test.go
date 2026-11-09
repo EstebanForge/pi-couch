@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/EstebanForge/couch-pi/internal/herdr"
+	"github.com/EstebanForge/couch-pi/internal/hc"
 )
 
 // The empty-editor fallback must not ride a single paint: right after
@@ -24,7 +24,7 @@ func TestEmptyEditorSyntheticNeedsTwoTicks(t *testing.T) {
 		"💻 example-box"
 
 	hc := &fakePaneHerdr{
-		agents: []herdr.Agent{{PaneID: "p1", Session: &herdr.AgentSessionRef{Value: "/s1.jsonl"}}},
+		agents: []hc.Agent{{PaneID: "p1", Session: &hc.AgentSessionRef{Value: "/s1.jsonl"}}},
 		panes:  map[string]string{"p1": empty},
 	}
 	d := newAwaitingDetector(hc, time.Hour)

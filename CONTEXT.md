@@ -33,7 +33,7 @@ The one live process allowed to submit input to a Session.
 _Avoid_: owner, backend, controller
 
 **Status**:
-A live agent's detected state: working, idle, blocked, done, unknown. Same values herdr reports.
+A live agent's detected state: working, idle, blocked, done, unknown. Same values the core reports.
 _Avoid_: state, health
 
 **Peek**:
@@ -62,4 +62,4 @@ pi sessions only. Android first. No guests. Pi Couch is the working name.
 
 ## External terms (read-only, at the integration boundary)
 
-herdr's own words (its workspace, tab, pane, agent) mean what herdr means; they appear only where Pi Couch calls herdr's API and never enter this glossary.
+herdr's own words (its space, tab, pane, agent) mean what herdr means; they appear only where Pi Couch calls the core or the app document, and never enter this glossary.

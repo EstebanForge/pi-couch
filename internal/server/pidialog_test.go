@@ -399,24 +399,6 @@ func TestEditorPaneEmpty(t *testing.T) {
 	}
 }
 
-// Painted rows are visual: a line longer than the pane width wraps,
-// so the match must flatten both sides instead of comparing lines.
-func TestEditorBufferMatchesWrapped(t *testing.T) {
-	want := "feat: subject\n\nthis body line is far longer than the editor pane width and wraps onto a second visual row"
-	m := &piDialog{Kind: "editor", Scrolled: true, HiddenAbove: 2,
-		Body: "this body line is far longer than the editor\npane width and wraps onto a second visual row"}
-	if !editorBufferMatches(m, want) {
-		t.Fatal("wrapped tail rejected")
-	}
-	whole := &piDialog{Kind: "editor", Body: want}
-	if !editorBufferMatches(whole, want) {
-		t.Fatal("exact match rejected")
-	}
-	if editorBufferMatches(m, "feat: other\n\nunrelated text") {
-		t.Fatal("junk accepted")
-	}
-}
-
 // The emptied editor must stay visible to the wire: the sweep that
 // emptied it leaves a state parsePiDialog reads as nil.
 // Without a draft the card still shows the painted tail, but pi's

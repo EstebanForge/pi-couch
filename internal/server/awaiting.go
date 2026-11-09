@@ -8,23 +8,23 @@ import (
 	"sync"
 	"time"
 
-	"github.com/EstebanForge/couch-pi/internal/herdr"
+	"github.com/EstebanForge/couch-pi/internal/hc"
 )
 
 // The awareness slice: while pi sits in a blocking extension dialog
-// (write review, questionnaire, settings menu, /model picker) herdr
-// still reports the agent as working or done, so the SPA cannot tell
-// "generating" from "waiting for you". herdr exposes no dialog-open
-// state (its detection screen is a read surface, not an event), and pi
-// never reports blocked for a picker, so this detector polls agents'
-// panes at a slow cadence and matches the chrome pi-tui paints around
-// every blocking widget.
+// (write review, questionnaire, settings menu, /model picker) the core
+// still reports the terminal as working or done, so the SPA cannot
+// tell "generating" from "waiting for you". The wire exposes no
+// dialog-open state (the screen is a read surface, not an event), and
+// pi never reports blocked for a picker, so this detector polls
+// agents' panes at a slow cadence and matches the chrome pi-tui
+// paints around every blocking widget.
 //
 // pi shows one dialog at a time, so a single pattern hit is enough.
 
 type paneSource interface {
-	Agents(ctx context.Context) ([]herdr.Agent, error)
-	PaneRead(ctx context.Context, paneID, source string, lines int) (herdr.PaneRead, error)
+	Agents(ctx context.Context) ([]hc.Agent, error)
+	PaneRead(ctx context.Context, paneID, source string, lines int) (hc.PaneRead, error)
 }
 
 var (
@@ -140,7 +140,7 @@ func aimSteps(cursor, target, n int) int {
 
 // awaitingDetector keeps a path-keyed map of agents whose pane shows
 // dialog chrome. Every agent with a pane is read: the model picker and
-// some extension dialogs park pi while herdr reports plain done or
+// some extension dialogs park pi while the core reports plain done or
 // working, so the status is no filter at all - the chrome decides.
 // 30 lines per pane per tick keeps the pane.read load trivial.
 type awaitingDetector struct {
@@ -189,7 +189,7 @@ func (d *awaitingDetector) tick(ctx context.Context) {
 		if a.Session == nil || a.PaneID == "" {
 			continue
 		}
-		// source detection is herdr's own visible-screen read (live-
+		// source detection is the visible-screen read (live-
 		// verified 2026-10-15): the tail of what pi paints now, never
 		// scrollback, so an answered dialog buried above cannot match.
 		// 30 lines: the questionnaire's rows plus its question, or an

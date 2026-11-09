@@ -175,10 +175,10 @@ export async function getSessions(limit?: number, q?: string): Promise<SessionsS
 	return (await res.json()) as SessionsSnapshot;
 }
 
-export async function getVersion(): Promise<{ version: string; home: string; driver?: string }> {
+export async function getVersion(): Promise<{ version: string; home: string }> {
 	const res = await fetch("/api/version");
 	if (!res.ok) throw new Error(`version ${res.status}`);
-	return (await res.json()) as { version: string; home: string; driver?: string };
+	return (await res.json()) as { version: string; home: string };
 }
 
 // Server home, fetched once; path tildify needs it.
@@ -188,15 +188,6 @@ export function getHome(): Promise<string> {
 		.then((v) => v.home)
 		.catch(() => "");
 	return homePromise;
-}
-
-// Active driver backend ("hc" | "herdr"), fetched once.
-let driverPromise: Promise<string> | undefined;
-export function getDriver(): Promise<string> {
-	driverPromise ??= getVersion()
-		.then((v) => v.driver ?? "hc")
-		.catch(() => "hc");
-	return driverPromise;
 }
 
 // --- new agent: folder picker and create ---
@@ -225,16 +216,16 @@ export async function createAgent(
 	return postAgent({ cwd, prompt, model, thinking });
 }
 
-export async function createAgentInWorkspace(
-	workspaceId: string,
+export async function createAgentInSpace(
+	spaceId: string,
 	prompt: string,
 	model?: string,
 	thinking?: string,
 ): Promise<{ key: string }> {
-	return postAgent({ workspace_id: workspaceId, prompt, model, thinking });
+	return postAgent({ space_id: spaceId, prompt, model, thinking });
 }
 
-// The Quick flow: reuse the labeled workspace or create it at cwd.
+// The Quick flow: reuse the space named label, or create at cwd.
 // The first prompt is required, so the create answers {key} once pi
 // writes its session file at turn start. model/thinking ride
 // agent.start args as one pi --model flag.
@@ -268,16 +259,16 @@ async function postAgent(
 	return { key: data.key ?? "", agent: data.agent };
 }
 
-export type Workspace = {
-	workspace_id: string;
-	label: string;
-	number: number;
+export type Space = {
+	id: string;
+	name: string;
+	folder: string;
 };
 
-export async function getWorkspaces(): Promise<Workspace[]> {
-	const res = await fetch("/api/workspaces");
-	if (!res.ok) throw new Error(`workspaces ${res.status}`);
-	return (await res.json()) as Workspace[];
+export async function getSpaces(): Promise<Space[]> {
+	const res = await fetch("/api/spaces");
+	if (!res.ok) throw new Error(`spaces ${res.status}`);
+	return (await res.json()) as Space[];
 }
 
 // --- stage 4: changes, files, comments ---

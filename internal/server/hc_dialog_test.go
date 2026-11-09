@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -35,7 +36,14 @@ type hcFakeCore struct {
 	subs  []net.Conn              // connections that subscribed, in order
 	runs  []map[string]any        // terminal.run params
 	sends []map[string]any        // terminal.send params
+	kills []string                // terminal.kill addresses
+	docs  map[string]any          // doc.get values keyed by name
+	state string                  // snapshot status state; empty = working
 	snap  func() []map[string]any // snapshot terminals; nil = labeled t1
+
+	// failKeysNext fails this many terminal.keys calls (send failures,
+	// memo release tests); 0 means all succeed.
+	failKeysNext atomic.Int32
 }
 
 // startHCFake wires a fake core whose snapshot carries one live
@@ -43,7 +51,7 @@ type hcFakeCore struct {
 // given paints (the last repeats). Returns the driver over it.
 func startHCFake(t *testing.T, path string, paints ...string) (*hc.Driver, *hcFakeCore) {
 	t.Helper()
-	f := &hcFakeCore{t: t, paints: paints, sessionPath: path}
+	f := &hcFakeCore{t: t, paints: paints, sessionPath: path, docs: map[string]any{}}
 	dir := t.TempDir()
 	sockPath := filepath.Join(dir, "hc.sock")
 	ln, err := net.Listen("unix", sockPath)
@@ -121,13 +129,65 @@ func (f *hcFakeCore) reply(conn net.Conn, line string) {
 		}
 		f.mu.Unlock()
 		result = map[string]any{"text": text, "complete": true, "how": "screen"}
+	case "doc.get":
+		name, _ := req.Params["name"].(string)
+		f.mu.Lock()
+		v := f.docs[name]
+		f.mu.Unlock()
+		result = map[string]any{"value": v, "version": 7}
+	case "terminal.kill":
+		addr, _ := req.Params["terminal"].(string)
+		f.mu.Lock()
+		f.kills = append(f.kills, addr)
+		subs := append([]net.Conn(nil), f.subs...)
+		f.mu.Unlock()
+		// The driver's Close waits for the terminal to leave the live
+		// set before escalating; the fake reports the kill as the core
+		// would, with a removed event.
+		for _, sc := range subs {
+			line, _ := json.Marshal(map[string]any{
+				"jsonrpc": "2.0",
+				"method":  "event",
+				"params":  map[string]any{"type": "removed", "terminal": addr, "data": map[string]any{}, "seq": 1},
+			})
+			_, _ = sc.Write(append(line, '\n'))
+		}
+		result = map[string]any{}
+	case "terminal.rm":
+		result = map[string]any{}
 	case "terminal.keys":
 		raw, _ := json.Marshal(req.Params["keys"])
 		var keys []string
 		_ = json.Unmarshal(raw, &keys)
 		f.mu.Lock()
-		f.keys = append(f.keys, keys)
+		failed := f.failKeysNext.Load() > 0
+		if failed {
+			f.failKeysNext.Add(-1)
+		}
+		addr, _ := req.Params["terminal"].(string)
+		exitOnEOF := len(keys) == 1 && keys[0] == "ctrl+d"
+		subs := append([]net.Conn(nil), f.subs...)
+		if !failed {
+			f.keys = append(f.keys, keys)
+		}
 		f.mu.Unlock()
+		// pi exits on EOF: a graceful ctrl+d ends the terminal, the way
+		// the real core reports it.
+		if exitOnEOF {
+			for _, sc := range subs {
+				line, _ := json.Marshal(map[string]any{
+					"jsonrpc": "2.0",
+					"method":  "event",
+					"params":  map[string]any{"type": "removed", "terminal": addr, "data": map[string]any{}, "seq": 1},
+				})
+				_, _ = sc.Write(append(line, '\n'))
+			}
+		}
+		if failed {
+			out, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": req.ID, "error": map[string]any{"code": -32000, "message": "hc: keys lost"}})
+			_, _ = conn.Write(append(out, '\n'))
+			return
+		}
 		result = map[string]any{"status": map[string]any{"state": "working"}, "turn": 1}
 	case "terminal.send":
 		f.mu.Lock()
@@ -144,16 +204,21 @@ func (f *hcFakeCore) reply(conn net.Conn, line string) {
 func (f *hcFakeCore) snapshotTerminals() []map[string]any {
 	f.mu.Lock()
 	snap := f.snap
+	state := f.state
 	f.mu.Unlock()
+	if state == "" {
+		state = "working"
+	}
 	if snap != nil {
 		return snap()
 	}
 	return []map[string]any{{
-		"address": "t1",
-		"labels":  map[string]any{"pi.session": f.sessionPath},
-		"state":   "live",
-		"status":  map[string]any{"state": "working", "app": "pi"},
-		"title":   "Pi · t1",
+		"address":  "t1",
+		"labels":   map[string]any{"pi.session": f.sessionPath},
+		"state":    "live",
+		"status":   map[string]any{"state": state, "app": "pi"},
+		"title":    "Pi · t1",
+		"reported": true,
 	}}
 }
 
@@ -196,6 +261,12 @@ func (f *hcFakeCore) keyLog() [][]string {
 	return append([][]string{}, f.keys...)
 }
 
+func (f *hcFakeCore) killLog() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string{}, f.kills...)
+}
+
 // hcDialogApp builds the driver=hc app literal: herdr nil, awaiting
 // nil until the test wires the driver over the fake core.
 func hcDialogApp(t *testing.T) (*app, string) {
@@ -220,14 +291,14 @@ func hcDialogApp(t *testing.T) (*app, string) {
 	return a, path
 }
 
-// wireHC points the app at the fake-backed driver, mirroring Run's hc
-// branch.
+// wireHC points the app at the fake-backed driver, mirroring Run's
+// wiring.
 func wireHC(a *app, drv *hc.Driver) {
-	a.status = drv
 	a.hcDrv = drv
 	a.awaiting = newAwaitingDetector(drv, time.Hour)
 }
 
+// waitForHC waits until the driver's session map resolves the path.
 func waitForHC(t *testing.T, cond func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
@@ -261,7 +332,7 @@ func TestHCDialogAnswerYes(t *testing.T) {
 	drv, fake := startHCFake(t, sessPath, confirmPaint("Allow push?"))
 	wireHC(a, drv)
 	waitForHC(t, func() bool {
-		_, err := a.statusFor().TargetForPath(context.Background(), sessPath)
+		_, err := a.hcDrv.TargetForPath(context.Background(), sessPath)
 		return err == nil
 	})
 	plantBridge(t, a, sessPath, BridgeDialog{ID: "real", Kind: "confirm", Title: "Allow push?"})
@@ -281,7 +352,7 @@ func TestHCDialogAnswerEscape(t *testing.T) {
 	drv, fake := startHCFake(t, sessPath, confirmPaint("Allow push?"))
 	wireHC(a, drv)
 	waitForHC(t, func() bool {
-		_, err := a.statusFor().TargetForPath(context.Background(), sessPath)
+		_, err := a.hcDrv.TargetForPath(context.Background(), sessPath)
 		return err == nil
 	})
 	plantBridge(t, a, sessPath, BridgeDialog{ID: "real", Kind: "confirm", Title: "Allow push?"})
@@ -304,7 +375,7 @@ func TestHCDialogAnswerTypeRefusesEditor(t *testing.T) {
 	drv, fake := startHCFake(t, sessPath, editorPaint("probe commit\n"))
 	wireHC(a, drv)
 	waitForHC(t, func() bool {
-		_, err := a.statusFor().TargetForPath(context.Background(), sessPath)
+		_, err := a.hcDrv.TargetForPath(context.Background(), sessPath)
 		return err == nil
 	})
 	plantBridge(t, a, sessPath, BridgeDialog{ID: "d9", Kind: "editor", Title: "Commit staged changes with this message?"})
@@ -328,7 +399,7 @@ func TestHCDialogAnswerOptionWalksTheCursor(t *testing.T) {
 	drv, fake := startHCFake(t, sessPath, red, blue)
 	wireHC(a, drv)
 	waitForHC(t, func() bool {
-		_, err := a.statusFor().TargetForPath(context.Background(), sessPath)
+		_, err := a.hcDrv.TargetForPath(context.Background(), sessPath)
 		return err == nil
 	})
 	plantBridge(t, a, sessPath, BridgeDialog{ID: "sel", Kind: "select", Title: "Pick one"})
@@ -359,7 +430,7 @@ func TestHCAwaitingDetectorReadsTheScreen(t *testing.T) {
 	drv, _ := startHCFake(t, sessPath, confirmPaint("Allow push?"))
 	wireHC(a, drv)
 	waitForHC(t, func() bool {
-		_, err := a.statusFor().TargetForPath(context.Background(), sessPath)
+		_, err := a.hcDrv.TargetForPath(context.Background(), sessPath)
 		return err == nil
 	})
 

@@ -42,9 +42,9 @@ type Config struct {
 	// Check GitHub for a newer release once a day and self-update the
 	// running binary. True by default; set false to pin a version.
 	AutoUpdate bool `toml:"auto_update"`
-	// Which engine drives pi sessions: hc (herdr-core, ADR-0008) or
-	// herdr (legacy protocol 22). Exactly one runs at a time; hc is
-	// the primary default engine.
+	// The engine is hc only (ADR-0011). The key stays parseable so an
+	// old file fails loud instead of silent: "herdr" refuses to start
+	// with a migration hint, "hc" is a no-op.
 	Driver string `toml:"driver"`
 	// Override the hc socket path. Empty uses HC_SOCKET, else
 	// $XDG_RUNTIME_DIR/herdr-core/<HC_SESSION|default>.sock, like hc itself.
@@ -92,8 +92,8 @@ func Load() (Config, error) {
 			cfg.SessionsDir = defaultSessions()
 		}
 		cfg.AccessToken = cmp.Or(os.Getenv("PICOUCH_ACCESS_TOKEN"), cfg.AccessToken)
-		if cfg.Driver != "herdr" && cfg.Driver != "hc" {
-			return Defaults(), fmt.Errorf("%s: unknown driver %q (want herdr or hc)", path, cfg.Driver)
+		if err := validateDriver(path, cfg.Driver); err != nil {
+			return Defaults(), err
 		}
 		return cfg, nil
 	}
@@ -107,10 +107,23 @@ func Load() (Config, error) {
 		cfg.SessionsDir = defaultSessions()
 	}
 	cfg.AccessToken = cmp.Or(os.Getenv("PICOUCH_ACCESS_TOKEN"), cfg.AccessToken)
-	if cfg.Driver != "herdr" && cfg.Driver != "hc" {
-		return Defaults(), fmt.Errorf("%s: unknown driver %q (want herdr or hc)", path, cfg.Driver)
+	if err := validateDriver(path, cfg.Driver); err != nil {
+		return Defaults(), err
 	}
 	return cfg, nil
+}
+
+// validateDriver rejects junk values and the removed herdr engine with
+// a migration hint instead of silently running hc.
+func validateDriver(path, driver string) error {
+	switch driver {
+	case "", "hc":
+		return nil
+	case "herdr":
+		return fmt.Errorf("%s: driver = %q was removed (ADR-0011); delete the key to use hc", path, driver)
+	default:
+		return fmt.Errorf("%s: unknown driver %q", path, driver)
+	}
 }
 
 func defaultSessions() string {

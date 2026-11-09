@@ -7,8 +7,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/EstebanForge/couch-pi/internal/herdr"
 )
 
 // Driver keeps the label-driven session map (ADR-0008 wave 3): a
@@ -250,24 +248,24 @@ func (d *Driver) apply(ev Event) {
 }
 
 // Badges maps pi session file paths to status states. Degrades to an
-// empty map like herdr's reader.
+// empty map when the core is resyncing.
 func (d *Driver) Badges(_ context.Context) map[string]string {
 	badges, _ := d.DriveStatus(context.Background())
 	return badges
 }
 
 // Driven maps pi session file paths to the live terminal driving them.
-func (d *Driver) Driven(_ context.Context) map[string]herdr.DrivenInfo {
+func (d *Driver) Driven(_ context.Context) map[string]DrivenInfo {
 	_, driven := d.DriveStatus(context.Background())
 	return driven
 }
 
 // DriveStatus joins the badge and driven maps from one map pass.
-func (d *Driver) DriveStatus(_ context.Context) (map[string]string, map[string]herdr.DrivenInfo) {
+func (d *Driver) DriveStatus(_ context.Context) (map[string]string, map[string]DrivenInfo) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	badges := map[string]string{}
-	driven := map[string]herdr.DrivenInfo{}
+	driven := map[string]DrivenInfo{}
 	if !d.synced {
 		return badges, driven
 	}
@@ -277,7 +275,7 @@ func (d *Driver) DriveStatus(_ context.Context) (map[string]string, map[string]h
 			continue
 		}
 		badges[path] = t.Status.State
-		driven[path] = herdr.DrivenInfo{Status: t.Status.State, Title: t.Title}
+		driven[path] = DrivenInfo{Status: t.Status.State, Title: t.Title}
 	}
 	return badges, driven
 }
@@ -291,7 +289,7 @@ func (d *Driver) TargetForPath(_ context.Context, path string) (string, error) {
 	}
 	addr, ok := d.byPath[path]
 	if !ok {
-		return "", herdr.ErrNotDriven
+		return "", ErrNotDriven
 	}
 	return addr, nil
 }
@@ -299,13 +297,13 @@ func (d *Driver) TargetForPath(_ context.Context, path string) (string, error) {
 // SetRetryForTest shrinks the reconnect backoff for tests.
 func (d *Driver) SetRetryForTest(retry time.Duration) { d.retry = retry }
 
-// Agents renders the labeled live terminals as herdr agents, the shape
-// the awaiting detector polls. Status rides the terminal's own OSC
-// 7501 report, so hc blocks surface here without any regex.
-func (d *Driver) Agents(_ context.Context) ([]herdr.Agent, error) {
+// Agents renders the labeled live terminals as agents, the shape the
+// awaiting detector polls. Status rides the terminal's own OSC 7501
+// report, so hc blocks surface here without any regex.
+func (d *Driver) Agents(_ context.Context) ([]Agent, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
-	agents := make([]herdr.Agent, 0, len(d.byPath))
+	agents := make([]Agent, 0, len(d.byPath))
 	if !d.synced {
 		return agents, nil
 	}
@@ -315,30 +313,29 @@ func (d *Driver) Agents(_ context.Context) ([]herdr.Agent, error) {
 		if t.Status != nil {
 			st = t.Status.State
 		}
-		agents = append(agents, herdr.Agent{
+		agents = append(agents, Agent{
 			Name:          t.Title,
 			AgentStatus:   st,
 			PaneID:        addr,
 			TerminalTitle: t.Title,
-			Session:       &herdr.AgentSessionRef{Kind: "path", Value: path},
+			Session:       &AgentSessionRef{Kind: "path", Value: path},
 		})
 	}
 	return agents, nil
 }
 
-// PaneRead maps hc's screen read onto herdr's read shape so the
-// detector and dialog parse run unchanged over both drivers. hc
-// headless terminals run 200x120, double the line budget the herdr
-// detection source needs.
-func (d *Driver) PaneRead(ctx context.Context, addr, _ string, lines int) (herdr.PaneRead, error) {
+// PaneRead maps hc's screen read onto the read shape the detector
+// and dialog parse consume. hc headless terminals run 200x120, double
+// the line budget the detection source needs.
+func (d *Driver) PaneRead(ctx context.Context, addr, _ string, lines int) (PaneRead, error) {
 	if lines < 30 {
 		lines = 30
 	}
 	res, err := d.c.Read(ctx, addr, lines*2)
 	if err != nil {
-		return herdr.PaneRead{}, err
+		return PaneRead{}, err
 	}
-	return herdr.PaneRead{PaneID: addr, Text: res.Text}, nil
+	return PaneRead{PaneID: addr, Text: res.Text}, nil
 }
 
 // ReadScreen returns the terminal's current screen text for the dialog
@@ -443,15 +440,21 @@ func (d *Driver) Stop(ctx context.Context, addr string) error {
 // Spawn runs pi in a fresh terminal and waits for its first status
 // report - the moment the TUI reads input. The line (never argv: a
 // template named "pi" would hijack the spawn) is built by shell
-// quoting each argument.
-func (d *Driver) Spawn(ctx context.Context, dir, name string, argv []string) (Terminal, error) {
+// quoting each argument. Labels land on the terminal at creation,
+// which is how a spawn adopts into the app's space tree (herdr.space
+// and herdr.tab; ADR-0011).
+func (d *Driver) Spawn(ctx context.Context, dir, name string, argv []string, labels map[string]string) (Terminal, error) {
 	parts := make([]string, 0, len(argv)+1)
 	parts = append(parts, "pi")
 	for _, a := range argv {
 		parts = append(parts, shQuote(a))
 	}
+	p := RunParams{Name: name, Cwd: dir, Line: strings.Join(parts, " ")}
+	if len(labels) > 0 {
+		p.Labels = labels
+	}
 	var t Terminal
-	res, err := d.c.Run(ctx, RunParams{Name: name, Cwd: dir, Line: strings.Join(parts, " ")})
+	res, err := d.c.Run(ctx, p)
 	if err != nil {
 		return t, err
 	}
@@ -498,6 +501,12 @@ func (d *Driver) SessionLabel(addr string) (string, bool) {
 	}
 	p, ok := t.Labels["pi.session"]
 	return p, ok && p != ""
+}
+
+// Spaces lists the app document's spaces (ADR-0011): the create
+// sheet's targets. Delegates to the client's tolerant reader.
+func (d *Driver) Spaces(ctx context.Context) ([]Space, error) {
+	return d.c.Spaces(ctx)
 }
 
 // Discard tears down a spawn that failed before it became a session:

@@ -1,305 +1,17 @@
 package server
 
 import (
-	"bufio"
-	"encoding/json"
-	"log/slog"
-	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/EstebanForge/couch-pi/internal/herdr"
-	"github.com/EstebanForge/couch-pi/internal/pi"
 )
 
-const menuScreen = "Allow edit?  ❯ Yes  No  ↑↓ navigate enter select escape/ctrl+c cancel"
-
-// confirmPaint is a titled confirm the pane parser can identity-check:
-// title line, cursor row, second row, then the menu hint.
+// confirmPaint builds pi's confirm dialog paint for the given title,
+// cursor on Yes.
 func confirmPaint(title string) string {
 	return title + "\n\n→ Yes\n  No\n\n↑↓ navigate  enter select  escape/ctrl+c cancel\n"
-}
-
-// herdrFake answers agent.list, pane.read and pane.send_input like a
-// herdr socket driving the fixture session; *sessPath is read per
-// request so the test can wire it after the socket exists. *sends
-// counts send_input calls; failFirst makes exactly the first
-// send_input return an error.
-// fakeHerdrOpts configures the in-process herdr socket double; zero
-// value suffices for the common read-only flow.
-type fakeHerdrOpts struct {
-	sessPath                 *string
-	sends                    *int32        // pane.send_input count
-	prompts                  *int32        // agent.prompt count
-	lastPrompt               *string       // agent.prompt target name
-	lastPromptText           *atomic.Value // agent.prompt text (atomic: the socket goroutine writes it)
-	failFirstSend            bool
-	failFirstStart           bool
-	onEnter                  func()        // fires on a pane.send_input whose keys contain "enter"
-	onPrompt                 func()        // fires on every agent.prompt
-	paneReady                *string       // pre-prompt pane.read override: the screen before any agent.prompt
-	lastStartArgs            *[]string     // agent.start args (the pi flags)
-	status                   *atomic.Value // agent_status in agent.list; blocked when nil
-	agentName                string        // agent name in agent.list; pi when empty
-	failFirstPromptNotActive bool          // first agent.prompt refuses the new name
-	promptRefuseUntil        time.Time     // agent.prompt refuses the new name until this instant
-	sessionUnbound           *atomic.Bool  // agent.list serves agent_session null while true
-	paneText                 *string       // pane.read text; the menu fixture when nil
-	readSeq                  []string      // per-read states: read n serves readSeq[min(n-1, len-1)]
-	paneAfterSend            *string       // pane.read text once a send_input landed
-	paneSeq                  []string      // per-send states: after send n, serve paneSeq[min(n-1, len-1)]
-	lastText                 *string       // last send_input text param
-	lastTexts                *[]string     // every send_input text param
-	keysLog                  *[][]string   // every non-empty send_input keys call
-	paneCloses               *int32        // pane.close count
-	wsCloses                 *int32        // workspace.close count
-}
-
-func herdrFake(t *testing.T, o fakeHerdrOpts) string {
-	var startFails int32
-	var readN int32
-	var nameMu sync.Mutex
-	startedName := "pi"
-	t.Helper()
-	dir := t.TempDir()
-	path := filepath.Join(dir, "herdr.sock")
-	ln, err := net.Listen("unix", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = ln.Close() })
-	go func() {
-		for {
-			conn, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			go func() {
-				defer conn.Close()
-				line, err := bufio.NewReader(conn).ReadBytes('\n')
-				if err != nil {
-					return
-				}
-				var m struct {
-					ID     string          `json:"id"`
-					Method string          `json:"method"`
-					Params json.RawMessage `json:"params"`
-				}
-				if json.Unmarshal(line, &m) != nil {
-					return
-				}
-				var resp string
-				switch m.Method {
-				case "agent.list":
-					agentName := o.agentName
-					if agentName == "" {
-						nameMu.Lock()
-						agentName = startedName
-						nameMu.Unlock()
-					}
-					agentStatus := "blocked"
-					if o.status != nil {
-						agentStatus = o.status.Load().(string)
-					}
-					b, _ := json.Marshal(*o.sessPath)
-					sessJSON := `"agent_session":{"kind":"path","value":` + string(b) + `}`
-					if o.sessionUnbound != nil && o.sessionUnbound.Load() {
-						sessJSON = `"agent_session":null`
-					}
-					resp = `{"id":"x","result":{"agents":[{"name":"` + agentName + `","agent":"` + agentName + `","agent_status":"` + agentStatus + `","pane_id":"p1","workspace_id":"w1","terminal_title_stripped":"pi - s1:running...",` + sessJSON + `}]}}`
-				case "pane.split":
-					resp = `{"id":"x","result":{"type":"pane_info","pane":{"pane_id":"p1","workspace_id":"w1"}}}`
-				case "pane.close":
-					if o.paneCloses != nil {
-						atomic.AddInt32(o.paneCloses, 1)
-					}
-					resp = `{"id":"x","result":{"type":"ok"}}`
-				case "workspace.create":
-					// Fresh-workspace creates: the root pane is p1 so the
-					// canned agent's readiness resolves against it.
-					resp = `{"id":"x","result":{"type":"workspace_created","workspace":{"workspace_id":"wN","label":"probe","number":9},"root_pane":{"pane_id":"p1"}}}`
-				case "workspace.close":
-					if o.wsCloses != nil {
-						atomic.AddInt32(o.wsCloses, 1)
-					}
-					resp = `{"id":"x","result":{"type":"ok"}}`
-				case "workspace.list":
-					resp = `{"id":"x","result":{"type":"workspace_list","workspaces":[{"workspace_id":"w1","label":"Forge","number":1}]}}`
-				case "agent.start":
-					var sp struct {
-						Name string   `json:"name"`
-						Args []string `json:"args"`
-					}
-					_ = json.Unmarshal(m.Params, &sp)
-					nameMu.Lock()
-					startedName = sp.Name
-					nameMu.Unlock()
-					if o.lastStartArgs != nil {
-						*o.lastStartArgs = sp.Args
-					}
-					if o.failFirstStart && atomic.CompareAndSwapInt32(&startFails, 0, 1) {
-						resp = `{"id":"x","error":{"message":"agent target pane p1 is not an available shell"}}`
-					} else {
-						resp = `{"id":"x","result":{"type":"ok"}}`
-					}
-				case "agent.prompt":
-					var p struct {
-						Target string `json:"target"`
-						Text   string `json:"text"`
-					}
-					_ = json.Unmarshal(m.Params, &p)
-					if o.prompts != nil {
-						atomic.AddInt32(o.prompts, 1)
-					}
-					if o.failFirstPromptNotActive && atomic.CompareAndSwapInt32(&startFails, 0, 1) {
-						resp = `{"id":"x","error":{"message":"agent wanted is not an active named agent"}}`
-						break
-					}
-					if !o.promptRefuseUntil.IsZero() && time.Now().Before(o.promptRefuseUntil) {
-						resp = `{"id":"x","error":{"message":"agent wanted is not an active named agent"}}`
-						break
-					}
-					if o.sessionUnbound != nil && o.sessionUnbound.Load() {
-						resp = `{"id":"x","error":{"message":"agent wanted is not an active named agent"}}`
-						break
-					}
-					if o.onPrompt != nil {
-						o.onPrompt()
-					}
-					if o.lastPrompt != nil {
-						*o.lastPrompt = p.Target
-					}
-					if o.lastPromptText != nil {
-						o.lastPromptText.Store(p.Text)
-					}
-					resp = `{"id":"x","result":{"type":"ok"}}`
-				case "pane.read":
-					pane := menuScreen
-					if len(o.readSeq) > 0 {
-						// Per-read states model repaint races: the same send
-						// count can paint differently read to read.
-						n := int(atomic.AddInt32(&readN, 1))
-						idx := n - 1
-						if idx >= len(o.readSeq) {
-							idx = len(o.readSeq) - 1
-						}
-						pane = o.readSeq[idx]
-					} else if o.paneReady != nil && (o.prompts == nil || int(atomic.LoadInt32(o.prompts)) == 0) {
-						// Pre-prompt reads serve the ready knob: create-flow
-						// tests shape pi's readiness window.
-						pane = *o.paneReady
-					} else if o.paneText != nil {
-						pane = *o.paneText
-					}
-					sent := int(atomic.LoadInt32(o.sends))
-					if len(o.paneSeq) > 0 && sent > 0 {
-						idx := sent - 1
-						if idx >= len(o.paneSeq) {
-							idx = len(o.paneSeq) - 1
-						}
-						pane = o.paneSeq[idx]
-					} else if o.paneAfterSend != nil && sent > 0 {
-						pane = *o.paneAfterSend
-					}
-					// json.Marshal escapes the newlines a multi-line
-					// screen carries; raw ones would break the reply.
-					if pane == "!!err" {
-						// readSeq's stall marker: this read fails the way
-						// the real socket fails under load.
-						resp = `{"id":"x","error":{"code":"stalled","message":"pane read stalled"}}`
-						break
-					}
-					paneJSON, _ := json.Marshal(pane)
-					resp = `{"id":"x","result":{"read":{"pane_id":"p1","source":"screen","format":"ansi","text":` + string(paneJSON) + `,"revision":1}}}`
-				case "pane.send_input":
-					var ep struct {
-						Keys []string `json:"keys"`
-					}
-					_ = json.Unmarshal(m.Params, &ep)
-					if o.onEnter != nil {
-						for _, k := range ep.Keys {
-							if k == "enter" {
-								o.onEnter()
-								break
-							}
-						}
-					}
-					if o.keysLog != nil {
-						var p struct {
-							Keys []string `json:"keys"`
-						}
-						_ = json.Unmarshal(m.Params, &p)
-						if len(p.Keys) > 0 {
-							*o.keysLog = append(*o.keysLog, p.Keys)
-						}
-					}
-					if o.lastTexts != nil {
-						var pt struct {
-							Text string `json:"text"`
-						}
-						_ = json.Unmarshal(m.Params, &pt)
-						if pt.Text != "" {
-							*o.lastTexts = append(*o.lastTexts, pt.Text)
-						}
-					}
-					if o.lastText != nil {
-						var p struct {
-							Text string `json:"text"`
-						}
-						_ = json.Unmarshal(m.Params, &p)
-						if p.Text != "" {
-							*o.lastText = p.Text
-						}
-					}
-					n := atomic.AddInt32(o.sends, 1)
-					if o.failFirstSend && n == 1 {
-						resp = `{"id":"x","error":{"message":"pane gone"}}`
-					} else {
-						resp = `{"id":"x","result":{"type":"ok"}}`
-					}
-				default:
-					resp = `{"id":"x","result":{"type":"ok"}}`
-				}
-				_, _ = conn.Write([]byte(resp + "\n"))
-			}()
-		}
-	}()
-	return path
-}
-
-func streamTestAppWithHerdr(t *testing.T, sock string) (*app, string, http.Handler) {
-	t.Helper()
-	root := t.TempDir()
-	sub := filepath.Join(root, "sess")
-	if err := os.MkdirAll(sub, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(sub, "s1.jsonl")
-	writeLines(t, path, sessHeader, userLine("a", "", "first"))
-	w, err := pi.StartWatcher(t.Context(), root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	a := &app{
-		logger:      slog.New(slog.NewTextHandler(testDiscard{}, nil)),
-		idx:         pi.NewIndex(root),
-		herdr:       herdr.NewAt(sock),
-		home:        testHome(),
-		watcher:     w,
-		answered:    newDialogMemos(),
-		models:      newModelsCache(filepath.Join(t.TempDir(), "models.json")),
-		memory:      newMemoryProbe("", ""),
-		observes:    newObserveHub(sock),
-		dialogLatch: map[string]*dialogWire{},
-	}
-	return a, sub, a.guard(a.routes())
 }
 
 func bridgeReal(t *testing.T, a *app, sessPath string) {
@@ -313,67 +25,67 @@ func bridgeReal(t *testing.T, a *app, sessPath string) {
 	a.bridgeMu.Unlock()
 }
 
+// memoAnswer posts one yes answer through the guarded routes.
+func memoAnswer(t *testing.T, a *app) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/s1/dialog/answer",
+		strings.NewReader(`{"id":"real","answer":"yes"}`))
+	req.Host = "127.0.0.1:8090"
+	rec := httptest.NewRecorder()
+	a.guard(a.routes()).ServeHTTP(rec, req)
+	return rec
+}
+
 // The double-tap: the second answer for the same dialog id must be
 // refused without a second Enter, because the first Enter may already
 // sit in the pane and would answer whatever pi shows next.
 func TestDialogAnswerMemoDedupesDoubleTap(t *testing.T) {
-	var sends int32
-	var sessPath string
-	pane := confirmPaint("Allow?")
-	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath, sends: &sends, paneText: &pane, paneAfterSend: &pane})
-	a, sub, h := streamTestAppWithHerdr(t, sock)
-	sessPath = filepath.Join(sub, "s1.jsonl")
+	a, sessPath := hcDialogApp(t)
+	confirm := confirmPaint("Allow?")
+	drv, f := startHCFake(t, sessPath, confirm, confirm, confirm)
+	wireHC(a, drv)
+	waitForHC(t, func() bool {
+		_, err := a.hcDrv.TargetForPath(t.Context(), sessPath)
+		return err == nil
+	})
 	bridgeReal(t, a, sessPath)
 
-	answer := func() int {
-		req := httptest.NewRequest(http.MethodPost, "/api/sessions/s1/dialog/answer",
-			strings.NewReader(`{"id":"real","answer":"yes"}`))
-		req.Host = "127.0.0.1:8090"
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, req)
-		return rec.Code
+	if rec := memoAnswer(t, a); rec.Code != http.StatusOK {
+		t.Fatalf("first answer: code=%d, want 200", rec.Code)
 	}
-	if code := answer(); code != http.StatusOK {
-		t.Fatalf("first answer: code=%d, want 200", code)
+	if n := keyCounts(f)["enter"]; n != 1 {
+		t.Fatalf("enters=%d, want 1", n)
 	}
-	if n := atomic.LoadInt32(&sends); n != 1 {
-		t.Fatalf("sends=%d, want 1", n)
+	if rec := memoAnswer(t, a); rec.Code != http.StatusConflict {
+		t.Fatalf("second answer: code=%d, want 409", rec.Code)
 	}
-	if code := answer(); code != http.StatusConflict {
-		t.Fatalf("second answer: code=%d, want 409", code)
-	}
-	if n := atomic.LoadInt32(&sends); n != 1 {
-		t.Fatalf("sends=%d after dup, want still 1", n)
+	if n := keyCounts(f)["enter"]; n != 1 {
+		t.Fatalf("enters after dup=%d, want still 1", n)
 	}
 }
 
 // A send that provably failed releases the claim: the user may retry
-// once herdr is healthy again and must not hit the memo wall.
+// once the core is healthy again and must not hit the memo wall.
 func TestDialogAnswerMemoReleasesOnSendFailure(t *testing.T) {
-	var sends int32
-	var sessPath string
-	pane := confirmPaint("Allow?")
-	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath, sends: &sends, failFirstSend: true, paneText: &pane, paneAfterSend: &pane})
-	a, sub, h := streamTestAppWithHerdr(t, sock)
-	sessPath = filepath.Join(sub, "s1.jsonl")
+	a, sessPath := hcDialogApp(t)
+	confirm := confirmPaint("Allow?")
+	drv, f := startHCFake(t, sessPath, confirm, confirm, confirm, confirm)
+	wireHC(a, drv)
+	waitForHC(t, func() bool {
+		_, err := a.hcDrv.TargetForPath(t.Context(), sessPath)
+		return err == nil
+	})
 	bridgeReal(t, a, sessPath)
+	f.failKeysNext.Store(1) // the dispatch read succeeds; the enter press fails once
 
-	post := func() int {
-		req := httptest.NewRequest(http.MethodPost, "/api/sessions/s1/dialog/answer",
-			strings.NewReader(`{"id":"real","answer":"yes"}`))
-		req.Host = "127.0.0.1:8090"
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, req)
-		return rec.Code
+	if rec := memoAnswer(t, a); rec.Code != http.StatusBadGateway {
+		t.Fatalf("failing send: code=%d, want 502", rec.Code)
 	}
-	if code := post(); code != http.StatusBadGateway {
-		t.Fatalf("failing send: code=%d, want 502", code)
+	if rec := memoAnswer(t, a); rec.Code != http.StatusOK {
+		t.Fatalf("retry after failure: code=%d, want 200", rec.Code)
 	}
-	if code := post(); code != http.StatusOK {
-		t.Fatalf("retry after failure: code=%d, want 200", code)
-	}
-	if n := atomic.LoadInt32(&sends); n != 2 {
-		t.Fatalf("sends=%d, want 2", n)
+	if n := keyCounts(f)["enter"]; n != 1 {
+		t.Fatalf("successful enters=%d, want 1 (the failed press left no keys)", n)
 	}
 }
 
@@ -381,33 +93,27 @@ func TestDialogAnswerMemoReleasesOnSendFailure(t *testing.T) {
 // 2026-10-28 stuck-commit incident): the claim must expire so the new
 // instance answers instead of 409ing forever.
 func TestDialogAnswerMemoAllowsRePresentedDialog(t *testing.T) {
-	var sends int32
-	var sessPath string
-	pane := confirmPaint("Allow?")
-	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath, sends: &sends, paneText: &pane, paneAfterSend: &pane})
-	a, sub, h := streamTestAppWithHerdr(t, sock)
-	sessPath = filepath.Join(sub, "s1.jsonl")
+	a, sessPath := hcDialogApp(t)
+	confirm := confirmPaint("Allow?")
+	drv, f := startHCFake(t, sessPath, confirm, confirm, confirm, confirm, confirm)
+	wireHC(a, drv)
+	waitForHC(t, func() bool {
+		_, err := a.hcDrv.TargetForPath(t.Context(), sessPath)
+		return err == nil
+	})
 	bridgeReal(t, a, sessPath)
 
-	answer := func() int {
-		req := httptest.NewRequest(http.MethodPost, "/api/sessions/s1/dialog/answer",
-			strings.NewReader(`{"id":"real","answer":"yes"}`))
-		req.Host = "127.0.0.1:8090"
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, req)
-		return rec.Code
+	if rec := memoAnswer(t, a); rec.Code != http.StatusOK {
+		t.Fatalf("first answer: code=%d, want 200", rec.Code)
 	}
-	if code := answer(); code != http.StatusOK {
-		t.Fatalf("first answer: code=%d, want 200", code)
-	}
-	if code := answer(); code != http.StatusConflict {
-		t.Fatalf("double tap: code=%d, want 409", code)
+	if rec := memoAnswer(t, a); rec.Code != http.StatusConflict {
+		t.Fatalf("double tap: code=%d, want 409", rec.Code)
 	}
 	a.answered.now = func() time.Time { return time.Now().Add(2 * dialogClaimTTL) }
-	if code := answer(); code != http.StatusOK {
-		t.Fatalf("re-presented dialog after TTL: code=%d, want 200", code)
+	if rec := memoAnswer(t, a); rec.Code != http.StatusOK {
+		t.Fatalf("re-presented dialog after TTL: code=%d, want 200", rec.Code)
 	}
-	if n := atomic.LoadInt32(&sends); n != 2 {
-		t.Fatalf("sends=%d, want 2", n)
+	if n := keyCounts(f)["enter"]; n != 2 {
+		t.Fatalf("enters=%d, want 2", n)
 	}
 }

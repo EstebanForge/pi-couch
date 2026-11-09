@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/EstebanForge/couch-pi/internal/herdr"
 	"github.com/EstebanForge/couch-pi/internal/pi"
 )
 
@@ -35,7 +34,6 @@ func TestAPISessionsShape(t *testing.T) {
 	a := &app{
 		logger: slog.New(slog.NewTextHandler(testDiscard{}, nil)),
 		idx:    apiSessionsFixture(t),
-		herdr:  herdr.New(),
 	}
 	srv := httptest.NewServer(http.HandlerFunc(a.apiSessions))
 	defer srv.Close()
@@ -80,7 +78,6 @@ func TestAPISessionsEmptyIndexNoError(t *testing.T) {
 	a := &app{
 		logger: slog.New(slog.NewTextHandler(testDiscard{}, nil)),
 		idx:    pi.NewIndex(t.TempDir()),
-		herdr:  herdr.New(),
 	}
 	srv := httptest.NewServer(http.HandlerFunc(a.apiSessions))
 	defer srv.Close()

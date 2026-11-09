@@ -3,6 +3,8 @@ package server
 import (
 	"net/http"
 	"strings"
+
+	"github.com/EstebanForge/couch-pi/internal/hc"
 )
 
 // previewConvLines is how many user/assistant texts the preview keeps:
@@ -32,7 +34,7 @@ type previewLine struct {
 // apiSessionPreview serves the home card's hold-to-preview: the last
 // few user/assistant texts of the active branch (text already capped
 // by the render limit), plus the same status vocabulary the card
-// shows - herdr badges for the dot, the awaiting flag for the yellow
+// shows - status badges for the dot, the awaiting flag for the yellow
 // spinner. One frozen snapshot per fetch; closed sessions answer from
 // their files like the transcript does.
 func (a *app) apiSessionPreview(w http.ResponseWriter, r *http.Request) {
@@ -54,7 +56,10 @@ func (a *app) apiSessionPreview(w http.ResponseWriter, r *http.Request) {
 	for i, j := 0, len(lines)-1; i < j; i, j = i+1, j-1 {
 		lines[i], lines[j] = lines[j], lines[i]
 	}
-	badges, _ := a.statusFor().DriveStatus(r.Context())
+	badges, _ := map[string]string{}, map[string]hc.DrivenInfo{}
+	if a.hcDrv != nil {
+		badges, _ = a.hcDrv.DriveStatus(r.Context())
+	}
 	status := badges[meta.Path]
 	if status == "" {
 		status = "unknown"

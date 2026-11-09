@@ -91,19 +91,23 @@ func TestAPIPreviewEmptyThread(t *testing.T) {
 	}
 }
 
-// Status comes from the herdr badges the card shows, not the index.
+// Status comes from the driver badges the card shows, not the index.
 func TestAPIPreviewStatusFromDriveStatus(t *testing.T) {
-	var sends int32
-	var sessPath string
-	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath, sends: &sends})
-	_, sub, h := streamTestAppWithHerdr(t, sock)
-	sessPath = sub + "/s1.jsonl"
+	a, sessPath := hcDialogApp(t)
+	drv, _ := startHCFake(t, sessPath, confirmPaint("Allow?"))
+	wireHC(a, drv)
+	waitForHC(t, func() bool {
+		_, err := a.hcDrv.TargetForPath(t.Context(), sessPath)
+		return err == nil
+	})
+	h := a.guard(a.routes())
 	code, out := getPreview(t, h, "s1")
 	if code != http.StatusOK {
 		t.Fatalf("preview: code=%d, want 200", code)
 	}
-	if out["status"] != "blocked" {
-		t.Fatalf("status=%v, want the fake's blocked badge", out["status"])
+	// The fake's snapshot status is working.
+	if out["status"] != "working" {
+		t.Fatalf("status=%v, want the fake's working badge", out["status"])
 	}
 	if title, _ := out["title"].(string); title == "" {
 		t.Fatalf("title missing: %v", out)

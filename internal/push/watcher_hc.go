@@ -8,6 +8,13 @@ import (
 	"github.com/EstebanForge/couch-pi/internal/hc"
 )
 
+// Event is one stable status transition worth pushing.
+type Event struct {
+	Path   string // pi session file path
+	Name   string // terminal title
+	Status string
+}
+
 // HCWatcher is the hc driver's push surface (ADR-0008): one events
 // subscription replaces the per-agent waits, and a phone buzz rides a
 // turn ending or a newly blocked/error status, deduped per terminal.

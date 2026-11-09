@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/EstebanForge/couch-pi/internal/herdr"
+	"github.com/EstebanForge/couch-pi/internal/hc"
 	"github.com/EstebanForge/couch-pi/internal/store"
 )
 
@@ -25,8 +25,8 @@ type sendAllInput struct {
 	} `json:"comments"`
 }
 
-// sendAll formats the tray into one review prompt, submits it through
-// herdr prompt, and only then records it as sent. A failed or undriven
+// sendAll formats the tray into one review prompt, submits it as a
+// prompt, and only then records it as sent. A failed or undriven
 // send persists nothing, so the device tray stays the source of truth.
 func (a *app) apiSendAll(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
@@ -57,23 +57,18 @@ func (a *app) apiSendAll(w http.ResponseWriter, r *http.Request) {
 	}
 	b.WriteString("Please address these items.")
 
-	ctx, cancel := context.WithTimeout(r.Context(), a.cmdBudget(25*time.Second, 15*time.Second))
+	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
 	defer cancel()
-	target, err := a.statusFor().TargetForPath(ctx, meta.Path)
+	target, err := a.hcDrv.TargetForPath(ctx, meta.Path)
 	if err != nil {
-		if errors.Is(err, herdr.ErrNotDriven) {
+		if errors.Is(err, hc.ErrNotDriven) || errors.Is(err, hc.ErrUnsynced) {
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "notdriven"})
 		} else {
 			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "target"})
 		}
 		return
 	}
-	cmd := a.cmdFor()
-	if cmd == nil {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "notdriven"})
-		return
-	}
-	if err := cmd.Prompt(ctx, target, b.String()); err != nil {
+	if err := a.hcDrv.Prompt(ctx, target, b.String()); err != nil {
 		slog.Error("send comments prompt", "err", err)
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "prompt"})
 		return

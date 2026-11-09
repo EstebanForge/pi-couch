@@ -1,7 +1,7 @@
 import { Fab } from "konsta/react";
 import { useEffect, useRef, useState } from "react";
 import type { SessionMeta, SessionsPatch } from "../api";
-import { getDriver, getHome } from "../api";
+import { getHome } from "../api";
 import {
 	FaBell,
 	FaBellSlash,
@@ -36,7 +36,6 @@ export default function HomeList() {
 	const { sessions, total, badges, driven, awaiting, status, error, load, apply } = useSessions();
 	const [query, setQuery] = useState("");
 	const [home, setHome] = useState("");
-	const [driver, setDriver] = useState("hc");
 	const [limit, setLimit] = useState(LIST_WINDOW);
 	const [loadingMore, setLoadingMore] = useState(false);
 	const [createOpen, setCreateOpen] = useState(false);
@@ -95,7 +94,6 @@ export default function HomeList() {
 
 	useEffect(() => {
 		void getHome().then(setHome);
-		void getDriver().then(setDriver);
 	}, []);
 
 	// Windowed home: 15 rows at first, search asks the server (50
@@ -365,15 +363,6 @@ export default function HomeList() {
 						pointerEvents: fabOpen ? "auto" : "none",
 					}}
 				>
-					{driver !== "hc" && (
-						<FabAction
-							label="New workspace"
-							onClick={() => {
-								setFabOpen(false);
-								setCreateOpen(true);
-							}}
-						/>
-					)}
 					<FabAction
 						label="New agent"
 						onClick={() => {

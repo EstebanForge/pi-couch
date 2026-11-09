@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/EstebanForge/couch-pi/internal/herdr"
+	"github.com/EstebanForge/couch-pi/internal/hc"
 )
 
 // The chrome lines come from a live pi /model picker (2026-10-13 probe)
@@ -50,14 +50,14 @@ func TestDialogOpenSignatures(t *testing.T) {
 }
 
 type fakePaneHerdr struct {
-	agents []herdr.Agent
+	agents []hc.Agent
 	panes  map[string]string // pane id -> screen text
 }
 
-func (f *fakePaneHerdr) Agents(ctx context.Context) ([]herdr.Agent, error) { return f.agents, nil }
+func (f *fakePaneHerdr) Agents(ctx context.Context) ([]hc.Agent, error) { return f.agents, nil }
 
-func (f *fakePaneHerdr) PaneRead(ctx context.Context, paneID, source string, lines int) (herdr.PaneRead, error) {
-	return herdr.PaneRead{Text: f.panes[paneID]}, nil
+func (f *fakePaneHerdr) PaneRead(ctx context.Context, paneID, source string, lines int) (hc.PaneRead, error) {
+	return hc.PaneRead{Text: f.panes[paneID]}, nil
 }
 
 // The follow-ups queue panel paints its own middle-dot hint bar; the
@@ -95,8 +95,8 @@ func TestParseFollowUpQueue(t *testing.T) {
 
 func TestAwaitingDetectorCarriesQueue(t *testing.T) {
 	f := &fakePaneHerdr{
-		agents: []herdr.Agent{
-			{Name: "a", AgentStatus: "working", PaneID: "p1", Session: &herdr.AgentSessionRef{Value: "/s/q.jsonl"}},
+		agents: []hc.Agent{
+			{Name: "a", AgentStatus: "working", PaneID: "p1", Session: &hc.AgentSessionRef{Value: "/s/q.jsonl"}},
 		},
 		panes: map[string]string{"p1": followUpQueuePaint},
 	}
@@ -120,8 +120,8 @@ func TestAwaitingDetectorCarriesQueue(t *testing.T) {
 
 func TestAwaitingDetectorIgnoresFollowUpQueue(t *testing.T) {
 	f := &fakePaneHerdr{
-		agents: []herdr.Agent{
-			{Name: "a", AgentStatus: "working", PaneID: "p1", Session: &herdr.AgentSessionRef{Value: "/s/q.jsonl"}},
+		agents: []hc.Agent{
+			{Name: "a", AgentStatus: "working", PaneID: "p1", Session: &hc.AgentSessionRef{Value: "/s/q.jsonl"}},
 		},
 		panes: map[string]string{
 			"p1": "╭─ follow-ups (3) · after this run ──╮\n" +
@@ -149,9 +149,9 @@ func TestAwaitingDetectorIgnoresFollowUpQueue(t *testing.T) {
 
 func TestAwaitingDetectorReadsEveryAgent(t *testing.T) {
 	f := &fakePaneHerdr{
-		agents: []herdr.Agent{
-			{Name: "a", AgentStatus: "working", PaneID: "p1", Session: &herdr.AgentSessionRef{Value: "/s/a.jsonl"}},
-			{Name: "b", AgentStatus: "done", PaneID: "p2", Session: &herdr.AgentSessionRef{Value: "/s/b.jsonl"}},
+		agents: []hc.Agent{
+			{Name: "a", AgentStatus: "working", PaneID: "p1", Session: &hc.AgentSessionRef{Value: "/s/a.jsonl"}},
+			{Name: "b", AgentStatus: "done", PaneID: "p2", Session: &hc.AgentSessionRef{Value: "/s/b.jsonl"}},
 		},
 		panes: map[string]string{
 			// The live lesson: pi's model picker parks the pane while

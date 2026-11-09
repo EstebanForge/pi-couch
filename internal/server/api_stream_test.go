@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/EstebanForge/couch-pi/internal/hc"
 	"io"
 	"log/slog"
 	"net/http"
@@ -15,7 +16,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/EstebanForge/couch-pi/internal/herdr"
 	"github.com/EstebanForge/couch-pi/internal/pi"
 )
 
@@ -100,13 +100,11 @@ func streamTestApp(t *testing.T) (*app, string, http.Handler) {
 	a := &app{
 		logger:      slog.New(slog.NewTextHandler(testDiscard{}, nil)),
 		idx:         pi.NewIndex(root),
-		herdr:       herdr.New(),
 		home:        testHome(),
 		watcher:     w,
 		answered:    newDialogMemos(),
 		models:      newModelsCache(filepath.Join(t.TempDir(), "models.json")),
 		memory:      newMemoryProbe("", ""),
-		observes:    newObserveHub(herdr.DefaultSocketPath()),
 		dialogLatch: map[string]*dialogWire{},
 	}
 	return a, sub, a.guard(a.routes())
@@ -186,8 +184,8 @@ func TestTranscriptStreamCarriesQueue(t *testing.T) {
 	a, sub, h := streamTestApp(t)
 	sessPath := filepath.Join(sub, "s1.jsonl")
 	fake := &fakePaneHerdr{
-		agents: []herdr.Agent{
-			{Name: "a", AgentStatus: "working", PaneID: "p1", Session: &herdr.AgentSessionRef{Value: sessPath}},
+		agents: []hc.Agent{
+			{Name: "a", AgentStatus: "working", PaneID: "p1", Session: &hc.AgentSessionRef{Value: sessPath}},
 		},
 		panes: map[string]string{"p1": followUpQueuePaint},
 	}
@@ -218,11 +216,21 @@ func TestTranscriptStreamCarriesQueue(t *testing.T) {
 
 	// Drained: the next stream pass must carry a status frame whose
 	// queue is empty and PRESENT (an omitted key would never clear the
-	// client's list).
+	// client's list). The same pass can ride an append for the new
+	// message, so skip anything that is not the status frame.
 	fake.panes["p1"] = "plain output"
 	a.awaiting.tick(context.Background())
 	writeLines(t, sessPath, userLine("b", "a", "second"))
-	f = waitFrame(t, frames, 8*time.Second, "status")
+	deadline := time.Now().Add(8 * time.Second)
+	for {
+		f = <-frames
+		if f.name == "status" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no status frame; last=%s %s", f.name, f.data)
+		}
+	}
 	var st transcriptStatus
 	if err := json.Unmarshal([]byte(f.data), &st); err != nil {
 		t.Fatal(err)
@@ -331,7 +339,7 @@ func TestJSONStopClose(t *testing.T) {
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
-	// No herdr agent drives the fixture's temp path: the JSON twins must
+	// No agent drives the fixture's temp path: the JSON twins must
 	// say so in-band (fetch cannot follow the templ 303s).
 	for _, tc := range []struct{ route, want string }{
 		{"/api/sessions/s1/stop", "notdriven"},

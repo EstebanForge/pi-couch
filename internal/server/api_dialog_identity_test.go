@@ -2,10 +2,6 @@ package server
 
 import (
 	"net/http"
-	"net/http/httptest"
-	"path/filepath"
-	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -16,12 +12,16 @@ import (
 // confirm hint. pi moving on to a different confirm must not get
 // Enter'd blind.
 func TestDialogAnswerTargetsTheShownDialog(t *testing.T) {
-	var sends int32
-	var sessPath string
-	pane := confirmPaint("Allow push?") // pi moved on to a different confirm
-	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath, sends: &sends, paneText: &pane, paneAfterSend: &pane})
-	a, sub, _ := streamTestAppWithHerdr(t, sock)
-	sessPath = filepath.Join(sub, "s1.jsonl")
+	// The pane shows the push confirm; the card was minted for the
+	// edit confirm.
+	pane := confirmPaint("Allow push?")
+	a, sessPath := hcDialogApp(t)
+	drv, f := startHCFake(t, sessPath, pane, pane, pane, pane)
+	wireHC(a, drv)
+	waitForHC(t, func() bool {
+		_, err := a.hcDrv.TargetForPath(t.Context(), sessPath)
+		return err == nil
+	})
 
 	a.bridgeMu.Lock()
 	a.bridge = map[string]bridgeEntry{}
@@ -31,27 +31,19 @@ func TestDialogAnswerTargetsTheShownDialog(t *testing.T) {
 	}
 	a.bridgeMu.Unlock()
 
-	post := func(body string) int {
-		req := httptest.NewRequest(http.MethodPost, "/api/sessions/s1/dialog/answer", strings.NewReader(body))
-		req.Host = "127.0.0.1:8090"
-		rec := httptest.NewRecorder()
-		a.guard(a.routes()).ServeHTTP(rec, req)
-		return rec.Code
+	if rec := postAnswer(t, a, `{"id":"old","answer":"yes"}`); rec.Code != http.StatusConflict {
+		t.Fatalf("yes on a replaced confirm: code=%d, want 409", rec.Code)
 	}
-
-	if code := post(`{"id":"old","answer":"yes"}`); code != http.StatusConflict {
-		t.Fatalf("yes on a replaced confirm: code=%d, want 409", code)
-	}
-	if n := atomic.LoadInt32(&sends); n != 0 {
-		t.Fatalf("yes sent %d key batches into the wrong dialog", n)
+	if n := keyCounts(f)["enter"]; n != 0 {
+		t.Fatalf("yes sent %d enters into the wrong dialog", n)
 	}
 
 	// Esc is dismiss-safe: it goes out even when the shown dialog is
 	// not the one the card minted, so a cancel can never strand.
-	if code := post(`{"id":"old","answer":"escape"}`); code != http.StatusOK {
-		t.Fatalf("escape on a replaced confirm: code=%d, want 200", code)
+	if rec := postAnswer(t, a, `{"id":"old","answer":"escape"}`); rec.Code != http.StatusOK {
+		t.Fatalf("escape on a replaced confirm: code=%d, want 200", rec.Code)
 	}
-	if n := atomic.LoadInt32(&sends); n != 1 {
-		t.Fatalf("sends=%d, want the one esc", n)
+	if n := keyCounts(f)["esc"]; n != 1 {
+		t.Fatalf("esc presses=%d, want the one esc", n)
 	}
 }

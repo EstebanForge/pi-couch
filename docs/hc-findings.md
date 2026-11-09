@@ -31,3 +31,12 @@ All claims below were verified against a live sandboxed core (herdr-core 0.1.14,
 - hc has no import/migrate path and a fresh state namespace; legacy herdr panes do not carry over. pi sessions need no migration: they are pi's own jsonl files and pi-couch keys everything by session file path.
 - hc argv[0] template lookup hijacks a spawn whose first arg matches a user template; line mode (shell-quoted single string) avoids templates entirely. Terminal names: 1-32 chars of a-z 0-9 - _ ., starting alphanumeric, address-shaped names (t7) rejected.
 - terminal.attach requires framed mode; observe:true viewers only read and never become the size leader. A finished terminal refuses attach with error kind finished (hint: hc read).
+
+## Spaces and the app document (probed live, 2026-11-09, hc 0.1.19)
+
+- The herdr desktop app persists each machine's spaces, tabs and pane splits in the core's opaque document, name `herdr-app`: `doc.get {"name":"herdr-app"}` answers `{"value":{"spaces":[{"id","name","folder","tabs":[{"id","name","root"}]}]},"version":N}`. `version` starts at 0 for a never-written name; the read works with the app closed (the core stores it).
+- `doc.set` is optimistic-concurrency (caller passes the read version; mismatch is a `conflict` error) and newest-wins with no merge, so two writers clobber each other. Couch Pi only reads.
+- Terminals the app placed carry labels: `herdr.space` (space id), `herdr.tab` (tab id), `herdr.seen` (counter), `where` (display "Space / Tab"). `terminal.list` returns every label.
+- Adoption contract (herdr-app `defaults/AGENTS.md`): any terminal started with `--label herdr.space=<id> --label herdr.tab=<id>` renders inside that space's tab, even one an agent starts itself; an id the app does not know becomes a new unnamed space or tab. Ids are machine-local; remote ids carry a `/` prefix (strip before writing labels on that machine).
+- There are no `space.*` methods in the core API; `space.new`, `tab.rename`, `space.move` etc. are herdr-app commands, not core methods. Mutating the tree from a core client means writing the document, which Couch Pi does not do.
+- pi-couch reads the document with `doc.get` (`internal/hc/doc.go`): tolerant per-entry parse, id-less entries skipped, tab[0].id drives the adoption labels for a `space_id` create.

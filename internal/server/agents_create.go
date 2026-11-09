@@ -9,88 +9,32 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/EstebanForge/couch-pi/internal/hc"
-	"github.com/EstebanForge/couch-pi/internal/herdr"
 )
 
-// The home FAB's create flow: pick a folder (or a workspace), write a
+// The home FAB's create flow: pick a folder (or a space), write a
 // first prompt, get a running pi session. Client-supplied cwd must
 // live under the user's home (the same jail as /api/dirs) so the
 // phone cannot spawn agents in arbitrary paths.
 
-// herdr spawns need the same runway hc gets: the prompt gate alone
-// can hold 7-10s, then session verification and the key fetch still
-// need their share of one budget. A 20s budget starved the tail and
-// turned gated-but-successful creates into failures (2026-11-02
-// quick-6bb8). Var so tests can shrink it.
+// hc spawns need runway: terminal.run, the first status report, and
+// the send pipeline's quiet/settle windows stack well past 20s. Var so
+// tests can shrink it.
 var agentCreateTimeout = 45 * time.Second
 
-// hc spawns need more runway: terminal.run, the first status report,
-// and the send pipeline's quiet/settle windows stack well past 20s.
-const agentCreateTimeoutHC = 45 * time.Second
-
-// createBudget is the create/resume deadline for the active driver.
+// createBudget is the create/resume deadline.
 func (a *app) createBudget() time.Duration {
-	if a.hcDrv != nil {
-		return agentCreateTimeoutHC
-	}
 	return agentCreateTimeout
 }
 
-var herdrRetryBackoff = 1200 * time.Millisecond
-
-// herdrRetry rides out herdr's transient socket stalls: under load
-// the unix socket intermittently answers dial timeouts while the
-// process is fine moments later, and one timeout must not abort a
-// create. Only wire-safe for calls that are reads or whose failure
-// means herdr never received the request.
-func herdrRetry[T any](ctx context.Context, f func() (T, error)) (T, error) {
-	var zero T
-	var err error
-	for i := 0; i < 8; i++ {
-		var v T
-		start := time.Now()
-		v, err = f()
-		if err == nil || !strings.Contains(err.Error(), "herdr: dial:") {
-			return v, err
-		}
-		slog.Warn("herdr dial stalled", slog.Int("attempt", i+1), slog.Float64("elapsed_s", time.Since(start).Seconds()), slog.String("error", err.Error()))
-		if i == 7 {
-			break
-		}
-		timer := time.NewTimer(herdrRetryBackoff)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return zero, ctx.Err()
-		case <-timer.C:
-		}
-	}
-	return zero, err
-}
-
-// herdrRetryErr is herdrRetry for error-only calls.
-func herdrRetryErr(ctx context.Context, f func() error) error {
-	_, err := herdrRetry(ctx, func() (struct{}, error) { return struct{}{}, f() })
-	return err
-}
-
-// paneReadyWait bounds the wait for pi's TUI to start reading input.
-var paneReadyWait = 20 * time.Second
-
-// piReadyRe matches the context%/window stats footer pi paints once
-// its TUI reads input (e.g. "0.0%/1.0M").
-var piReadyRe = regexp.MustCompile(`%/\d`)
-
-// agentName folds a folder basename into herdr's agent-name rule:
-// start with a lowercase letter, only [a-z0-9-_], 1-32 chars. Real
-// folders violate every one of those (leading dots, dots, upper case),
-// so anything invalid becomes a letter-prefixed folded form.
+// agentName folds a folder basename into a spawn name: start with a
+// lowercase letter, only [a-z0-9-_], 1-32 chars. Real folders violate
+// every one of those (leading dots, dots, upper case), so anything
+// invalid becomes a letter-prefixed folded form.
 func agentName(label string) string {
 	var b strings.Builder
 	for _, r := range strings.ToLower(label) {
@@ -113,54 +57,54 @@ func agentName(label string) string {
 	return name
 }
 
-// herdr's prompt gate can stay shut seconds past agent.list's view of
-// the agent (varies per create; herdr logs no event when it opens).
-var (
-	promptRetryEvery    = 600 * time.Millisecond
-	promptRetryDeadline = 15 * time.Second
-)
+// spaceWire is one space row the new-agent sheet offers.
+type spaceWire struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Folder string `json:"folder"`
+}
 
-// waitAgentActive polls until the pane's agent is a named, promptable
-// target: herdr rejects prompts with "not an active named agent" while
-// the process is still launching (agent_status unknown) and, on newer
-// pi builds, until the plugin binds the session file — status flips
-// ahead of the bind, so both must hold before the first prompt.
-func waitAgentActive(ctx context.Context, hc *herdr.Client, paneID, name string) error {
-	deadline := time.Now().Add(15 * time.Second)
-	for {
-		agents, err := hc.Agents(ctx)
-		if err == nil {
-			for _, ag := range agents {
-				if ag.PaneID == paneID && ag.Name == name && ag.AgentStatus != "" && ag.AgentStatus != "unknown" && ag.Session != nil {
-					return nil
-				}
-			}
-		}
-		if time.Now().After(deadline) {
-			return errors.New("agent never became active")
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(300 * time.Millisecond):
-		}
+// apiSpaces lists the herdr app's spaces (ADR-0011): the sheet's
+// spawn targets. An action surface fails loudly, unlike the passive
+// home badges. Unnamed spaces fold to their folder basename, the same
+// derived name the app paints.
+func (a *app) apiSpaces(w http.ResponseWriter, r *http.Request) {
+	if a.hcDrv == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "no driver"})
+		return
 	}
+	spaces, err := a.hcDrv.Spaces(r.Context())
+	if err != nil {
+		a.logger.Error("space list failed", slog.String("error", err.Error()))
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "core unreachable"})
+		return
+	}
+	out := make([]spaceWire, 0, len(spaces))
+	for _, s := range spaces {
+		name := s.Name
+		if name == "" {
+			name = filepath.Base(s.Folder)
+		}
+		out = append(out, spaceWire{ID: s.ID, Name: name, Folder: s.Folder})
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // apiAgents creates a pi agent and submits the first prompt,
 // answering {key} once pi has a session file (it only appears after
 // the first prompt). Three selectors, exactly one required: cwd
-// (fresh workspace at that folder), workspace_id (split a pane in an
-// existing workspace), label (reuse the labeled workspace or create
-// it at cwd — the Quick flow).
+// (fresh spawn at that folder), space_id (spawn into the space: its
+// folder as cwd, adopted into the app's space tree via labels), or
+// label with cwd (the Quick flow: reuse the space named label, else
+// spawn at cwd).
 func (a *app) apiAgents(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Cwd         string `json:"cwd"`
-		WorkspaceID string `json:"workspace_id"`
-		Label       string `json:"label"`
-		Prompt      string `json:"prompt"`
-		Model       string `json:"model"`
-		Thinking    string `json:"thinking"`
+		Cwd      string `json:"cwd"`
+		SpaceID  string `json:"space_id"`
+		Label    string `json:"label"`
+		Prompt   string `json:"prompt"`
+		Model    string `json:"model"`
+		Thinking string `json:"thinking"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
@@ -178,67 +122,128 @@ func (a *app) apiAgents(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	// Exactly one selector: cwd alone (fresh workspace), workspace_id
-	// alone (split), or label with its create-if-missing cwd (Quick).
+	// Exactly one selector: cwd alone, space_id alone, or label with
+	// its create-at cwd (Quick). Validation precedes the driver gate,
+	// so a bad request 400s even without a core to talk to.
 	mode := ""
 	switch {
-	case req.WorkspaceID != "" && req.Cwd == "" && req.Label == "":
-		mode = "workspace"
-	case req.Label != "" && req.WorkspaceID == "" && req.Cwd != "":
+	case req.SpaceID != "" && req.Cwd == "" && req.Label == "":
+		mode = "space"
+	case req.Label != "" && req.SpaceID == "" && req.Cwd != "":
 		mode = "label"
-	case req.Cwd != "" && req.WorkspaceID == "" && req.Label == "":
+	case req.Cwd != "" && req.SpaceID == "" && req.Label == "":
 		mode = "cwd"
 	default:
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "exactly one of cwd, workspace_id, or label with cwd"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "exactly one of cwd, space_id, or label with cwd"})
+		return
+	}
+	// Client-supplied folders jail now: the jail is request validation,
+	// not a driver concern.
+	var jailed string
+	if mode != "space" {
+		var err error
+		jailed, err = a.homeDir(req.Cwd)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+	}
+	if a.hcDrv == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "no driver"})
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), a.createBudget())
 	defer cancel()
-	var key, name string
-	homeErr := false
-	if a.hcDrv != nil {
-		// hc has no workspaces: the Quick flow's label folds into a
-		// plain spawn at the folder, and workspace splits cannot exist.
-		if mode == "workspace" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "workspaces need the herdr driver"})
-			return
-		}
-		var cwd string
-		cwd, err = a.homeDir(req.Cwd)
-		homeErr = err != nil
-		if err == nil {
-			key, name, err = a.createAgentSessionHC(ctx, filepath.Base(cwd), cwd, req.Prompt, piArgs)
-		}
-	} else {
+
+	// resolveDir resolves the spawn folder (a space's or the jailed
+	// client cwd) and returns the adoption labels.
+	resolveDir := func() (string, map[string]string, error) {
 		switch mode {
-		case "workspace":
-			key, name, err = a.createInWorkspace(ctx, req.WorkspaceID, req.Prompt, piArgs)
+		case "space":
+			s, ok := a.spaceByID(ctx, req.SpaceID)
+			if !ok {
+				return "", nil, fmt.Errorf("%w: unknown space", errSpaceDir)
+			}
+			cwd, err := a.homeDir(s.Folder)
+			if err != nil {
+				return "", nil, fmt.Errorf("%w: %s", errSpaceDir, s.Folder)
+			}
+			return cwd, a.spaceLabels(s), nil
 		case "label":
-			var cwd string
-			cwd, err = a.homeDir(req.Cwd)
-			homeErr = err != nil
-			if err == nil {
-				key, name, err = a.createInLabeledWorkspace(ctx, req.Label, cwd, req.Prompt, piArgs)
+			// The Quick flow's label matches a space by name when one
+			// exists; an unmatched label keeps the plain spawn.
+			if id, ok := a.spaceIDByName(ctx, req.Label); ok {
+				if s, ok := a.spaceByID(ctx, id); ok {
+					if dir, derr := a.homeDir(s.Folder); derr == nil {
+						return dir, a.spaceLabels(s), nil
+					}
+				}
 			}
+			return jailed, nil, nil
 		default:
-			var cwd string
-			cwd, err = a.homeDir(req.Cwd)
-			homeErr = err != nil
-			if err == nil {
-				key, name, err = a.createAgentSession(ctx, filepath.Base(cwd), cwd, req.Prompt, piArgs)
-			}
+			return jailed, nil, nil
 		}
 	}
+	cwd, labels, err := resolveDir()
 	if err != nil {
-		if homeErr {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-			return
-		}
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	key, name, err := a.createAgentSessionHC(ctx, filepath.Base(cwd), cwd, req.Prompt, piArgs, labels)
+	if err != nil {
 		a.logger.Error("agent create failed", slog.String("error", err.Error()))
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "create failed"})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"key": key, "agent": name})
+}
+
+// errSpaceDir marks a space the phone may not spawn into (unknown
+// id, folder outside home).
+var errSpaceDir = errors.New("space must be known and live under home")
+
+// spaceByID fetches one space by id from the app document.
+func (a *app) spaceByID(ctx context.Context, id string) (hc.Space, bool) {
+	spaces, err := a.hcDrv.Spaces(ctx)
+	if err != nil {
+		return hc.Space{}, false
+	}
+	for _, s := range spaces {
+		if s.ID == id {
+			return s, true
+		}
+	}
+	return hc.Space{}, false
+}
+
+// spaceIDByName matches the Quick flow's label against space names
+// (unnamed spaces fold to their folder basename first).
+func (a *app) spaceIDByName(ctx context.Context, label string) (string, bool) {
+	spaces, err := a.hcDrv.Spaces(ctx)
+	if err != nil {
+		return "", false
+	}
+	for _, s := range spaces {
+		name := s.Name
+		if name == "" {
+			name = filepath.Base(s.Folder)
+		}
+		if name == label {
+			return s.ID, true
+		}
+	}
+	return "", false
+}
+
+// spaceLabels builds the adoption labels that place a spawn inside
+// the app's space tree: herdr.space plus the space's first tab. No
+// tab in the doc means no labels: an id the app does not know would
+// spawn a stray unnamed space, and the folder alone is honest.
+func (a *app) spaceLabels(s hc.Space) map[string]string {
+	if s.FirstTab == "" {
+		return nil
+	}
+	return map[string]string{"herdr.space": s.ID, "herdr.tab": s.FirstTab}
 }
 
 // startArgs turns the create panel's model/thinking picks into pi
@@ -298,183 +303,11 @@ func (a *app) homeDir(raw string) (string, error) {
 	return cwd, nil
 }
 
-// apiWorkspaces lists herdr workspaces for the new-agent sheet. An
-// action surface fails loudly, unlike the passive home badges. Under
-// hc there are no workspaces, so the sheet sees an empty list.
-func (a *app) apiWorkspaces(w http.ResponseWriter, r *http.Request) {
-	if a.hcDrv != nil {
-		writeJSON(w, http.StatusOK, []herdr.Workspace{})
-		return
-	}
-	if !a.requireHerdr(w) {
-		return
-	}
-	ws, err := a.herdr.Workspaces(r.Context())
-	if err != nil {
-		a.logger.Error("workspace list failed", slog.String("error", err.Error()))
-		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "herdr unreachable"})
-		return
-	}
-	if ws == nil {
-		ws = []herdr.Workspace{}
-	}
-	writeJSON(w, http.StatusOK, ws)
-}
-
-// createAgentSession runs the fresh-workspace sequence:
-// workspace.create -> agent.start -> prompt, then waits for pi to
-// report its session file. A label conflict (the basename already
-// used) retries once with a suffix.
-func (a *app) createAgentSession(ctx context.Context, label, cwd, prompt string, piArgs []string) (string, string, error) {
-	name := agentName(label)
-	workspaceID, paneID, err := a.herdr.WorkspaceCreate(ctx, label, cwd)
-	if err != nil {
-		label = fmt.Sprintf("%s-%04x", label, time.Now().UnixNano()&0xffff)
-		name = agentName(label)
-		if workspaceID, paneID, err = a.herdr.WorkspaceCreate(ctx, label, cwd); err != nil {
-			return "", "", fmt.Errorf("workspace create: %w", err)
-		}
-	}
-	td := newTeardown(func() { _ = a.herdr.WorkspaceClose(context.Background(), workspaceID) })
-	if err := a.runAgent(ctx, paneID, name, prompt, piArgs, td.undo, td.disarm); err != nil {
-		return "", "", err
-	}
-	key, err := a.sessionKeyForPane(ctx, paneID, td.undo)
-	return key, name, err
-}
-
-// createInLabeledWorkspace is the Quick flow: reuse the labeled
-// workspace (split a new pane for each agent) or create it at cwd on
-// first use.
-func (a *app) createInLabeledWorkspace(ctx context.Context, label, cwd, prompt string, piArgs []string) (string, string, error) {
-	ws, err := a.herdr.Workspaces(ctx)
-	if err != nil {
-		return "", "", fmt.Errorf("workspace list: %w", err)
-	}
-	for _, w := range ws {
-		if w.Label == label {
-			return a.createInWorkspace(ctx, w.WorkspaceID, prompt, piArgs)
-		}
-	}
-	return a.createAgentSession(ctx, label, cwd, prompt, piArgs)
-}
-
-// createInWorkspace splits a pane in an existing workspace and starts
-// the agent there; the workspace cwd applies.
-func (a *app) createInWorkspace(ctx context.Context, workspaceID, prompt string, piArgs []string) (string, string, error) {
-	label := "agent"
-	if ws, err := a.herdr.Workspaces(ctx); err == nil {
-		for _, w := range ws {
-			if w.WorkspaceID == workspaceID {
-				label = w.Label
-				break
-			}
-		}
-	}
-	paneID, err := herdrRetry(ctx, func() (string, error) { return a.herdr.SplitPane(ctx, workspaceID, "down") })
-	if err != nil {
-		return "", "", fmt.Errorf("pane split: %w", err)
-	}
-	// Splits land in the workspace cwd, so the same folded name risks
-	// colliding with the pane it split from; a suffix keeps Prompt's
-	// by-name target unambiguous.
-	name := agentName(label + fmt.Sprintf("-%04x", time.Now().UnixNano()&0xffff))
-	td := newTeardown(func() { _ = a.herdr.PaneClose(context.Background(), paneID) })
-	if err := a.runAgent(ctx, paneID, name, prompt, piArgs, td.undo, td.disarm); err != nil {
-		return "", "", err
-	}
-	key, err := a.sessionKeyForPane(ctx, paneID, td.undo)
-	return key, name, err
-}
-
-// resumeSession starts pi again over a closed session's jsonl via
-// --session, which loads that exact file and keeps appending to it,
-// so the phone's session key never changes. text (may be empty) is
-// submitted as the first prompt once the TUI is ready.
-func (a *app) resumeSession(ctx context.Context, label, cwd, path, text string) (string, error) {
-	name := agentName(label)
-	workspaceID, paneID, err := a.herdr.WorkspaceCreate(ctx, label, cwd)
-	if err != nil {
-		label = fmt.Sprintf("%s-%04x", label, time.Now().UnixNano()&0xffff)
-		name = agentName(label)
-		if workspaceID, paneID, err = a.herdr.WorkspaceCreate(ctx, label, cwd); err != nil {
-			return "", fmt.Errorf("workspace create: %w", err)
-		}
-	}
-	td := newTeardown(func() { _ = a.herdr.WorkspaceClose(context.Background(), workspaceID) })
-	if err := a.runAgent(ctx, paneID, name, text, []string{"--session", path}, td.undo, td.disarm); err != nil {
-		return "", err
-	}
-	return name, nil
-}
-
-// apiSessionResume restarts a closed session: a fresh workspace at
-// the session's cwd runs pi --session <jsonl>, and the optional text
-// rides along as the first prompt. The jsonl already exists, so the
-// answer needs no session discovery — the requested key is the key.
-func (a *app) apiSessionResume(w http.ResponseWriter, r *http.Request) {
-	key := r.PathValue("key")
-	var req struct {
-		Text string `json:"text"`
-	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
-		return
-	}
-	meta, ok := a.idx.Meta(key)
-	if !ok {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "notfound"})
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), a.createBudget())
-	defer cancel()
-	if _, err := a.statusFor().TargetForPath(ctx, meta.Path); err == nil {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "running"})
-		return
-	}
-	cwd, err := a.homeDir(meta.Cwd)
-	if err != nil {
-		// The session's project may be gone; pi --session takes an
-		// absolute path, so the workspace cwd only needs to be legal.
-		cwd, err = os.UserHomeDir()
-		if err != nil {
-			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "resume failed"})
-			return
-		}
-	}
-	label := meta.Name
-	if label == "" {
-		label = filepath.Base(cwd)
-	}
-	if a.hcDrv != nil {
-		name, err := a.resumeSessionHC(ctx, label, cwd, meta.Path, strings.TrimSpace(req.Text))
-		if err != nil {
-			a.logger.Error("resume failed", slog.String("key", key), slog.String("error", err.Error()))
-			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "resume failed"})
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]string{"key": key, "agent": name})
-		return
-	}
-	name, err := a.resumeSession(ctx, label, cwd, meta.Path, strings.TrimSpace(req.Text))
-	if err != nil {
-		a.logger.Error("resume failed", slog.String("key", key), slog.String("error", err.Error()))
-		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "resume failed"})
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"key": key, "agent": name})
-}
-
-// runAgent starts pi in the pane and submits the first prompt; undo
-// tears the pane (or fresh workspace) down on any failure. agent.start
-// retries while herdr reports the pane shell not yet available — a
-// fresh workspace's root shell takes a moment to spawn, and the bind
-// is otherwise a race.
 // teardown is the create's rollback. disarm retires it once the
-// prompt is delivered: herdr accepted the text, so every later
-// failure must leave the agent running, not kill it (the 2026-11-02
-// quick create died this way — key fetch gave up on a spent budget
-// and pane.closed a working agent).
+// prompt is delivered: hc accepted the text, so every later failure
+// must leave the agent running, not kill it (the 2026-11-02 quick
+// create died this way - key fetch gave up on a spent budget and
+// closed a working agent).
 type teardown struct {
 	cancel func()
 	off    atomic.Bool
@@ -493,189 +326,9 @@ func (t *teardown) undo() {
 
 func (t *teardown) disarm() { t.off.Store(true) }
 
-func (a *app) runAgent(ctx context.Context, paneID, name, prompt string, piArgs []string, undo, disarm func()) error {
-	var err error
-	for i := 0; i < 5; i++ {
-		if _, err = herdrRetry(ctx, func() (herdr.Agent, error) {
-			return a.herdr.AgentStart(ctx, name, "pi", paneID, piArgs)
-		}); err == nil ||
-			!strings.Contains(err.Error(), "not an available shell") && !strings.Contains(err.Error(), "herdr: dial:") {
-			break
-		}
-		select {
-		case <-ctx.Done():
-			undo()
-			return ctx.Err()
-		case <-time.After(400 * time.Millisecond):
-		}
-	}
-	if err != nil {
-		undo()
-		return fmt.Errorf("agent start: %w", err)
-	}
-	if err := waitAgentActive(ctx, a.herdr, paneID, name); err != nil {
-		undo()
-		return err
-	}
-	// pi's TUI needs seconds of node startup before it reads input;
-	// a prompt delivered earlier lands in the shell's stdin and is
-	// lost, and the create then never starts a turn. The ready footer
-	// (context%/window stats line) is the signal that the TUI listens.
-
-	start := time.Now()
-	if !a.waitPaneReady(ctx, paneID, paneReadyWait) {
-		a.logger.Warn("pane never ready", slog.Float64("waited_s", time.Since(start).Seconds()))
-		undo()
-		return errors.New("pi never became ready")
-	}
-	a.logger.Info("pane ready", slog.Float64("waited_s", time.Since(start).Seconds()))
-	if prompt != "" {
-		// herdr's prompt gate can open seconds after agent.list already
-		// reports the agent named, bound, and non-unknown (over 5.5s on a
-		// real create), so the retry is deadline-based; a fixed attempt
-		// cap lost creates whose gate ran longer than the cap covered.
-		promptDeadline := time.Now().Add(promptRetryDeadline)
-		for {
-			err := herdrRetryErr(ctx, func() error { return a.herdr.Prompt(ctx, name, prompt) })
-			if err == nil {
-				break
-			}
-			if !strings.Contains(err.Error(), "not an active named agent") || time.Now().After(promptDeadline) {
-				undo()
-				return fmt.Errorf("prompt: %w", err)
-			}
-			select {
-			case <-ctx.Done():
-				undo()
-				return ctx.Err()
-			case <-time.After(promptRetryEvery):
-			}
-		}
-		disarm() // prompt delivered: teardown is now forbidden
-		// A prompt can fail soft: herdr accepts it while the agent is
-		// still settling and the keys go nowhere, and recovery can also
-		// outlive this request's 20s budget — the request ctx must not
-		// cut it. Verify briefly; on no turn, hand the recovery to a
-		// background goroutine (the request deadline must not apply) and
-		// let the create answer with the bind-time session key.
-		if !a.sessionAppeared(ctx, paneID, sessionVerifyWait) {
-			a.logger.Warn("prompt unverified, recovering in background", slog.String("agent", name))
-			go a.ensureTurnStarted(context.WithoutCancel(ctx), paneID, name, prompt)
-		}
-	}
-	return nil
-}
-
 // sessionVerifyWait bounds one check that pi's first turn produced a
 // session file.
 var sessionVerifyWait = 10 * time.Second
-
-// ensureTurnStarted runs off-request: it verifies pi began its first
-// turn and nudges a soft-failed prompt. herdr's queue always delivers
-// eventually (observed 30-90s under load), so re-prompting is
-// forbidden — a late first delivery plus a re-prompt duplicates the
-// turn. The only safe nudge is enter when the draft sits unanswered
-// in the editor; entering an empty TUI is a harmless no-op.
-func (a *app) ensureTurnStarted(ctx context.Context, paneID, name, prompt string) {
-	collapse := strings.Join(strings.Fields(prompt), " ")
-	frag := collapse
-	if r := []rune(frag); len(r) > 40 {
-		frag = string(r[:40])
-	}
-	for attempt := 0; attempt < 4; attempt++ {
-		if a.sessionAppeared(ctx, paneID, sessionVerifyWait) {
-			return
-		}
-		plain := ""
-		if read, err := a.herdr.PaneRead(ctx, paneID, "detection", 10); err == nil {
-			plain = strings.Join(strings.Fields(ansiRe.ReplaceAllString(read.Text, "")), " ")
-		}
-		if strings.Contains(plain, frag) {
-			// The text landed; only the submit-enter was lost.
-			if err := herdrRetryErr(ctx, func() error { return a.herdr.PaneSendInput(ctx, paneID, "", []string{"enter"}) }); err != nil {
-				a.logger.Warn("prompt submit failed", slog.String("error", err.Error()))
-				return
-			}
-		}
-	}
-	a.logger.Warn("agent never started its first turn", slog.String("agent", name))
-}
-
-// waitPaneReady polls the pane until pi's TUI paints its stats
-// footer — the moment it starts reading input.
-func (a *app) waitPaneReady(ctx context.Context, paneID string, d time.Duration) bool {
-	deadline := time.Now().Add(d)
-	for {
-		read, err := a.herdr.PaneRead(ctx, paneID, "detection", 8)
-		if err == nil && piReadyRe.MatchString(ansiRe.ReplaceAllString(read.Text, "")) {
-			return true
-		}
-		if time.Now().After(deadline) {
-			return false
-		}
-		select {
-		case <-ctx.Done():
-			return false
-		case <-time.After(400 * time.Millisecond):
-		}
-	}
-}
-
-// sessionAppeared polls until the pane's agent carries a session path
-// AND the jsonl exists on disk — herdr reports the path at agent bind,
-// long before pi writes the file at turn start, so the path alone
-// verifies nothing.
-func (a *app) sessionAppeared(ctx context.Context, paneID string, d time.Duration) bool {
-	deadline := time.Now().Add(d)
-	for {
-		agents, err := a.herdr.Agents(ctx)
-		if err == nil {
-			for _, ag := range agents {
-				if ag.PaneID == paneID && ag.Session != nil && ag.Session.Value != "" {
-					if _, err := os.Stat(ag.Session.Value); err == nil {
-						return true
-					}
-				}
-			}
-		}
-		if time.Now().After(deadline) {
-			return false
-		}
-		select {
-		case <-ctx.Done():
-			return false
-		case <-time.After(400 * time.Millisecond):
-		}
-	}
-}
-
-// sessionKeyForPane waits for pi to report its session file: pi writes
-// the session jsonl at turn start; herdr carries the path on the
-// agent once it exists. Poll rather than guessing the munged sessions
-// dir.
-func (a *app) sessionKeyForPane(ctx context.Context, paneID string, undo func()) (string, error) {
-	deadline := time.Now().Add(a.createBudget() - 5*time.Second)
-	for {
-		agents, err := a.herdr.Agents(ctx)
-		if err == nil {
-			for _, ag := range agents {
-				if ag.PaneID == paneID && ag.Session != nil && ag.Session.Value != "" {
-					return strings.TrimSuffix(filepath.Base(ag.Session.Value), ".jsonl"), nil
-				}
-			}
-		}
-		if time.Now().After(deadline) {
-			undo()
-			return "", errors.New("agent never reported a session")
-		}
-		select {
-		case <-ctx.Done():
-			undo()
-			return "", ctx.Err()
-		case <-time.After(500 * time.Millisecond):
-		}
-	}
-}
 
 // hcSpawnName fits agentName's output to hc's terminal-name rules: hc
 // rejects names shaped like an address (t7), so a bare alnum name
@@ -706,15 +359,16 @@ func hcSpawnRetryName(label string) string {
 	return base + suffix
 }
 
-// createAgentSessionHC spawns pi in a fresh hc terminal, submits the
-// first prompt and waits for the bridge's pi.session label plus the
-// file itself. A name conflict retries once with a suffix.
-func (a *app) createAgentSessionHC(ctx context.Context, label, cwd, prompt string, piArgs []string) (string, string, error) {
+// createAgentSessionHC spawns pi in a fresh hc terminal (optionally
+// adopted into the app's space tree via labels), submits the first
+// prompt and waits for the bridge's pi.session label plus the file
+// itself. A name conflict retries once with a suffix.
+func (a *app) createAgentSessionHC(ctx context.Context, label, cwd, prompt string, piArgs []string, labels map[string]string) (string, string, error) {
 	name := hcSpawnName(label)
-	t9, err := a.hcDrv.Spawn(ctx, cwd, name, piArgs)
+	t9, err := a.hcDrv.Spawn(ctx, cwd, name, piArgs, labels)
 	if err != nil && hcNameTaken(err) {
 		name = hcSpawnRetryName(label)
-		t9, err = a.hcDrv.Spawn(ctx, cwd, name, piArgs)
+		t9, err = a.hcDrv.Spawn(ctx, cwd, name, piArgs, labels)
 	}
 	if err != nil {
 		return "", "", fmt.Errorf("hc spawn: %w", err)
@@ -740,10 +394,10 @@ func (a *app) createAgentSessionHC(ctx context.Context, label, cwd, prompt strin
 // changes and no session discovery is needed.
 func (a *app) resumeSessionHC(ctx context.Context, label, cwd, path, text string) (string, error) {
 	name := hcSpawnName(label)
-	t9, err := a.hcDrv.Spawn(ctx, cwd, name, []string{"--session", path})
+	t9, err := a.hcDrv.Spawn(ctx, cwd, name, []string{"--session", path}, nil)
 	if err != nil && hcNameTaken(err) {
 		name = hcSpawnRetryName(label)
-		t9, err = a.hcDrv.Spawn(ctx, cwd, name, []string{"--session", path})
+		t9, err = a.hcDrv.Spawn(ctx, cwd, name, []string{"--session", path}, nil)
 	}
 	if err != nil {
 		return "", fmt.Errorf("hc spawn: %w", err)
@@ -756,6 +410,57 @@ func (a *app) resumeSessionHC(ctx context.Context, label, cwd, path, text string
 		}
 	}
 	return name, nil
+}
+
+// apiSessionResume restarts a closed session: a fresh hc terminal at
+// the session's cwd runs pi --session <jsonl>, and the optional text
+// rides along as the first prompt. The jsonl already exists, so the
+// answer needs no session discovery - the requested key is the key.
+func (a *app) apiSessionResume(w http.ResponseWriter, r *http.Request) {
+	key := r.PathValue("key")
+	var req struct {
+		Text string `json:"text"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
+		return
+	}
+	meta, ok := a.idx.Meta(key)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "notfound"})
+		return
+	}
+	if a.hcDrv == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "no driver"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), a.createBudget())
+	defer cancel()
+	if _, err := a.hcDrv.TargetForPath(ctx, meta.Path); err == nil {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "running"})
+		return
+	}
+	cwd, err := a.homeDir(meta.Cwd)
+	if err != nil {
+		// The session's project may be gone; pi --session takes an
+		// absolute path, so the spawn cwd only needs to be legal.
+		cwd, err = os.UserHomeDir()
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "resume failed"})
+			return
+		}
+	}
+	label := meta.Name
+	if label == "" {
+		label = filepath.Base(cwd)
+	}
+	name, err := a.resumeSessionHC(ctx, label, cwd, meta.Path, strings.TrimSpace(req.Text))
+	if err != nil {
+		a.logger.Error("resume failed", slog.String("key", key), slog.String("error", err.Error()))
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "resume failed"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"key": key, "agent": name})
 }
 
 // sessionAppearedHC polls until the terminal carries a pi.session

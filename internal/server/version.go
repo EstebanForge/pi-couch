@@ -7,9 +7,5 @@ import "net/http"
 const Version = "20261109"
 
 func (a *app) apiVersion(w http.ResponseWriter, _ *http.Request) {
-	driver := "herdr"
-	if a.hcDrv != nil {
-		driver = "hc"
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"version": Version, "home": a.home, "driver": driver})
+	writeJSON(w, http.StatusOK, map[string]string{"version": Version, "home": a.home})
 }

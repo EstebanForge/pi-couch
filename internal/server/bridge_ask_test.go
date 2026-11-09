@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -349,10 +348,14 @@ func TestBridgeAskPhoneValidation(t *testing.T) {
 // The handler refuses when the open ask is gone or the id moved on -
 // same id-gate discipline as the keystroke answer endpoint.
 func TestBridgeAskPhoneIDGate(t *testing.T) {
-	var sessPath string
-	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath})
-	a, sub, h := streamTestAppWithHerdr(t, sock)
-	sessPath = filepath.Join(sub, "s1.jsonl")
+	a, sessPath := hcDialogApp(t)
+	drv, _ := startHCFake(t, sessPath, confirmPaint("Allow?"))
+	wireHC(a, drv)
+	waitForHC(t, func() bool {
+		_, err := a.hcDrv.TargetForPath(t.Context(), sessPath)
+		return err == nil
+	})
+	h := a.guard(a.routes())
 	a.askMu.Lock()
 	a.askPends = map[string]*askPending{}
 	a.askMu.Unlock()
@@ -393,13 +396,10 @@ func TestBridgeAskPhoneIDGate(t *testing.T) {
 // The ask wire skips the pane parse: questions are the truth, and the
 // rpiv overlay must not leak checkbox rows into the card.
 func TestDialogWireAskSkipsPaneParse(t *testing.T) {
-	var sessPath string
-	var sends int32
 	pane := "Deploy?\n[ ] GitHub Release\n[ ] Manual install"
-	sock := herdrFake(t, fakeHerdrOpts{sessPath: &sessPath, sends: &sends, paneText: &pane})
-	a, sub, _ := streamTestAppWithHerdr(t, sock)
-	sessPath = filepath.Join(sub, "s1.jsonl")
-	a.awaiting = newAwaitingDetector(a.herdr, time.Hour)
+	a, sessPath := hcDialogApp(t)
+	drv, _ := startHCFake(t, sessPath, pane)
+	wireHC(a, drv)
 	a.awaiting.tick(t.Context())
 
 	askOpen(t, a, strings.Replace(testAskOpenBody(), "/s/a.jsonl", sessPath, 1))

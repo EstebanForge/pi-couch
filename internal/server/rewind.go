@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/EstebanForge/couch-pi/internal/herdr"
+	"github.com/EstebanForge/couch-pi/internal/hc"
 	"github.com/EstebanForge/couch-pi/internal/pi"
 )
 
@@ -44,16 +44,16 @@ func (a *app) apiRewind(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "notfound"})
 		return
 	}
-	// hc has no keys verb, so pi's desk refill could not be cleared and
-	// the next typed prompt would append to the stale buffer: refuse
-	// until hc grows one (ADR-0010).
-	if a.hcDrv != nil {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "unsupported-driver"})
+	if a.hcDrv == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "no driver"})
 		return
 	}
 	// Rewinding under a live turn would fork mid-stream: pi refuses it,
 	// and the honest answer is the same busy the composer already shows.
-	badges, _ := a.statusFor().DriveStatus(r.Context())
+	var badges map[string]string
+	if a.hcDrv != nil {
+		badges, _ = a.hcDrv.DriveStatus(r.Context())
+	}
 	switch badges[meta.Path] {
 	case "working", "blocked":
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "busy"})
@@ -100,17 +100,13 @@ func (a *app) apiRewind(w http.ResponseWriter, r *http.Request) {
 	a.rewindMu.Unlock()
 
 	dispatchErr := func() error {
-		ctx, cancel := context.WithTimeout(context.Background(), a.cmdBudget(25*time.Second, 10*time.Second))
+		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 		defer cancel()
-		target, err := a.statusFor().TargetForPath(ctx, meta.Path)
+		target, err := a.hcDrv.TargetForPath(ctx, meta.Path)
 		if err != nil {
-			return herdr.ErrNotDriven
+			return hc.ErrNotDriven
 		}
-		cmd := a.cmdFor()
-		if cmd == nil {
-			return herdr.ErrNotDriven
-		}
-		if err := cmd.Prompt(ctx, target, "/couchpi-rewind "+p.entryID); err != nil {
+		if err := a.hcDrv.Prompt(ctx, target, "/couchpi-rewind "+p.entryID); err != nil {
 			return errPromptFail
 		}
 		return nil
@@ -122,7 +118,7 @@ func (a *app) apiRewind(w http.ResponseWriter, r *http.Request) {
 		}
 		a.rewindMu.Unlock()
 		switch {
-		case errors.Is(dispatchErr, herdr.ErrNotDriven):
+		case errors.Is(dispatchErr, hc.ErrNotDriven):
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "notdriven"})
 		case errors.Is(dispatchErr, errNotFound):
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "notfound"})
@@ -140,16 +136,14 @@ func (a *app) apiRewind(w http.ResponseWriter, r *http.Request) {
 			// pi's desk refill puts the rewound text back in the pane
 			// editor (interactive-mode's navigateTree action), so the next
 			// typed prompt would append to it. One ctrl+c clears the buffer;
-			// exiting pi needs two presses. hc has no keys verb.
-			if a.hcDrv == nil && a.herdr != nil {
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel()
-				if target, err := a.statusFor().TargetForPath(ctx, meta.Path); err == nil {
-					if err := a.herdr.PaneSendInput(ctx, target, "", []string{"ctrl+c"}); err != nil {
-						a.logger.Warn("rewind clear", "err", err)
-					}
+			// exiting pi needs two presses.
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			if target, err := a.hcDrv.TargetForPath(ctx, meta.Path); err == nil {
+				if err := a.hcDrv.PressKeys(ctx, target, []string{"ctrl+c"}); err != nil {
+					a.logger.Warn("rewind clear", "err", err)
 				}
 			}
+			cancel()
 		}
 		writeJSON(w, http.StatusOK, res)
 	case <-timer.C:

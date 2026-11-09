@@ -281,8 +281,8 @@ export default function SettingsScreen() {
 						</span>
 					</button>
 					<p className="px-1 pt-2 text-xs text-muted">
-						The home FAB's Quick agent starts pi here without asking. Each tap adds one agent to the
-						Quick workspace at this folder.
+						The home FAB's Quick agent starts pi here without asking. Each tap adds one agent at
+						this folder.
 					</p>
 				</section>
 

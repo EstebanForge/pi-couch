@@ -9,7 +9,7 @@ import { Spinner } from "./Spinner";
 
 // The FAB speed dial's "Quick agent" step: a first prompt with
 // attachments and an optional model/thinking pin, then the agent
-// starts in the fixed Quick workspace at the configured path.
+// starts in the fixed Quick folder at the configured path.
 export function QuickSheet({ opened, onClose }: { opened: boolean; onClose: () => void }) {
 	useSheetBack(opened, onClose);
 	const [fields, setFields] = useState<LaunchFields>({ body: "", uploading: false });
