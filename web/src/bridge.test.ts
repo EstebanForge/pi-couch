@@ -127,6 +127,11 @@ describe("couch-pi bridge extension", () => {
 	beforeEach(() => {
 		vi.stubEnv("HERDR_ENV", "1");
 		vi.stubEnv("HERDR_PANE_ID", "pane-1");
+		// The suite may run inside an hc-managed pi, whose real
+		// HC_TERMINAL_* env would let underHC tests label the live
+		// terminal; every test declares its own hc env.
+		vi.stubEnv("HC_TERMINAL_ID", "");
+		vi.stubEnv("HC_TERMINAL_SOCKET", "");
 		vi.stubGlobal(
 			"fetch",
 			vi.fn(async () => ({ ok: true, status: 200 })),
