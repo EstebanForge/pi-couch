@@ -6,7 +6,7 @@ I work from the phone the same way I work from the desk. I open the app over Tai
 
 Back at the desk I retake control over ssh, and with herdr, all my sessions are still in place.
 
-Nothing gets locked into the UI. Sessions stay plain pi jsonl files, herdr stays the only driver, and the phone is just another client. If I delete the app tomorrow I lose a viewer, not my work.
+Nothing gets locked into the UI. Sessions stay plain pi jsonl files, herdr-core stays the only driver, and the phone is just another client. If I delete the app tomorrow I lose a viewer, not my work.
 
 | | |
 |---|---|
@@ -15,11 +15,11 @@ Nothing gets locked into the UI. Sessions stay plain pi jsonl files, herdr stays
 
 ## Running it
 
-The honest requirements: a Linux or macOS box (Windows WSL also works) with [pi](https://pi.dev) 1.x.x and [herdr](https://herdr.dev) 0.9.x on it, and a tunnel. I use [Tailscale](https://tailscale.com) and nothing else; it puts a private HTTPS address on the whole thing with zero config beyond the serve line below. herdr drives the sessions; Pi Couch speaks its socket protocol and nothing else.
+The honest requirements: a Linux or macOS box (Windows WSL also works) with [pi](https://pi.dev) 1.x.x and [herdr-core](https://herdr.dev) 0.1.x on it, and a tunnel. I use [Tailscale](https://tailscale.com) and nothing else; it puts a private HTTPS address on the whole thing with zero config beyond the serve line below. herdr-core drives the sessions; Pi Couch speaks its socket protocol and nothing else.
 
 The server binds 127.0.0.1 and trusts whatever sits in front of it. I front mine with `tailscale serve --bg --https=48443 8090` and set `origin` in the config to the public URL, so cross-site posts get rejected.
 
-One suggestion from me: [Sheprd](https://sheprd.org) is an optional desktop app for Windows, Linux and macOS, a nice integrated UI with the full terminal power. It uses the herdr daemon as its backend, so it's just a convenience on top of the herdr you install anyway.
+One suggestion from me: the [herdr](https://herdr.dev) desktop app. It rides the same core you just installed and gives the desk a full terminal UI, so the desk and the phone sit on the same sessions by construction.
 
 ### Installation
 
@@ -48,11 +48,7 @@ Two wiring steps. First, the dialog bridge (pi loads extensions at agent start, 
 ln -sf $PWD/extensions/couch-pi-bridge.ts ~/.pi/agent/extensions/couch-pi-bridge.ts
 ```
 
-Second, [skydiver/herdr-pinned-workspaces](https://github.com/skydiver/herdr-pinned-workspaces), the one herdr plugin I run. herdr owns a workspace only while it holds a tab; close the last one and the workspace is gone. The plugin keeps your declared workspaces alive: recreated the moment they die and on every herdr start, so the set you build from the phone survives restarts and stray exits.
-
-```sh
-herdr plugin install skydiver/herdr-pinned-workspaces
-```
+Second, [werlang/herdr-space-actions](https://github.com/werlang/herdr-space-actions), a mod suite for the herdr desktop app. A herdr space stays alive only while it holds a tab; close the last one and the space is gone. The suite adds a Pin control to the space list: pinned spaces keep an empty launcher tab when everything closes, so the set you build from the desk survives restarts and stray exits. Install is copy the mods into the app and point your layout's space block at the clone; the repo's README walks through it.
 
 One more I'd add: [@tangentyh/pi-auto-rename](https://www.npmjs.com/package/@tangentyh/pi-auto-rename), a pi extension. After the first prompt it makes a background model call and names the session (and the herdr pane) from the conversation, so the home list reads like something a human wrote instead of raw paths. Anything it names you can still rename by hand from the chat; the auto name is just the starting point.
 
@@ -144,7 +140,7 @@ Don't port-forward this to the public internet; that hands your machine to anyon
 
 ## Notes
 
-Tested against pi 1.3.x and herdr 0.9.5. Dialog answering reads the pane paint, so a pi TUI reshuffle can break it. The rest of the client reads the session files, which move much slower.
+Tested against pi 1.4.x and herdr-core 0.1.x. Dialog answering reads the screen paint, so a pi TUI reshuffle can break it. The rest of the client reads the session files, which move much slower.
 
 State lives in `~/.local/state/pi-couch` (models cache, push subscriptions). No database, no accounts, one user. It's my setup, extracted and released as-is.
 
