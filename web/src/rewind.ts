@@ -2,8 +2,6 @@
 export function rewindErrorCopy(error?: string, code?: string): string {
 	if (error === "busy") return "pi is busy - wait for it to finish";
 	if (error === "notdriven") return "No driver runs this session.";
-	if (error === "unsupported-driver")
-		return "rewind needs the herdr driver - this session runs on hc.";
 	if (code === "timeout")
 		return "the agent didn't confirm the rewind - check the terminal before retrying";
 	if (code === "refused") return "pi refused the rewind";

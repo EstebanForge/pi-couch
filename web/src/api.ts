@@ -151,7 +151,7 @@ export type TranscriptStatus = {
 export type PreviewLine = { seq: number; who: string; text: string };
 
 /** One hold-to-preview card payload: the frozen recent tail plus the
- * card's status vocabulary (herdr badge + awaiting flag). */
+ * card's status vocabulary (core badge + awaiting flag). */
 export type SessionPreview = {
 	title: string;
 	status: string;

@@ -26,7 +26,7 @@ export const PENDING_TTL_MS = 30 * 60 * 1000;
 
 export type DriverState = {
 	items: StreamItem[]; // ordered by seq, tail of the active branch
-	status: string; // herdr badge: working, blocked, done, idle, ""
+	status: string; // core badge: working, blocked, done, idle, ""
 	model: string;
 	thinking: string;
 	ctx: number; // newest turn's usage total, for the context fill

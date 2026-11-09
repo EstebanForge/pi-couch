@@ -167,6 +167,27 @@ func TestDriverJunkFailsLoud(t *testing.T) {
 	}
 }
 
+// The decode is non-strict, so a stale herdr key survives decoding and
+// must be caught by validation with the migration hint, not swallowed.
+func TestDriverHerdrFailsWithMigrationHint(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "pi-couch")
+	if err := os.MkdirAll(sub, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "config.toml"), []byte("driver = \"herdr\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	_, err := Load()
+	if err == nil {
+		t.Fatal("want error for driver = herdr")
+	}
+	if msg := err.Error(); !strings.Contains(msg, "was removed") || !strings.Contains(msg, "ADR-0011") {
+		t.Fatalf("error = %q, want the migration hint", msg)
+	}
+}
+
 func TestLoadEnvTokenWins(t *testing.T) {
 	dir := t.TempDir()
 	sub := filepath.Join(dir, "pi-couch")

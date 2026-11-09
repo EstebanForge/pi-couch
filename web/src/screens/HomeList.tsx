@@ -122,7 +122,7 @@ export default function HomeList() {
 		return () => stream.close();
 	}, [apply]);
 
-	// Priority split: driven sessions (the herdr sidebar agents) float
+	// Priority split: driven sessions (the core-driven agents) float
 	// above the recency window, once each. Search is a flat list over
 	// everything, driven rows included.
 	const { priority, recents } = splitDriven(sessions, driven);

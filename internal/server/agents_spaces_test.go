@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/EstebanForge/couch-pi/internal/hc"
 )
 
 // Spaces (ADR-0011) replace the herdr workspaces across the create
@@ -180,6 +182,52 @@ func TestAPIAgentsUnknownSpaceRefused(t *testing.T) {
 	rec := hcPost(t, a, "/api/agents", "", map[string]any{"space_id": "nope", "prompt": "x"})
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("unknown space create code = %d, want 400", rec.Code)
+	}
+}
+
+// An unreadable app document is an outage, not a bad request: the
+// create must answer 502 so the phone reports the core, not the pick.
+func TestAPIAgentsDeadCoreSpaceCreateAnswers502(t *testing.T) {
+	a, _ := hcDialogApp(t)
+	drv, _ := startHCFake(t, "/x/s1.jsonl")
+	wireHC(a, drv)
+	a.hcDrv = hc.NewDriver(hc.NewAt(filepath.Join(t.TempDir(), "dead.sock")))
+
+	// No spawn waits here: the create must refuse at the space lookup,
+	// before any terminal is started.
+	rec := hcPost(t, a, "/api/agents", "", map[string]any{"space_id": "sp1", "prompt": "x"})
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("dead-core space create code = %d (%s), want 502", rec.Code, rec.Body.String())
+	}
+}
+
+// The jail resolves symlinks: a link inside home that points out is
+// refused, one that stays inside is fine (same rule as /api/dirs).
+func TestHomeDirRefusesSymlinkEscape(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	inside := filepath.Join(home, "real")
+	if err := os.MkdirAll(inside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	a, _ := hcDialogApp(t)
+	if _, err := a.homeDir(inside); err != nil {
+		t.Fatalf("plain dir refused: %v", err)
+	}
+	linkIn := filepath.Join(home, "link-in")
+	if err := os.Symlink(inside, linkIn); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.homeDir(linkIn); err != nil {
+		t.Fatalf("internal symlink refused: %v", err)
+	}
+	outside := t.TempDir()
+	linkOut := filepath.Join(home, "link-out")
+	if err := os.Symlink(outside, linkOut); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.homeDir(linkOut); err == nil {
+		t.Fatal("escaping symlink accepted")
 	}
 }
 

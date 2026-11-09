@@ -10,7 +10,7 @@ export type Tool = {
 	placement: "strip" | "overflow";
 	// stage-gated tools are listed but disabled until their stage ships
 	disabled?: boolean;
-	// driver-gated tools depend on the herdr state
+	// driver-gated tools depend on the core status
 	enabled?: (status: string) => boolean;
 	// tool screens hop sideways from the session screen
 	href?: (key: string) => string;

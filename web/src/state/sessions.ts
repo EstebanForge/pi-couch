@@ -3,7 +3,7 @@ import { getSessions, type SessionMeta, type SessionsPatch, type SessionsSnapsho
 
 type Status = "idle" | "loading" | "ok" | "error";
 
-// Priority split for the home list: sessions herdr drives (the driven
+// Priority split for the home list: sessions the core drives (the driven
 // map is keyed by session path) float above the recency list, once
 // each. A driven session without a loaded meta has no card yet.
 export function splitDriven(

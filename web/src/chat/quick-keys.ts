@@ -1,6 +1,6 @@
 // One entry per key cap in the strip above the composer. Transport is
 // the terminal input endpoint; sends ride one promise chain per session
-// so taps stay ordered (herdr holds a lone Esc ~150ms on the pty).
+// so taps stay ordered (a lone Esc needs ~150ms to settle on the pty).
 
 export type QuickKey = {
 	id: string;
@@ -29,7 +29,7 @@ export const QUICK_KEYS: QuickKey[] = [
 	},
 	// Space drives extension dialogs (space cycles a settings value or
 	// toggles multi-select); in pi's plain editor it inserts the
-	// character. herdr 22 silently no-ops unknown key names (an ok
+	// character. A key endpoint may silently no-op unknown names (an ok
 	// reply proves nothing), so long selects scroll with held arrows.
 	{ id: "space", label: "Space", action: { kind: "keys", keys: ["space"] }, enabled: hasDriver },
 	{ id: "enter", label: "⏎", action: { kind: "keys", keys: ["enter"] }, enabled: hasDriver },
@@ -39,7 +39,7 @@ export const QUICK_KEYS: QuickKey[] = [
 	{ id: "right", label: "→", action: { kind: "keys", keys: ["right"] }, enabled: hasDriver },
 ];
 
-// After an Esc, wait before the next key: herdr's lone-Esc finding.
+// After an Esc, wait before the next key: the lone-Esc finding.
 export const ESC_SETTLE_MS = 150;
 
 // orderKeys applies a stored id order (the settings screen's reorder):

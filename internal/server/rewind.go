@@ -50,10 +50,7 @@ func (a *app) apiRewind(w http.ResponseWriter, r *http.Request) {
 	}
 	// Rewinding under a live turn would fork mid-stream: pi refuses it,
 	// and the honest answer is the same busy the composer already shows.
-	var badges map[string]string
-	if a.hcDrv != nil {
-		badges, _ = a.hcDrv.DriveStatus(r.Context())
-	}
+	badges, _ := a.hcDrv.DriveStatus(r.Context())
 	switch badges[meta.Path] {
 	case "working", "blocked":
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "busy"})

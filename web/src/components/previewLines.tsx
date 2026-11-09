@@ -2,7 +2,7 @@ import type { PreviewLine } from "../api";
 import { STATUS_DOT } from "../status";
 
 // A rename via /name needs a live pi process; the preview status is
-// "unknown" exactly when no herdr driver runs the session.
+// "unknown" exactly when no driver runs the session.
 export const canRename = (status: string): boolean => status !== "unknown";
 
 // While pi is generating, /name must ride the follow-up queue: sent
@@ -17,7 +17,7 @@ export const renameHint = (status: string): string | null =>
 	status === "blocked" ? "pi is waiting on you - answer it first, then rename." : null;
 
 // Status chip with the same vocabulary and colors as the home card:
-// herdr status dot, yellow for waiting-for-you.
+// one status dot, yellow for waiting-for-you.
 export function PreviewChip({ status, awaiting }: { status: string; awaiting: boolean }) {
 	return (
 		<span

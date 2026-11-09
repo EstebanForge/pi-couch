@@ -3,7 +3,7 @@ import { type DirsResponse, getDirs } from "../api";
 import { FaTurnUp } from "./fa";
 
 // Shared jailed folder browser over /api/dirs: home-rooted on the
-// machine running herdr, hidden folders behind a toggle, client-side
+// machine running the core, hidden folders behind a toggle, client-side
 // filter. Reports the currently browsed path upward; the caller owns
 // what "use this folder" means.
 

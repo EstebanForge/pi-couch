@@ -160,9 +160,9 @@ func (a *app) apiAgents(w http.ResponseWriter, r *http.Request) {
 	resolveDir := func() (string, map[string]string, error) {
 		switch mode {
 		case "space":
-			s, ok := a.spaceByID(ctx, req.SpaceID)
-			if !ok {
-				return "", nil, fmt.Errorf("%w: unknown space", errSpaceDir)
+			s, err := a.spaceByID(ctx, req.SpaceID)
+			if err != nil {
+				return "", nil, err
 			}
 			cwd, err := a.homeDir(s.Folder)
 			if err != nil {
@@ -172,11 +172,9 @@ func (a *app) apiAgents(w http.ResponseWriter, r *http.Request) {
 		case "label":
 			// The Quick flow's label matches a space by name when one
 			// exists; an unmatched label keeps the plain spawn.
-			if id, ok := a.spaceIDByName(ctx, req.Label); ok {
-				if s, ok := a.spaceByID(ctx, id); ok {
-					if dir, derr := a.homeDir(s.Folder); derr == nil {
-						return dir, a.spaceLabels(s), nil
-					}
+			if s, ok := a.spaceByName(ctx, req.Label); ok {
+				if dir, derr := a.homeDir(s.Folder); derr == nil {
+					return dir, a.spaceLabels(s), nil
 				}
 			}
 			return jailed, nil, nil
@@ -186,6 +184,10 @@ func (a *app) apiAgents(w http.ResponseWriter, r *http.Request) {
 	}
 	cwd, labels, err := resolveDir()
 	if err != nil {
+		if errors.Is(err, errSpaceCore) {
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "core unreachable"})
+			return
+		}
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
@@ -199,29 +201,31 @@ func (a *app) apiAgents(w http.ResponseWriter, r *http.Request) {
 }
 
 // errSpaceDir marks a space the phone may not spawn into (unknown
-// id, folder outside home).
+// id, folder outside home). errSpaceCore marks the app document
+// itself unreadable, which is an outage, not a bad request.
 var errSpaceDir = errors.New("space must be known and live under home")
+var errSpaceCore = errors.New("space document unreachable")
 
 // spaceByID fetches one space by id from the app document.
-func (a *app) spaceByID(ctx context.Context, id string) (hc.Space, bool) {
+func (a *app) spaceByID(ctx context.Context, id string) (hc.Space, error) {
 	spaces, err := a.hcDrv.Spaces(ctx)
 	if err != nil {
-		return hc.Space{}, false
+		return hc.Space{}, fmt.Errorf("%w: %v", errSpaceCore, err)
 	}
 	for _, s := range spaces {
 		if s.ID == id {
-			return s, true
+			return s, nil
 		}
 	}
-	return hc.Space{}, false
+	return hc.Space{}, fmt.Errorf("%w: unknown space", errSpaceDir)
 }
 
-// spaceIDByName matches the Quick flow's label against space names
+// spaceByName matches the Quick flow's label against space names
 // (unnamed spaces fold to their folder basename first).
-func (a *app) spaceIDByName(ctx context.Context, label string) (string, bool) {
+func (a *app) spaceByName(ctx context.Context, label string) (hc.Space, bool) {
 	spaces, err := a.hcDrv.Spaces(ctx)
 	if err != nil {
-		return "", false
+		return hc.Space{}, false
 	}
 	for _, s := range spaces {
 		name := s.Name
@@ -229,10 +233,10 @@ func (a *app) spaceIDByName(ctx context.Context, label string) (string, bool) {
 			name = filepath.Base(s.Folder)
 		}
 		if name == label {
-			return s.ID, true
+			return s, true
 		}
 	}
-	return "", false
+	return hc.Space{}, false
 }
 
 // spaceLabels builds the adoption labels that place a spawn inside
@@ -286,7 +290,9 @@ func (a *app) startArgs(model, thinking string) ([]string, error) {
 }
 
 // homeDir jails a client-supplied cwd under the user's home (the same
-// rule as /api/dirs) and checks it is a real directory.
+// rule as /api/dirs), resolves symlinks so a link out of home cannot
+// smuggle a path past the prefix check, and checks it is a real
+// directory.
 func (a *app) homeDir(raw string) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -295,6 +301,10 @@ func (a *app) homeDir(raw string) (string, error) {
 	cwd := filepath.Clean(raw)
 	if raw == "" || !filepath.IsAbs(cwd) ||
 		(cwd != home && !strings.HasPrefix(cwd, home+string(filepath.Separator))) {
+		return "", errors.New("cwd must be a directory under home")
+	}
+	resolved, err := filepath.EvalSymlinks(cwd)
+	if err != nil || (resolved != home && !strings.HasPrefix(resolved, home+string(filepath.Separator))) {
 		return "", errors.New("cwd must be a directory under home")
 	}
 	if fi, err := os.Stat(cwd); err != nil || !fi.IsDir() {

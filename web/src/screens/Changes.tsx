@@ -1,6 +1,6 @@
 // Changes.tsx — /sessions/{key}/changes: working-tree file list, one
 // file's diff, per-line comment drafts in the device tray (the legacy
-// trayKey format, so drafts survive), Send All through herdr.
+// trayKey format, so drafts survive), Send All through the core.
 import { Sheet, Toast } from "konsta/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChangeFile, ChangesDiff, ChangesList, PendingComment } from "../api";

@@ -1,8 +1,7 @@
 // Terminal.tsx — /sessions/{key}/terminal: the pi TUI mirrored over
 // SSE. The stream is /stream/terminal/{key}: delta frames carry raw
-// base64 pty bytes from a `herdr terminal session observe` viewport
-// (frame 0 is a full repaint), term frames are the legacy whole-screen
-// pane.read snapshot fallback, gone means no driver. Input never rides
+// base64 pty bytes from the hc framed attach (frame 0 is a full
+// repaint), gone means no driver. Input never rides
 // xterm's textarea (that is where Android IME composition breaks); it
 // rides the key row and the input box through the terminal input
 // endpoint, behind a take-the-wheel gate.
@@ -29,8 +28,8 @@ type TermKey = { id: string; label: string; keys: string[]; enabled: (status: st
 
 const hasDriver = (status: string) => status !== "";
 
-// Wide mode: herdr's observe viewport cannot rewrap pi's paint (it
-// clips the cursor-addressed screen), so seeing the full width means
+// Wide mode: the pty grid is pi's, and its cursor-addressed paint
+// cannot be rewrapped client-side, so seeing the full width means
 // requesting a wider grid and panning across it at a readable size.
 const WIDE_COLS = 160;
 const WIDE_FONT = 9;
@@ -59,7 +58,7 @@ export default function TerminalScreen({ sessionKey }: { sessionKey: string }) {
 	const [toast, setToast] = useState("");
 
 	// Driver status rides the shared sessions store: stream frames are
-	// patches, and a herdr-only flip (dialog opens) touches no session
+	// patches, and a status-only flip (dialog opens) touches no session
 	// file, so the status must come from applied patch state.
 	const badges = useSessions((s) => s.badges);
 	const sessions = useSessions((s) => s.sessions);
@@ -79,8 +78,8 @@ export default function TerminalScreen({ sessionKey }: { sessionKey: string }) {
 		toastTimer.current = window.setTimeout(() => setToast(""), 2500);
 	}, []);
 
-	// One promise chain per session: taps stay ordered; herdr holds a
-	// lone Esc ~150ms on the pty, so settle after one.
+	// One promise chain per session: taps stay ordered; a lone Esc
+	// needs ~150ms to settle on the pty, so settle after one.
 	const chain = useRef<Promise<void>>(Promise.resolve());
 	const pushKeys = useCallback(
 		(keys: string[]) => {
@@ -111,8 +110,8 @@ export default function TerminalScreen({ sessionKey }: { sessionKey: string }) {
 
 	// The grid: rebuilt per view mode, refit on resize. Wide mode holds
 	// the full WIDE_COLS data grid at a fixed readable font and pans
-	// horizontally (herdr's observe viewport clips pi's cursor-addressed
-	// paint — nothing can rewrap it, so seeing it all means more columns,
+	// horizontally (the pty clips pi's cursor-addressed paint — nothing
+	// can rewrap it, so seeing it all means more columns,
 	// not wrapping). No onData — the screen never takes the soft
 	// keyboard; all input is the key row and box.
 	useEffect(() => {

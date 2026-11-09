@@ -5,9 +5,6 @@ describe("rewind error copy", () => {
 	it("maps the server's refusal vocabulary", () => {
 		expect(rewindErrorCopy("busy")).toBe("pi is busy - wait for it to finish");
 		expect(rewindErrorCopy("notdriven")).toBe("No driver runs this session.");
-		expect(rewindErrorCopy("unsupported-driver")).toBe(
-			"rewind needs the herdr driver - this session runs on hc.",
-		);
 		expect(rewindErrorCopy(undefined, "timeout")).toBe(
 			"the agent didn't confirm the rewind - check the terminal before retrying",
 		);
