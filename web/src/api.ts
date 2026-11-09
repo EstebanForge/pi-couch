@@ -190,6 +190,15 @@ export function getHome(): Promise<string> {
 	return homePromise;
 }
 
+// Active driver backend ("hc" | "herdr"), fetched once.
+let driverPromise: Promise<string> | undefined;
+export function getDriver(): Promise<string> {
+	driverPromise ??= getVersion()
+		.then((v) => v.driver ?? "hc")
+		.catch(() => "hc");
+	return driverPromise;
+}
+
 // --- new agent: folder picker and create ---
 
 export type DirsResponse = {

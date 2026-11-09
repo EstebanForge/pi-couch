@@ -42,9 +42,9 @@ type Config struct {
 	// Check GitHub for a newer release once a day and self-update the
 	// running binary. True by default; set false to pin a version.
 	AutoUpdate bool `toml:"auto_update"`
-	// Which engine drives pi sessions: herdr (protocol 22) or hc
-	// (herdr-core, ADR-0008). Exactly one runs at a time; herdr stays
-	// the default until hc reaches parity.
+	// Which engine drives pi sessions: hc (herdr-core, ADR-0008) or
+	// herdr (legacy protocol 22). Exactly one runs at a time; hc is
+	// the primary default engine.
 	Driver string `toml:"driver"`
 	// Override the hc socket path. Empty uses HC_SOCKET, else
 	// $XDG_RUNTIME_DIR/herdr-core/<HC_SESSION|default>.sock, like hc itself.
@@ -60,7 +60,7 @@ func Defaults() Config {
 		MemoryURL:    "http://localhost:3111",
 		EnforceToken: true,
 		AutoUpdate:   true,
-		Driver:       "herdr",
+		Driver:       "hc",
 	}
 }
 

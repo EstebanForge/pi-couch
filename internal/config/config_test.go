@@ -141,13 +141,13 @@ func TestDriverParsesHCAndSocket(t *testing.T) {
 	}
 }
 
-func TestDriverDefaultsToHerdr(t *testing.T) {
+func TestDriverDefaultsToHC(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "absent"))
 	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Driver != "herdr" {
+	if cfg.Driver != "hc" {
 		t.Fatalf("driver %q", cfg.Driver)
 	}
 }

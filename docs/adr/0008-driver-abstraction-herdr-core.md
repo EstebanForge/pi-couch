@@ -1,7 +1,7 @@
 # ADR-0008: Driver abstraction over herdr and herdr-core
 
 Date: 2026-10-30
-Status: Accepted (Esteban, 2026-10-30: both engines ship, herdr stays the default until hc reaches parity)
+Status: Accepted (Esteban, 2026-10-30: both engines ship, hc is the primary default engine as of 2026-11-09)
 Supersedes: the protocol-22 pin in ADR-0001 (adapt-on-change clause triggers).
 Amends: ADR-0001 (herdr-family stays the only driver). Related: ADR-0005, ADR-0007, docs/plan-herdr-core.md.
 
@@ -89,8 +89,7 @@ For the hc driver:
 ## Consequences
 
 - New `internal/hc` package beside `internal/herdr`; config gains a
-  `driver = "herdr" | "hc"` key (default herdr until hc reaches
-  parity). Both may stay installed; only one drives.
+  `driver = "hc" | "herdr"` key (default `hc`). Both may stay installed; only one drives.
 - Awaiting, push and the sessions stream lose their herdr-shaped
   internals for hc-driven sessions but keep their wire shapes.
 - The pane regex layer and the observe hub remain for the herdr driver

@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import {
 	createAgent,
 	createAgentInWorkspace,
-	getVersion,
+	getDriver,
 	getWorkspaces,
 	type Workspace,
 } from "../api";
@@ -19,7 +19,7 @@ import { Spinner } from "./Spinner";
 export function NewAgentSheet({ opened, onClose }: { opened: boolean; onClose: () => void }) {
 	useSheetBack(opened, onClose);
 	const [workspaces, setWorkspaces] = useState<Workspace[] | null>(null);
-	const [driver, setDriver] = useState("herdr");
+	const [driver, setDriver] = useState("hc");
 	const [folder, setFolder] = useState("");
 	const [wsOpen, setWsOpen] = useState(false);
 	const [picked, setPicked] = useState("");
@@ -30,19 +30,22 @@ export function NewAgentSheet({ opened, onClose }: { opened: boolean; onClose: (
 	useEffect(() => {
 		if (!opened) return;
 		setWorkspaces(null);
-		setDriver("herdr");
 		setFolder("");
 		setWsOpen(false);
 		setPicked("");
 		setFields({ body: "", uploading: false });
 		setBusy(false);
 		setError("");
-		getVersion()
-			.then((v) => setDriver(v.driver ?? "herdr"))
+		getDriver()
+			.then((d) => {
+				setDriver(d);
+				if (d !== "hc") {
+					getWorkspaces()
+						.then(setWorkspaces)
+						.catch((e: Error) => setError(e.message));
+				}
+			})
 			.catch(() => {});
-		getWorkspaces()
-			.then(setWorkspaces)
-			.catch((e: Error) => setError(e.message));
 	}, [opened]);
 
 	const pickedWs = (workspaces ?? []).find((w) => w.workspace_id === picked);
