@@ -168,11 +168,11 @@ export async function startFixture() {
 				return;
 			}
 			if (path === "/api/version") {
-				json(res, 200, { version: "e2e", home: "/tmp/demo", driver: "herdr" });
+				json(res, 200, { version: "e2e", home: "/tmp/demo" });
 				return;
 			}
-			if (path === "/api/workspaces") {
-				json(res, 200, [{ workspace_id: "w1", label: "Forge", number: 1 }]);
+			if (path === "/api/spaces") {
+				json(res, 200, [{ id: "sp1", name: "Forge", folder: "/tmp/demo" }]);
 				return;
 			}
 			if (path === "/api/dirs") {

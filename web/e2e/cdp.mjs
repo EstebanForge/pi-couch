@@ -248,7 +248,15 @@ export async function launchBrowser(artifacts) {
 			"--window-size=393,873",
 			"about:blank",
 		],
-		{ stdio: ["ignore", "ignore", "pipe"] },
+		{
+			stdio: ["ignore", "ignore", "pipe"],
+			// Headless chromium wedges every http navigation on the
+			// session bus (Fedora's portal stack answers lazily); the
+			// bus var's absence makes chrome skip dbus entirely.
+			env: Object.fromEntries(
+				Object.entries(process.env).filter(([k]) => k !== "DBUS_SESSION_BUS_ADDRESS"),
+			),
+		},
 	);
 	let stderr = "";
 	let debuggingURL;
