@@ -30,7 +30,7 @@ All claims below were verified against a live sandboxed core (herdr-core 0.1.14,
 
 - hc has no import/migrate path and a fresh state namespace; legacy herdr panes do not carry over. pi sessions need no migration: they are pi's own jsonl files and pi-couch keys everything by session file path.
 - hc argv[0] template lookup hijacks a spawn whose first arg matches a user template; line mode (shell-quoted single string) avoids templates entirely. Terminal names: 1-32 chars of a-z 0-9 - _ ., starting alphanumeric, address-shaped names (t7) rejected.
-- terminal.attach requires framed mode; observe:true viewers only read and never become the size leader. A finished terminal refuses attach with error kind finished (hint: hc read).
+- terminal.attach requires framed mode; observe:true viewers only read and never become the size leader, while observe:false writer attaches advertise automatic_input and accept kind 6 raw input (no Enter appended) - that writer path is pi-couch's paste verb (ADR-0012). A finished terminal refuses attach with error kind finished (hint: hc read).
 
 ## Spaces and the app document (probed live, 2026-11-09, hc 0.1.19)
 

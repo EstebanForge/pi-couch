@@ -44,11 +44,11 @@ function KeystrokeDialogActions({ k, dialog }: { k: string; dialog: BridgeDialog
 	const [failed, setFailed] = useState<"refused" | "network" | "timeout" | null>(null);
 	const [detail, setDetail] = useState("");
 	const [draft, setDraft] = useState("");
-	// The editor dialog's buffer is one message, exactly as pi holds
-	// it: shown read-only, Submit accepts it as-is with one enter. A
-	// scrolled editor paints only the tail, so the box stays empty and
-	// the note says what Submit actually accepts.
-	const message = dialog.scrolled ? "" : (dialog.body ?? "");
+	// The editor dialog's buffer starts as the message pi holds; the
+	// box is editable (Submit rewrites pi's buffer with what the box
+	// shows), except when scrolled: the painted body is only the tail,
+	// so that box stays empty and Submit accepts as-is.
+	const [message, setMessage] = useState(dialog.scrolled ? "" : (dialog.body ?? ""));
 	// A multi-question rpiv dialog keeps one id across its questions, so
 	// a successful answer never brings the closing dialog:null frame -
 	// the next question's paint arrives instead. New served content
@@ -61,6 +61,7 @@ function KeystrokeDialogActions({ k, dialog }: { k: string; dialog: BridgeDialog
 			setBusy(false);
 			setActive("");
 			setFailed(null);
+			setMessage(dialog.scrolled ? "" : (dialog.body ?? ""));
 		}
 		servedSig.current = sig;
 	}, [dialog]);
@@ -77,12 +78,12 @@ function KeystrokeDialogActions({ k, dialog }: { k: string; dialog: BridgeDialog
 	const isEditor = dialog.kind === "editor";
 	const freeText = Boolean(ownAnswer) || dialog.kind === "input";
 
-	const answer = (a: string, label: string, text?: string) => {
+	const answer = (a: string, label: string, text?: string, was?: string) => {
 		if (busy) return;
 		setBusy(true);
 		setActive(label);
 		setFailed(null);
-		answerDialog(k, id, a, text)
+		answerDialog(k, id, a, text, was)
 			.then((r) => {
 				if (!r.ok) {
 					setFailed("refused");
@@ -103,10 +104,17 @@ function KeystrokeDialogActions({ k, dialog }: { k: string; dialog: BridgeDialog
 
 	const accept = () => {
 		if (busy) return;
-		// The served copy rides along as content proof: an unscrolled
-		// editor whose buffer pi replaced refuses instead of committing
-		// a message the user never saw.
-		answer("yes", "submit", message || undefined);
+		// An edited editor rides the type verb: the server rewrites pi's
+		// buffer with the box's text (per-line clear, raw paste, content
+		// match) before the enter, and the served body rides as was —
+		// proof the user saw this buffer and not a same-title successor.
+		// Whitespace-only differences stay unedited: pi soft-wraps, and
+		// the rewrite path is churn the server would refuse anyway.
+		const collapse = (s: string) => s.replace(/\s+/g, " ").trim();
+		const body = dialog.body ?? "";
+		const edited = !dialog.scrolled && collapse(message) !== collapse(body);
+		if (edited) answer("type", "submit", message, body);
+		else answer("yes", "submit", message || undefined);
 	};
 
 	return (
@@ -201,8 +209,9 @@ function KeystrokeDialogActions({ k, dialog }: { k: string; dialog: BridgeDialog
 					)}
 					<textarea
 						value={message}
-						readOnly
-						rows={Math.min(10, Math.max(3, message.split("\n").length))}
+						readOnly={Boolean(dialog.scrolled)}
+						onChange={(e) => setMessage(e.target.value)}
+						rows={Math.min(10, Math.max(3, Math.max(1, message.split("\n").length)))}
 						placeholder="pi's editor holds the message"
 						aria-label="Commit message"
 						className="mt-2 w-full resize-none rounded-xl bg-base-300 px-3 py-2 font-mono text-[13px] outline-none placeholder:text-muted"
@@ -239,7 +248,7 @@ function KeystrokeDialogActions({ k, dialog }: { k: string; dialog: BridgeDialog
 				{isEditor && (
 					<button
 						type="button"
-						disabled={busy}
+						disabled={busy || (!dialog.scrolled && !message.trim())}
 						onClick={accept}
 						className="flex min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-[14px] font-medium text-primary-content active:scale-[0.99] disabled:opacity-50"
 					>

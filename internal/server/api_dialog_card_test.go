@@ -25,6 +25,12 @@ func editorPaint(body string) string {
 		" enter submit  shift+enter/ctrl+j newline  escape/ctrl+c cancel  ctrl+g external editor"
 }
 
+// editorEmptyPaint is the buffer after a clear: rules with nothing
+// between. The parser calls it an editor dialog with an empty body.
+func editorEmptyPaint() string {
+	return editorPaint("")
+}
+
 // The dialog card's content comes from the pane parse, whatever kind
 // the bridge reported: the rpiv questionnaire arrives as "custom" with
 // an empty title, and only the pane knows what it asks.

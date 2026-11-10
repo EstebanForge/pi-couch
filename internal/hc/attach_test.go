@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"net"
 	"path/filepath"
 	"sync"
@@ -23,8 +24,10 @@ type framedFake struct {
 
 	paint  []byte
 	deltas [][]byte
-	finish bool // reply to attach with a JSON-RPC error instead
-	early  bool // send the first paint before the attach reply
+	finish bool     // reply to attach with a JSON-RPC error instead
+	early  bool     // send the first paint before the attach reply
+	autoIn bool     // include automatic_input in the attach reply
+	writes [][]byte // kind-6 payloads writers sent
 
 	mu       sync.Mutex
 	credits  []int
@@ -111,7 +114,7 @@ func (f *framedFake) serve(conn net.Conn) {
 					return
 				}
 			}
-			out, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": call.ID, "result": map[string]any{"channel": 9, "terminal": map[string]any{"address": "t1", "state": "live", "cols": 200, "rows": 120}}})
+			out, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": call.ID, "result": map[string]any{"channel": 9, "automatic_input": f.autoIn, "terminal": map[string]any{"address": "t1", "state": "live", "cols": 200, "rows": 120}}})
 			if _, err := conn.Write(encodeFrame(0, 0, out)); err != nil {
 				return
 			}
@@ -130,12 +133,28 @@ func (f *framedFake) serve(conn net.Conn) {
 			}
 			continue
 		}
+		if channel == 9 && kind == 6 {
+			f.mu.Lock()
+			f.writes = append(f.writes, payload)
+			f.mu.Unlock()
+			continue
+		}
 		if channel == 9 && kind == 1 && len(payload) == 4 {
 			f.mu.Lock()
 			f.credits = append(f.credits, int(binary.LittleEndian.Uint32(payload)))
 			f.mu.Unlock()
 		}
 	}
+}
+
+func (f *framedFake) writerText() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	b := []byte{}
+	for _, w := range f.writes {
+		b = append(b, w...)
+	}
+	return string(b)
 }
 
 func (f *framedFake) creditTotal() int {
@@ -312,5 +331,48 @@ func TestAttachReportsTheCoreGrid(t *testing.T) {
 	defer stream.Close()
 	if stream.Cols != 200 || stream.Rows != 120 {
 		t.Fatalf("grid = %dx%d, want the core's 200x120", stream.Cols, stream.Rows)
+	}
+}
+
+func TestWriteCarriesRawInputOnAWriterAttach(t *testing.T) {
+	f := startFramedFake(t, []byte("paint"), nil, false)
+	f.autoIn = true
+	c := NewAt(f.sock)
+	if err := c.Write(context.Background(), "t1", []byte("pasted-no-enter")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	waitFor(t, func() bool { return f.writerText() == "pasted-no-enter" })
+	if got := f.writerText(); got != "pasted-no-enter" {
+		t.Fatalf("writer payload = %q, want the raw bytes untouched", got)
+	}
+	// The credit rides the client's drain loop, which may still be
+	// running when the write lands: wait for it like any async fact.
+	waitFor(t, func() bool { return f.creditTotal() > 0 })
+	if f.attachParam("observe") != false {
+		t.Fatalf("attach observe = %v, want false (observe viewers cannot inject)", f.attachParam("observe"))
+	}
+	if c, _ := f.attachParam("cols").(float64); c != 0 {
+		t.Fatalf("attach cols = %v, want 0 so the core keeps its grid", c)
+	}
+	if r, _ := f.attachParam("rows").(float64); r != 0 {
+		t.Fatalf("attach rows = %v, want 0 so the core keeps its grid", r)
+	}
+	if f.creditTotal() == 0 {
+		t.Fatal("no credits flowed for the drained paint")
+	}
+}
+
+func TestWriteFailsClosedWithoutAutomaticInput(t *testing.T) {
+	f := startFramedFake(t, []byte("paint"), nil, false)
+	// f.autoIn stays false: the reply carries no automatic_input, so
+	// the core would silently drop kind 6 and typing would look like
+	// success while nothing lands.
+	c := NewAt(f.sock)
+	err := c.Write(context.Background(), "t1", []byte("pasted"))
+	if !errors.Is(err, ErrNoAutomaticInput) {
+		t.Fatalf("write error = %v, want ErrNoAutomaticInput", err)
+	}
+	if got := f.writerText(); got != "" {
+		t.Fatalf("writer payload = %q, want nothing sent", got)
 	}
 }

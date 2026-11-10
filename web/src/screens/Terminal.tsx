@@ -10,7 +10,7 @@ import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { Segmented, SegmentedButton, Toast } from "konsta/react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { type SessionsPatch, sendKeys, sendTextInput } from "../api";
+import { type SessionsPatch, sendKeys, sendPaste } from "../api";
 import { ESC_SETTLE_MS } from "../chat/quick-keys";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { useSessions } from "../state/sessions";
@@ -100,13 +100,21 @@ export default function TerminalScreen({ sessionKey }: { sessionKey: string }) {
 
 	const sendText = () => {
 		const text = draft;
-		if (!text.trim() || !wheel) return;
-		void sendTextInput(sessionKey, text).then((r) => {
+		// hc's writer attach carries raw bytes with no Enter: a paste
+		// only fills pi's editor or prompt. Mid-turn there is nothing to
+		// fill, so the send refuses instead of parking bytes on screen.
+		if (!text.trim() || !wheel || status === "working") return;
+		void sendPaste(sessionKey, text).then((r) => {
 			if (r.ok) setDraft("");
 			else if (r.error === "notdriven") say("No driver for this session");
-			else say("Input not sent");
+			else say("Paste not sent");
 		});
 	};
+	const pasteHint = !wheel
+		? "Take the wheel to paste"
+		: status === "working"
+			? "pi is mid-turn"
+			: "Paste into pi…";
 
 	// The grid: rebuilt per view mode, refit on resize. Wide mode holds
 	// the full WIDE_COLS data grid at a fixed readable font and pans
@@ -367,7 +375,7 @@ export default function TerminalScreen({ sessionKey }: { sessionKey: string }) {
 				</div>
 
 				<form
-					className={`mt-2 flex gap-2 ${wheel ? "" : "pointer-events-none opacity-40"}`}
+					className={`mt-2 flex gap-2 ${wheel && status !== "working" ? "" : "pointer-events-none opacity-40"}`}
 					onSubmit={(e) => {
 						e.preventDefault();
 						sendText();
@@ -377,7 +385,7 @@ export default function TerminalScreen({ sessionKey }: { sessionKey: string }) {
 						type="text"
 						value={draft}
 						onChange={(e) => setDraft(e.target.value)}
-						placeholder={wheel ? "Type into the TUI…" : "Take the wheel to type"}
+						placeholder={pasteHint}
 						spellCheck={false}
 						autoCorrect="off"
 						autoCapitalize="off"
@@ -385,10 +393,10 @@ export default function TerminalScreen({ sessionKey }: { sessionKey: string }) {
 					/>
 					<button
 						type="submit"
-						disabled={!wheel || !draft.trim()}
+						disabled={!wheel || !draft.trim() || status === "working"}
 						className="shrink-0 rounded-xl bg-primary px-4 py-2.5 text-[14px] font-medium text-primary-content disabled:opacity-40"
 					>
-						Type
+						Paste
 					</button>
 				</form>
 			</main>

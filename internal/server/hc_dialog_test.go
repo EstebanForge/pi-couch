@@ -1,8 +1,11 @@
 package server
 
 import (
+	"bufio"
 	"context"
+	"encoding/binary"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -33,17 +36,48 @@ type hcFakeCore struct {
 	paints []string // terminal.read sequence; the last repeats
 	ri     int
 
-	subs  []net.Conn              // connections that subscribed, in order
-	runs  []map[string]any        // terminal.run params
-	sends []map[string]any        // terminal.send params
-	kills []string                // terminal.kill addresses
-	docs  map[string]any          // doc.get values keyed by name
-	state string                  // snapshot status state; empty = working
-	snap  func() []map[string]any // snapshot terminals; nil = labeled t1
+	subs     []net.Conn              // connections that subscribed, in order
+	runs     []map[string]any        // terminal.run params
+	sends    []map[string]any        // terminal.send params
+	kills    []string                // terminal.kill addresses
+	attaches []map[string]any        // framed terminal.attach params
+	writes   [][]byte                // framed kind-6 payloads, in order
+	docs     map[string]any          // doc.get values keyed by name
+	state    string                  // snapshot status state; empty = working
+	snap     func() []map[string]any // snapshot terminals; nil = labeled t1
 
 	// failKeysNext fails this many terminal.keys calls (send failures,
 	// memo release tests); 0 means all succeed.
 	failKeysNext atomic.Int32
+}
+
+// writerText joins the recorded kind-6 payloads; the raw input a
+// writer attach delivered.
+func (f *hcFakeCore) writerText() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var b []byte
+	for _, w := range f.writes {
+		b = append(b, w...)
+	}
+	return string(b)
+}
+
+func (f *hcFakeCore) attachParams() []map[string]any {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]map[string]any(nil), f.attaches...)
+}
+
+// fakeFrame encodes hc's 9-byte framed header (u32 LE channel, kind
+// byte, u32 LE length) plus payload; encodeFrame stays unexported in
+// internal/hc.
+func fakeFrame(ch uint32, kind byte, payload []byte) []byte {
+	head := make([]byte, 9)
+	binary.LittleEndian.PutUint32(head[0:4], ch)
+	head[4] = kind
+	binary.LittleEndian.PutUint32(head[5:9], uint32(len(payload)))
+	return append(head, payload...)
 }
 
 // startHCFake wires a fake core whose snapshot carries one live
@@ -79,22 +113,89 @@ func startHCFake(t *testing.T, path string, paints ...string) (*hc.Driver, *hcFa
 
 func (f *hcFakeCore) serve(conn net.Conn) {
 	defer conn.Close()
-	buf := make([]byte, 0, 4096)
-	tmp := make([]byte, 2048)
+	br := bufio.NewReader(conn)
+	first, err := br.ReadString('\n')
+	if err != nil {
+		return
+	}
+	first = strings.TrimRight(first, "\n")
+	var req struct {
+		ID     json.RawMessage `json:"id"`
+		Method string          `json:"method"`
+		Params map[string]any  `json:"params"`
+	}
+	if json.Unmarshal([]byte(first), &req) == nil && req.Method == "hello" {
+		if framed, _ := req.Params["framed"].(bool); framed {
+			out, _ := json.Marshal(map[string]any{
+				"jsonrpc": "2.0", "id": req.ID,
+				"result": map[string]any{"generation": 1, "framed": true, "machine": "fake"},
+			})
+			_, _ = conn.Write(append(out, '\n'))
+			f.framedServe(br, conn)
+			return
+		}
+	}
+	f.reply(conn, first)
 	for {
-		n, err := conn.Read(tmp)
+		line, err := br.ReadString('\n')
 		if err != nil {
 			return
 		}
-		buf = append(buf, tmp[:n]...)
-		for {
-			i := strings.Index(string(buf), "\n")
-			if i < 0 {
-				break
+		f.reply(conn, strings.TrimRight(line, "\n"))
+	}
+}
+
+// framedServe serves one framed attach connection: the terminal.attach
+// reply rides a frameData frame on channel 0, kind-6 payloads are the
+// writer's raw input, credits are consumed and ignored.
+func (f *hcFakeCore) framedServe(br *bufio.Reader, conn net.Conn) {
+	for {
+		head := make([]byte, 9)
+		if _, err := io.ReadFull(br, head); err != nil {
+			return
+		}
+		ch := binary.LittleEndian.Uint32(head[0:4])
+		kind := head[4]
+		size := binary.LittleEndian.Uint32(head[5:9])
+		payload := make([]byte, size)
+		if _, err := io.ReadFull(br, payload); err != nil {
+			return
+		}
+		switch {
+		case kind == 6:
+			f.mu.Lock()
+			f.writes = append(f.writes, payload)
+			f.mu.Unlock()
+		case kind == 0 && ch == 0:
+			var req struct {
+				ID     json.RawMessage `json:"id"`
+				Method string          `json:"method"`
+				Params map[string]any  `json:"params"`
 			}
-			line := string(buf[:i])
-			buf = buf[i+1:]
-			f.reply(conn, line)
+			if err := json.Unmarshal(payload, &req); err != nil {
+				continue
+			}
+			switch req.Method {
+			case "terminal.attach":
+				f.mu.Lock()
+				f.attaches = append(f.attaches, req.Params)
+				f.mu.Unlock()
+				out, _ := json.Marshal(map[string]any{
+					"jsonrpc": "2.0", "id": req.ID,
+					"result": map[string]any{
+						"channel":         7,
+						"automatic_input": true,
+						"terminal":        map[string]any{"address": "t7", "state": "live", "cols": 131, "rows": 31},
+					},
+				})
+				_, _ = conn.Write(fakeFrame(0, 0, out))
+			default:
+				out, _ := json.Marshal(map[string]any{
+					"jsonrpc": "2.0", "id": req.ID,
+					"error": map[string]any{"code": -32601, "message": "fake: framed method not implemented"},
+				})
+				_, _ = conn.Write(fakeFrame(0, 0, out))
+			}
 		}
 	}
 }
@@ -369,28 +470,6 @@ func TestHCDialogAnswerEscape(t *testing.T) {
 	}
 }
 
-func TestHCDialogAnswerTypeRefusesEditor(t *testing.T) {
-	// hc's terminal.send appends Enter: a chunked editor rewrite would
-	// early-submit and its big paste trips pi's paste guard, so the
-	// type verb refuses on editors instead of corrupting the buffer.
-	a, sessPath := hcDialogApp(t)
-	drv, fake := startHCFake(t, sessPath, editorPaint("probe commit\n"))
-	wireHC(a, drv)
-	waitForHC(t, func() bool {
-		_, err := a.hcDrv.TargetForPath(context.Background(), sessPath)
-		return err == nil
-	})
-	plantBridge(t, a, sessPath, BridgeDialog{ID: "d9", Kind: "editor", Title: "Commit staged changes with this message?"})
-
-	rec := hcAnswerReq(t, a, `{"id":"d9","answer":"type","text":"feat: x"}`)
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("code %d body %s, want 409", rec.Code, rec.Body.String())
-	}
-	if keys := fake.keyLog(); len(keys) != 0 {
-		t.Fatalf("keys = %v, want none", keys)
-	}
-}
-
 func TestHCDialogAnswerEditorAcceptSendsEnter(t *testing.T) {
 	// Accepting pi's editor from the phone is submit-as-is: the buffer
 	// lives in pi, so yes is one enter. The card sends its served copy
@@ -415,6 +494,188 @@ func TestHCDialogAnswerEditorAcceptSendsEnter(t *testing.T) {
 	}
 	if sends := fake.sendLog(); len(sends) != 0 {
 		t.Fatalf("sends = %v, want none (no rewrite)", sends)
+	}
+}
+
+func TestHCDialogAnswerEditorTypeRewritesAndSubmits(t *testing.T) {
+	// The type verb on an editor rewrites pi's buffer: per-line clear
+	// keys, a raw paste, then a content match before the one enter.
+	// The paint walk crosses the empty-editor state on the way.
+	a, sessPath := hcDialogApp(t)
+	drv, fake := startHCFake(t, sessPath,
+		editorPaint("feat: old\n"),
+		editorEmptyPaint(),
+		editorPaint("feat: new\n"))
+	wireHC(a, drv)
+	waitForHC(t, func() bool {
+		_, err := a.hcDrv.TargetForPath(context.Background(), sessPath)
+		return err == nil
+	})
+	plantBridge(t, a, sessPath, BridgeDialog{ID: "d9", Kind: "editor", Title: "Commit staged changes with this message?"})
+
+	rec := hcAnswerReq(t, a, `{"id":"d9","answer":"type","text":"feat: new"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code %d body %s, want 200", rec.Code, rec.Body.String())
+	}
+	if got := fake.writerText(); got != "feat: new" {
+		t.Fatalf("paste = %q, want the new text", got)
+	}
+	attaches := fake.attachParams()
+	if len(attaches) != 1 || attaches[0]["observe"] != false {
+		t.Fatalf("attach params = %v, want one writer attach", attaches)
+	}
+	keys := fake.keyLog()
+	if len(keys) != 2 {
+		t.Fatalf("keys = %v, want one clear iteration plus one enter", keys)
+	}
+	if len(keys[0]) != 3 || keys[0][0] != "ctrl+a" {
+		t.Fatalf("clear keys = %v, want ctrl+a ctrl+k backspace", keys[0])
+	}
+	if len(keys[1]) != 1 || keys[1][0] != "enter" {
+		t.Fatalf("submit keys = %v, want one enter", keys[1])
+	}
+	if sends := fake.sendLog(); len(sends) != 0 {
+		t.Fatalf("sends = %v, want none (the rewrite is a paste, not a send)", sends)
+	}
+}
+
+func TestHCDialogAnswerEditorTypeRefusesAnUnmovedScreen(t *testing.T) {
+	// If the buffer never takes the text, the rewrite must not fire
+	// its enter: pi would submit something the user did not see.
+	a, sessPath := hcDialogApp(t)
+	drv, fake := startHCFake(t, sessPath, editorPaint("feat: old\n"))
+	wireHC(a, drv)
+	waitForHC(t, func() bool {
+		_, err := a.hcDrv.TargetForPath(context.Background(), sessPath)
+		return err == nil
+	})
+	plantBridge(t, a, sessPath, BridgeDialog{ID: "d9", Kind: "editor", Title: "Commit staged changes with this message?"})
+
+	rec := hcAnswerReq(t, a, `{"id":"d9","answer":"type","text":"feat: new"}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("code %d, want 409 on a stuck screen", rec.Code)
+	}
+	for _, batch := range fake.keyLog() {
+		if len(batch) == 1 && batch[0] == "enter" {
+			t.Fatalf("keys contain an enter, want none on refusal")
+		}
+	}
+	if got := fake.writerText(); got != "feat: new" {
+		t.Fatalf("paste = %q, want the blind write recorded", got)
+	}
+}
+
+func TestHCDialogAnswerEditorTypeRefusesScrolled(t *testing.T) {
+	// A scrolled editor paints a tail: the clear count is unknown, so
+	// the type verb refuses before touching the terminal.
+	const paint = " Commit staged changes with this message?\n" +
+		"────────────────────────────────────────────\n" +
+		"──── ↑ 4 more ────\n" +
+		"tail line one\ntail line two\n" +
+		"────────────────────────────────────────────\n\n" +
+		" enter submit  shift+enter/ctrl+j newline  escape/ctrl+c cancel  ctrl+g external editor"
+	a, sessPath := hcDialogApp(t)
+	drv, fake := startHCFake(t, sessPath, paint)
+	wireHC(a, drv)
+	waitForHC(t, func() bool {
+		_, err := a.hcDrv.TargetForPath(context.Background(), sessPath)
+		return err == nil
+	})
+	plantBridge(t, a, sessPath, BridgeDialog{ID: "d9", Kind: "editor", Title: "Commit staged changes with this message?"})
+
+	rec := hcAnswerReq(t, a, `{"id":"d9","answer":"type","text":"feat: new"}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("code %d, want 409 for a scrolled editor", rec.Code)
+	}
+	if keys := fake.keyLog(); len(keys) != 0 {
+		t.Fatalf("keys = %v, want none", keys)
+	}
+	if got := fake.writerText(); got != "" {
+		t.Fatalf("paste = %q, want none", got)
+	}
+}
+
+func TestHCDialogAnswerEditorTypeWasProofRefusesABufferSwap(t *testing.T) {
+	// The type verb's was field is the card's content proof: a stale
+	// card (or a same-title successor) must refuse before any clear
+	// key touches pi, not after a blind rewrite.
+	a, sessPath := hcDialogApp(t)
+	drv, fake := startHCFake(t, sessPath,
+		editorPaint("feat: current\n"),
+		editorPaint("feat: current\n"),
+		editorPaint("feat: current\n"))
+	wireHC(a, drv)
+	waitForHC(t, func() bool {
+		_, err := a.hcDrv.TargetForPath(context.Background(), sessPath)
+		return err == nil
+	})
+	plantBridge(t, a, sessPath, BridgeDialog{ID: "d9", Kind: "editor", Title: "Commit staged changes with this message?"})
+
+	rec := hcAnswerReq(t, a, `{"id":"d9","answer":"type","text":"feat: new","was":"feat: stale"}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("code %d body %s, want 409", rec.Code, rec.Body.String())
+	}
+	if keys := fake.keyLog(); len(keys) != 0 {
+		t.Fatalf("keys = %v, want none", keys)
+	}
+	if got := fake.writerText(); got != "" {
+		t.Fatalf("paste = %q, want none", got)
+	}
+}
+
+func TestHCDialogAnswerEditorTypeAbandonsWhenDialogGoes(t *testing.T) {
+	// If the dialog leaves mid-rewrite (dismissed at the desk), the
+	// remaining clears and the paste would land in pi's main editor:
+	// the pre-paste re-read must abort the rewrite instead.
+	// Paint walk: settle reads the two-line editor, the pre-paste
+	// re-read finds a confirm dialog where the editor was.
+	a, sessPath := hcDialogApp(t)
+	drv, fake := startHCFake(t, sessPath,
+		editorPaint("feat: two\nlines\n"),
+		confirmPaint("Really quit?"),
+		confirmPaint("Really quit?"))
+	wireHC(a, drv)
+	waitForHC(t, func() bool {
+		_, err := a.hcDrv.TargetForPath(context.Background(), sessPath)
+		return err == nil
+	})
+	plantBridge(t, a, sessPath, BridgeDialog{ID: "d9", Kind: "editor", Title: "Commit staged changes with this message?"})
+
+	rec := hcAnswerReq(t, a, `{"id":"d9","answer":"type","text":"feat: new"}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("code %d body %s, want 409", rec.Code, rec.Body.String())
+	}
+	if got := fake.writerText(); got != "" {
+		t.Fatalf("paste = %q, want none after the dialog left", got)
+	}
+	for _, k := range fake.keyLog() {
+		if len(k) == 1 && k[0] == "enter" {
+			t.Fatalf("keys = %v, want no submit", fake.keyLog())
+		}
+	}
+}
+
+func TestHCDialogAnswerEditorTypeRefusesTooLong(t *testing.T) {
+	// Over the clear cap the rewrite would leave a half-cleared
+	// buffer before refusing; refuse up front with pi untouched.
+	a, sessPath := hcDialogApp(t)
+	drv, fake := startHCFake(t, sessPath, editorPaint(strings.Repeat("line\n", 65)))
+	wireHC(a, drv)
+	waitForHC(t, func() bool {
+		_, err := a.hcDrv.TargetForPath(context.Background(), sessPath)
+		return err == nil
+	})
+	plantBridge(t, a, sessPath, BridgeDialog{ID: "d9", Kind: "editor", Title: "Commit staged changes with this message?"})
+
+	rec := hcAnswerReq(t, a, `{"id":"d9","answer":"type","text":"feat: new"}`)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "editor too long") {
+		t.Fatalf("code %d body %s, want 409 editor too long", rec.Code, rec.Body.String())
+	}
+	if keys := fake.keyLog(); len(keys) != 0 {
+		t.Fatalf("keys = %v, want none", keys)
+	}
+	if got := fake.writerText(); got != "" {
+		t.Fatalf("paste = %q, want none", got)
 	}
 }
 

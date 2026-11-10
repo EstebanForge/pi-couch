@@ -40,6 +40,9 @@ func (a *app) apiDialogAnswer(w http.ResponseWriter, r *http.Request) {
 		ID     string `json:"id"`
 		Answer string `json:"answer"`
 		Text   string `json:"text"`
+		// Was is the body the card answered against; the editor type
+		// verb uses it as content proof before rewriting pi's buffer.
+		Was string `json:"was"`
 	}
 	start := time.Now()
 	sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
@@ -100,7 +103,7 @@ func (a *app) apiDialogAnswer(w http.ResponseWriter, r *http.Request) {
 	// answers release on success too, because a multi-question rpiv
 	// dialog keeps one id across its questions - only confirms,
 	// escapes and editor submits are one-shot per id.
-	sent, oneShot := a.answerDispatch(w, r, req.Answer, req.Text, meta.Path, expectID, expectTitle)
+	sent, oneShot := a.answerDispatch(w, r, req.Answer, req.Text, req.Was, meta.Path, expectID, expectTitle)
 	if !sent || !oneShot {
 		a.answered.Release(req.ID)
 	}
@@ -110,14 +113,9 @@ func (a *app) apiDialogAnswer(w http.ResponseWriter, r *http.Request) {
 // and the 200 already written. expectID/expectTitle are the identity
 // the pane must still show: yes/no and escape verify the fresh parse
 // matches, not merely that some dialog is up. yes on an editor is the
-// submit-as-is accept, content-checked against the card's copy.
-//
-// Two hc facts shape the type verb: terminal.send always appends Enter
-// (no type-then-verify-then-submit, and an editor rewrite would
-// early-submit a corrupted buffer), so the type verb answers only
-// real input widgets and refuses editors; everything else keeps the
-// verify-then-fire discipline.
-func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, text, path, expectID, expectTitle string) (bool, bool) {
+// submit-as-is accept, content-checked against the card's copy; type
+// on an editor rewrites the buffer through editorRewrite.
+func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, text, was, path, expectID, expectTitle string) (bool, bool) {
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
 	drv := a.hcDrv
@@ -184,8 +182,7 @@ func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, tex
 		// pi paints - a same-title successor dialog then refuses
 		// instead of committing a buffer the user never saw. A scrolled
 		// editor paints only the tail, so it rests on the identity gate.
-		// hc's send appends Enter and cannot rewrite a buffer, so no
-		// stays refused here.
+		// Rewriting a buffer is the type verb's job (editorRewrite).
 		if m := parsePiDialog(screen); m != nil && m.Kind == "editor" {
 			if answer != "yes" {
 				a.logger.Warn("dialog answer refused", "cause", "editor has no no", "session", path)
@@ -215,7 +212,7 @@ func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, tex
 		return a.answerSend(w, ctx, drv, addr, "", keys), true
 
 	case answer == "type":
-		return a.answerFreeText(w, ctx, drv, addr, path, text)
+		return a.answerFreeText(w, ctx, drv, addr, path, text, was)
 
 	case answer == "toggle":
 		return a.answerToggle(w, ctx, drv, addr, text), false
@@ -269,14 +266,19 @@ func (a *app) answerSend(w http.ResponseWriter, ctx context.Context, drv *hc.Dri
 }
 
 // answerFreeText answers input widgets with one forced send (hc
-// appends the Enter) and refuses editors: a chunked editor rewrite
-// would early-submit a corrupted buffer, and the send's single big
-// paste trips pi's paste guard. The post-send echo check only logs -
-// the answer already went out.
-func (a *app) answerFreeText(w http.ResponseWriter, ctx context.Context, drv *hc.Driver, addr, sessionPath, text string) (bool, bool) {
+// appends the Enter, which inputs take as submit); an editor goes to
+// editorRewrite. The post-send echo check only logs - the answer
+// already went out.
+func (a *app) answerFreeText(w http.ResponseWriter, ctx context.Context, drv *hc.Driver, addr, sessionPath, text, was string) (bool, bool) {
 	trimmed := strings.TrimSpace(text)
 	if trimmed == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
+		return false, false
+	}
+	if hasControls(trimmed) {
+		// Same rule as the composer: control bytes would drive pi's
+		// TUI, not fill the input.
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "control characters are not supported"})
 		return false, false
 	}
 	var m *piDialog
@@ -313,9 +315,7 @@ func (a *app) answerFreeText(w http.ResponseWriter, ctx context.Context, drv *hc
 		return false, false
 	}
 	if m.Kind == "editor" {
-		a.logger.Warn("dialog answer refused", "cause", "editor unsupported", "session", sessionPath)
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
-		return false, false
+		return a.editorRewrite(w, ctx, drv, addr, sessionPath, m, trimmed, was)
 	}
 	if !m.InputMode && m.Kind != "input" {
 		// A questionnaire row that needs selecting first: hc's send
@@ -333,6 +333,125 @@ func (a *app) answerFreeText(w http.ResponseWriter, ctx context.Context, drv *hc
 		}
 	}
 	return ok, false
+}
+
+// editorRewrite replaces pi's editor buffer with the typed text: per
+// line, one ctrl+a/ctrl+k/backspace keys call clears the buffer (pi
+// drops burst key batches, so each iteration rides its own call), a
+// raw paste writes the new text, and a content match on the fresh
+// screen gates the single enter submit. Scrolled editors refuse: the
+// painted body is a tail fragment, so the clear count is unknown.
+// was is the served body the card answered against - proof the user
+// saw this buffer; without it a same-title successor would be
+// rewritten unseen. The dialog is re-read mid-loop and before the
+// paste so a dialog dismissed mid-rewrite cannot leave its clears
+// and paste in pi's main prompt editor.
+func (a *app) editorRewrite(w http.ResponseWriter, ctx context.Context, drv *hc.Driver, addr, sessionPath string, m *piDialog, text, was string) (bool, bool) {
+	if m.Scrolled {
+		a.logger.Warn("dialog answer refused", "cause", "scrolled editor", "session", sessionPath)
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+		return false, false
+	}
+	if was != "" && strings.Join(strings.Fields(was), " ") != strings.Join(strings.Fields(m.Body), " ") {
+		a.logger.Warn("dialog answer refused", "cause", "editor buffer moved on", "session", sessionPath)
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+		return false, false
+	}
+	lines := strings.Count(m.Body, "\n") + 1
+	if lines > 64 {
+		// The clear loop would leave the buffer half-cleared before the
+		// verify loop refuses; refusing up front keeps pi untouched.
+		a.logger.Warn("dialog answer refused", "cause", "editor too long", "session", sessionPath)
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "editor too long"})
+		return false, false
+	}
+	// editorUp re-reads and reports whether the editor still holds the
+	// buffer this rewrite started on (empty counts: the clears made it
+	// so). Anything else up there means the dialog is gone or swapped
+	// and the remaining keys would hit pi's idle editor.
+	editorUp := func() bool {
+		screen, err := drv.ReadScreen(ctx, addr, 60)
+		if err != nil {
+			return true
+		}
+		p := parsePiDialog(screen)
+		if p == nil {
+			return editorPaneEmpty(screen)
+		}
+		if p.Kind != "editor" {
+			return false
+		}
+		return p.Scrolled || strings.Join(strings.Fields(p.Body), " ") == strings.Join(strings.Fields(m.Body), " ")
+	}
+	for i := 0; i < lines; i++ {
+		if err := drv.PressKeys(ctx, addr, []string{"ctrl+a", "ctrl+k", "backspace"}); err != nil {
+			a.logger.Warn("dialog answer refused", "cause", "editor clear failed", "session", sessionPath, "err", err.Error())
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+			return false, false
+		}
+		if (i+1)%8 == 0 && !editorUp() {
+			a.logger.Warn("dialog answer refused", "cause", "editor gone mid rewrite", "session", sessionPath)
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "rewrite abandoned"})
+			return false, false
+		}
+		select {
+		case <-ctx.Done():
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+			return false, false
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+	if !editorUp() {
+		// The paste must never land after the dialog left: the clears
+		// would sit in pi's main editor with the new text on top.
+		a.logger.Warn("dialog answer refused", "cause", "editor gone before paste", "session", sessionPath)
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "rewrite abandoned"})
+		return false, false
+	}
+	if err := drv.Write(ctx, addr, []byte(text)); err != nil {
+		a.logger.Warn("dialog answer refused", "cause", "editor paste failed", "session", sessionPath, "err", err.Error())
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+		return false, false
+	}
+	// The clear and the paste are blind; the screen is the only truth
+	// before the one-shot enter. A mismatched buffer holds the new text
+	// unsubmitted: escape on the card cancels, and pi re-raises the
+	// dialog on the next commit.
+	want := strings.Join(strings.Fields(text), " ")
+	matched := false
+loop:
+	for settle := 0; settle < 4; settle++ {
+		screen, err := drv.ReadScreen(ctx, addr, 60)
+		if err != nil {
+			select {
+			case <-ctx.Done():
+				break loop
+			case <-time.After(250 * time.Millisecond):
+			}
+			continue
+		}
+		p := parsePiDialog(screen)
+		if p == nil && editorPaneEmpty(screen) {
+			p = &piDialog{Kind: "editor"}
+		}
+		if p != nil && p.Kind == "editor" && strings.Join(strings.Fields(p.Body), " ") == want {
+			matched = true
+			break
+		}
+		select {
+		case <-ctx.Done():
+			break loop
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
+	if !matched {
+		a.logger.Warn("dialog answer refused", "cause", "editor rewrite mismatch", "session", sessionPath)
+		// Distinct from "changed": pi's buffer now holds the typed text
+		// unsubmitted, so the card can tell the user the text is in pi.
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "rewrite mismatch"})
+		return false, false
+	}
+	return a.answerSend(w, ctx, drv, addr, "", []string{"enter"}), true
 }
 
 func (a *app) answerToggle(w http.ResponseWriter, ctx context.Context, drv *hc.Driver, addr, want string) bool {

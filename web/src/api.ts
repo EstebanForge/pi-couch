@@ -420,9 +420,17 @@ export const resumeSession = (key: string, text: string) =>
 	postJSONBody(`/api/sessions/${encodeURIComponent(key)}/resume`, { text }, 30_000);
 
 /** Answer an open pi confirm dialog: yes presses enter, no presses
- * down+enter. ok:false carries the in-band refusal (changed, notfound,
- * send failed) and the caller hides its buttons. */
-export const answerDialog = (key: string, id: string, answer: string, text?: string) =>
+ * down+enter. was carries the body the card answered against (the
+ * editor type verb's content proof). ok:false carries the in-band
+ * refusal (changed, rewrite mismatch, notfound, send failed) and the
+ * caller hides its buttons. */
+export const answerDialog = (
+	key: string,
+	id: string,
+	answer: string,
+	text?: string,
+	was?: string,
+) =>
 	// Bounded just past the server's 20s answer ctx: an unanswered
 	// request must resolve as unreachable, not hang the busy spinner.
 	postJSONBody(
@@ -431,6 +439,7 @@ export const answerDialog = (key: string, id: string, answer: string, text?: str
 			id,
 			answer,
 			...(text !== undefined ? { text } : {}),
+			...(was !== undefined ? { was } : {}),
 		},
 		25_000,
 	);
@@ -477,9 +486,10 @@ export const setThinking = (key: string, level: string) =>
 	postJSONBody(`/api/sessions/${encodeURIComponent(key)}/thinking`, { level });
 export const sendKeys = (key: string, keys: string[]) =>
 	postJSONBody(`/api/sessions/${encodeURIComponent(key)}/terminal/input`, { keys });
-// Raw text into the TUI (editor buffer, menus); pi does not see it as a
-// prompt and it never submits a line by itself (spike-proven).
-export const sendTextInput = (key: string, text: string) =>
+// Paste raw text into the TUI over hc's writer attach (kind-6
+// automatic input): pi sees the bytes with no Enter appended, so a
+// paste never submits a line by itself (ADR-0012).
+export const sendPaste = (key: string, text: string) =>
 	postJSONBody(`/api/sessions/${encodeURIComponent(key)}/terminal/input`, { text });
 
 export type ModelRow = { id: string; context?: number; levels?: string[] };

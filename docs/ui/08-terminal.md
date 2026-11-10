@@ -1,6 +1,6 @@
 # Terminal Tab Screen
 
-Purpose: Provide an interactive xterm.js terminal bridge to the session's herdr target, supporting read-only peek mode, explicit takeover, and mobile keys.
+Purpose: Provide an interactive xterm.js terminal bridge to the session's hc terminal, supporting a read-only default view, mobile keys, and paste-style text delivery.
 Feature ids covered: T1, T2, T3, T4.
 Entry points: Tapping the "Terminal" tab in Session view; tapping quick terminal toggle icon in session header.
 
@@ -10,10 +10,10 @@ Entry points: Tapping the "Terminal" tab in Session view; tapping quick terminal
 +-----------------------------------+
 |[Chat][Changes][Term*][Files][Cmts]|
 +-----------------------------------+
-| Peek Mode (Read-only)             |
-| [ Take the wheel (Attach)       ] |
+| Read-only view                    |
+| [ Take the wheel (Keys)         ] |
 +-----------------------------------+
-| pi@server:~/Dev/Couch Pi$ git st  |
+| pi@server:~/Dev/pi-couch$ git st  |
 | On branch main                    |
 | Changes not staged for commit:    |
 |   modified:   scanner/tail.go     |
@@ -32,49 +32,47 @@ Entry points: Tapping the "Terminal" tab in Session view; tapping quick terminal
 ## Layout and Components
 
 Top header maintains persistent session navigation and status indicators.
-Mode banner: Indicates current attachment state. In "Peek Mode (Read-only)" (T4), it presents a prominent "Take the wheel (Attach)" button (T3). When attached interactively, it displays "Attached (Interactive)" with a "Detach" button.
-Terminal viewport: Embeds vendored xterm.js canvas rendering the pane's ANSI stream fetched over the herdr socket with `pane.read` format `ansi`. herdr 0.9.3 has no output push, so the server polls and gates on the pane `revision`; the client repaints each `term` event (T1). Verified in M0 findings: the socket has no attach method and no PTY bridge exists.
+Mode banner: In the read-only view (T4), it presents the "Take the wheel (Keys)" button (T3). With the wheel held, it displays "At the wheel" with a "Drop" button.
+Terminal viewport: Embeds vendored xterm.js canvas rendering the terminal's ANSI stream. The server holds one hc framed attach (observe) per connected client and fans the bytes out as SSE delta frames: a `size` frame carries the terminal's real grid before the first paint, then base64 delta frames. A `reset` frame (core resync, hc ErrUnsynced) makes the client reconnect; a `gone` frame (terminal exited, hc error kind finished) ends the stream (T1).
+Composer box: One text input above the key bar. Submitting sends the text through the server's writer attach: hc kind 6 (automatic input) injects the raw bytes into the terminal's pty without appending Enter, so the text lands as typed characters, never as a submitted line. A dead session or a paste failure raises the "Paste not sent" banner (T2).
 Mobile key bar: Sits fixed directly above the on-screen keyboard in the thumb zone. Includes buttons: `[ESC]`, `[TAB]`, `[CTRL]`, `[ALT]`, `[^]` (up), `[v]` (down), `[<]` (left), `[>]` (right) (T2).
 Key latch indicators: Modifier keys (`CTRL` and `ALT`) toggle an active latch highlight when pressed once, applying to the next typed character before resetting. Double-tapping locks modifier.
-Terminal toolbar: Bottom edge holds font size reset button and copy selection button.
 
 ## Interactions
 
-Tap "Take the wheel": Switches from peek to interactive mode: keystrokes enabled and sent through `pane.send_input`. There is no takeover dialog: the socket has no attach lock and no `--takeover` (M0 findings). If the desk holds a CLI attach, both sides see output and typed input interleaves; a banner notes "Desk terminal attached" when the pane reports one.
-Tap "Detach": Drop interactive PTY connection and revert to read-only peek stream.
-Tap terminal viewport: In interactive mode, focuses hidden input element to invoke system on-screen software keyboard.
-Tap mobile key (`ESC`, `TAB`, arrow keys): Sends corresponding ANSI escape sequence through WebSocket to server PTY.
-Tap modifier key (`CTRL`, `ALT`): Latches modifier state. Typing subsequent letter sends control sequence (example: latched `CTRL` + `C` sends `\x03`).
+Tap "Take the wheel": Enables the composer box and confirms the key row target; the stream stays the same observe attach. There is no takeover handshake: hc has no attach lock, and desk-side sessions keep rendering whatever they render.
+Tap "Drop": Hides the composer box; key row stays available for direct keys.
+Tap terminal viewport: In wheel mode, focuses hidden input element to invoke system on-screen software keyboard.
+Submit the composer box: One POST to the terminal input endpoint; the server opens a short-lived writer attach (observe false, automatic_input required, fail closed without it), sends the draft as one kind 6 frame, drains and credits the core's output window, and closes. No Enter is ever appended: a draft never submits a line by itself.
+Tap mobile key (`ESC`, `TAB`, arrow keys): Sends the key name through hc `terminal.keys` in one request.
+Tap modifier key (`CTRL`, `ALT`): Latches modifier state. Typing subsequent letter sends the composed key name (example: latched `CTRL` + `C` sends key `ctrl+c`).
 Long-press modifier key: Lock modifier continuously until tapped again.
-Rotate phone to horizontal orientation: Terminal container recalculates width and height, sending JSON resize frame to server PTY bridge (`{"type": "resize", "cols": 120, "rows": 32}`).
-Pinch to zoom inside terminal: Adjusts xterm.js font size smoothly between 10px and 18px without altering container geometry.
+Rotate phone to horizontal orientation: The client reconnects the stream with new `cols`/`rows` query params (clamped to 40-500 by 10-200) so the core resizes the pty and the first `size` frame carries the new grid.
 Double tap terminal text: Select word for copying.
 Swipe up or down inside terminal viewport: Scroll terminal history buffer when not in alternate screen mode.
 
 ## States
 
 Loading: Viewport renders black canvas with centered text: "Connecting to terminal bridge...".
-Peek: Read-only stream renders live terminal output without sending keystrokes or claiming exclusive attach lock (T4).
-Interactive: Bidirectional WebSocket stream active; keystrokes send directly to PTY; mobile key row enabled.
-Contended: The desk holds a CLI attach on the same pane; interactive mode stays available and a coexistence banner is shown (T3).
-Error: If PTY spawn fails or herdr target disappears, displays red banner: "Failed to connect to target pane. Session may be stopped."
-Backgrounded: WebSocket disconnects automatically when browser or WebView enters background to avoid keeping unused PTY processes alive on the server.
+Read-only: Stream renders live terminal output; key row works, composer box hidden until the wheel is taken (T4).
+Wheel: Composer box visible; keys and paste flow to the terminal.hc has no attach lock, so desk and phone share the terminal by construction.
+Contended: Not applicable - there is no attach lock and no takeover. If pi is mid-turn the keys still land; pi's own queue mode decides what they do to the running turn.
+Error: A dead terminal answers the stream with `gone` and displays the "Session may be stopped" banner; a failed composer send shows "Paste not sent" with the server's reason.
+Backgrounded: SSE disconnects automatically when browser or WebView enters background; reconnect resumes the observe attach without disturbing the session.
 
 ## Data Needs
 
 Scanner fields: Workdir path for context.
-herdr actions: `pane.read` (format `ansi`, revision-gated 1 s poll) on connect and on change; `pane.send_input` for keystrokes and the key row. No PTY process, no cgo (M0 findings).
-SSE events: Secondary to WebSocket; transmits Status badge changes in header.
+hc actions: one framed attach (observe) per stream client for output; `terminal.keys` for the key row and quick keys; a writer attach with kind 6 per composer submit for text. No PTY process, no cgo; the wire format is pinned in docs/hc-findings.md.
+SSE events: `size` then base64 `delta` frames on `/stream/terminal/{key}`; status badges ride the sessions stream, not the terminal stream.
 Git service: Not used directly by terminal.
-State JSON: Stores preferred terminal font size.
 
 ## Edge Cases
 
-Backgrounding and SSE death: Mobile browser backgrounds drop WebSocket connections immediately. Upon return to foreground, Couch Pi reconnects in peek mode to avoid stealing focus if another client connected in the meantime.
-herdr attach contention: The socket has no attach lock, so phone and desk can share the pane; the banner keeps the user aware. Peek mode remains the default so a phone visit never types into the desk session (T3, T4).
-Unknown jsonl entries: Not applicable; terminal bridge operates on raw byte streams from herdr PTY, completely independent of jsonl parsing.
-Missing Workdir or Repo: Terminal opens in whichever directory herdr target is located; missing repo does not prevent terminal access.
-Stale Status: If agent Driver terminates, PTY stream closes and displays message: "Terminal disconnected: process exited."
-Software keyboard viewport resizing: On mobile devices, opening the software keyboard shrinks the window viewport. The TS island handles viewport resize events and sends updated row dimensions to prevent output clipping.
-Rapid key repeat: Mobile key row debounces touches to prevent accidental double-execution of escape commands.
-PTY buffer desynchronization: If network jitter causes missing frame bursts, sending a terminal clear signal restores accurate canvas state.
+Backgrounding and SSE death: Mobile browser backgrounds drop SSE connections immediately. Upon return to foreground, Couch Pi reconnects the observe attach; the first `size` frame repaints the real grid.
+Paste safety: The composer's writer attach never appends Enter, so a pasted multi-line draft sits in pi's editor unsubmitted. This is the same verb the dialog card uses to rewrite pi's editor buffer (ADR-0012).
+hc resync: A core resync surfaces as a `reset` SSE frame; the client reconnects and repaints from the next `size` frame. Not an error.
+Missing Workdir or Repo: Terminal opens on the session's hc terminal regardless of repo state; a missing repo does not prevent terminal access.
+Stale Status: If the terminal exits, the attach path surfaces hc error kind finished as `gone`, and the screen shows "Terminal disconnected".
+Software keyboard viewport resizing: On mobile devices, opening the software keyboard shrinks the window viewport. The client re-reads the container and reconnects with updated dimensions to prevent output clipping.
+Stream desynchronization: Frame loss is impossible to observe from the client: every reconnect starts from a fresh `size` frame, so the canvas always resyncs to the real grid.

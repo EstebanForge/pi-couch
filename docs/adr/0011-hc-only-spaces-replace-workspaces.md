@@ -25,7 +25,7 @@ Meanwhile hc grew the surface that made the old workspaces make sense. Verified 
 
 ## Consequences
 
-- The dual dialog implementation collapses to the hc screen-read path. The editor rewrite verb is gone (hc's send appends Enter and would early-submit a corrupted buffer); editors answer escape and free-text widgets only, as under the hc-only state since wave 5.
+- The dual dialog implementation collapses to the hc screen-read path. hc's send appends Enter, so buffer rewriting rides the writer attach instead (kind 6 raw input, per-line key clears, content-matched before submit): see ADR-0012, which restores editor answering that this ADR had recorded as impossible.
 - The create flow loses herdr's workspace split semantics; "spawn into a space" is folder + labels, not a pane split in a tree Couch Pi owns.
 - `GET /api/workspaces` and the `workspace_id` field are gone with no compatibility alias; the SPA ships in the same binary and the Android APK ships the same SPA.
 - Renaming waves: `herdr-clipboard` style names in configs stay untouched; `hc_socket` keeps its name (it names the core's socket, not a driver).

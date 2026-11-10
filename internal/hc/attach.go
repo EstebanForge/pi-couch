@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -18,6 +19,11 @@ const (
 	frameData   = 0
 	frameCredit = 1
 	frameClose  = 2
+	// frameAutomaticInput is hc 0.1.19's AUTOMATIC_INPUT frame: raw
+	// bytes into the pty with no Enter appended - the paste verb the
+	// keys vocabulary cannot express. Writer attaches only; observe
+	// viewers silently drop it.
+	frameAutomaticInput = 6
 )
 
 const frameHeader = 9
@@ -61,6 +67,133 @@ func (s *AttachStream) Stalled() bool { return s.stalled.Load() }
 // Close ends the stream and the connection.
 func (s *AttachStream) Close() { s.closeOnce.Do(func() { _ = s.conn.Close() }) }
 
+// helloFramed upgrades a fresh connection to framed mode. Both Attach
+// and Write run it before their attach call.
+func (c *Client) helloFramed(ctx context.Context, conn net.Conn) error {
+	if err := conn.SetDeadline(time.Now().Add(c.timeout)); err != nil {
+		return err
+	}
+	hello, _ := json.Marshal(map[string]any{
+		"jsonrpc": "2.0", "id": fmt.Sprintf("couch-pi-attach-%d", c.seq.Add(1)),
+		"method": "hello", "params": map[string]any{"framed": true},
+	})
+	if _, err := conn.Write(append(hello, '\n')); err != nil {
+		return fmt.Errorf("hc: hello: %w", err)
+	}
+	br := bufio.NewReader(conn)
+	line, err := br.ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("hc: hello reply: %w", err)
+	}
+	var hr struct {
+		Error *Error `json:"error"`
+	}
+	if json.Unmarshal([]byte(line), &hr) != nil || hr.Error != nil {
+		return fmt.Errorf("hc: hello refused")
+	}
+	return nil
+}
+
+// Write injects raw bytes into the terminal's pty without appending
+// Enter - the paste verb hc's Send lacks. Every call is its own
+// short-lived writer attach: the reply must advertise
+// automatic_input (the core silently drops kind 6 on observe
+// attaches), cols/rows stay zero so the core keeps its grid, and the
+// connection drains-and-credits until quiet before closing.
+// ErrNoAutomaticInput marks a core whose attach reply lacks
+// automatic_input: kind-6 frames would be dropped silently, so callers
+// get a permanent refusal instead of a fake success.
+var ErrNoAutomaticInput = errors.New("hc: attach has no automatic_input")
+
+func (c *Client) Write(ctx context.Context, addr string, data []byte) error {
+	conn, err := c.dial(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	fail := func(e error) error {
+		_ = conn.Close()
+		return e
+	}
+	if err := c.helloFramed(ctx, conn); err != nil {
+		return fail(err)
+	}
+	call, _ := json.Marshal(map[string]any{
+		"jsonrpc": "2.0", "id": "write",
+		"method": "terminal.attach",
+		"params": map[string]any{"terminal": addr, "observe": false, "cols": 0, "rows": 0},
+	})
+	if _, err := conn.Write(encodeFrame(0, frameData, call)); err != nil {
+		return fail(fmt.Errorf("hc: write attach: %w", err))
+	}
+	br := bufio.NewReader(conn)
+	var reply struct {
+		Result *struct {
+			Channel        uint32 `json:"channel"`
+			AutomaticInput bool   `json:"automatic_input"`
+		} `json:"result"`
+		Error *Error `json:"error"`
+	}
+	for {
+		ch, kind, payload, err := readFrame(br)
+		if err != nil {
+			return fail(fmt.Errorf("hc: write attach reply: %w", err))
+		}
+		if kind != frameData {
+			continue
+		}
+		if ch != 0 {
+			// Output can overtake the reply on the stream channel;
+			// consumed bytes must be credited or the core stalls its
+			// 256 KiB window under a burst of writes.
+			credit := make([]byte, 4)
+			binary.LittleEndian.PutUint32(credit, uint32(len(payload)))
+			if _, err := conn.Write(encodeFrame(ch, frameCredit, credit)); err != nil {
+				return fail(fmt.Errorf("hc: write credit: %w", err))
+			}
+			continue
+		}
+		if json.Unmarshal(payload, &reply) != nil {
+			return fail(fmt.Errorf("hc: write attach: bad reply"))
+		}
+		break
+	}
+	if reply.Error != nil {
+		return fail(reply.Error)
+	}
+	if reply.Result == nil || !reply.Result.AutomaticInput {
+		// Fail closed: a core without AUTOMATIC_INPUT drops kind 6
+		// silently, and typing into the void looks like success.
+		return fail(ErrNoAutomaticInput)
+	}
+	ch := reply.Result.Channel
+	if _, err := conn.Write(encodeFrame(ch, frameAutomaticInput, data)); err != nil {
+		return fail(fmt.Errorf("hc: write: %w", err))
+	}
+	// Drain and credit on a fixed 250 ms deadline so the core never
+	// stalls its 256 KiB output window mid-write; the output itself is
+	// not ours to keep. Under a heavy echo the write abandons the
+	// stream and closing the connection frees the window.
+	conn.SetReadDeadline(time.Now().Add(250 * time.Millisecond))
+	credit := make([]byte, 4)
+	for {
+		_, kind, payload, err := readFrame(br)
+		if err != nil {
+			break
+		}
+		if kind == frameClose {
+			break
+		}
+		if kind == frameData && len(payload) > 0 {
+			binary.LittleEndian.PutUint32(credit, uint32(len(payload)))
+			if _, err := conn.Write(encodeFrame(ch, frameCredit, credit)); err != nil {
+				break
+			}
+		}
+	}
+	return nil
+}
+
 // Attach opens a raw output stream to a terminal. The connection is
 // framed mode: a hello with framed:true upgrades the line protocol,
 // terminal.attach answers with the stream's channel, and every
@@ -76,27 +209,10 @@ func (c *Client) Attach(ctx context.Context, addr string, cols, rows int, observ
 		_ = conn.Close()
 		return nil, e
 	}
-	if err := conn.SetDeadline(time.Now().Add(c.timeout)); err != nil {
+	if err := c.helloFramed(ctx, conn); err != nil {
 		return fail(err)
 	}
-	hello, _ := json.Marshal(map[string]any{
-		"jsonrpc": "2.0", "id": fmt.Sprintf("couch-pi-attach-%d", c.seq.Add(1)),
-		"method": "hello", "params": map[string]any{"framed": true},
-	})
-	if _, err := conn.Write(append(hello, '\n')); err != nil {
-		return fail(fmt.Errorf("hc: hello: %w", err))
-	}
 	br := bufio.NewReader(conn)
-	line, err := br.ReadString('\n')
-	if err != nil {
-		return fail(fmt.Errorf("hc: hello reply: %w", err))
-	}
-	var hr struct {
-		Error *Error `json:"error"`
-	}
-	if json.Unmarshal([]byte(line), &hr) != nil || hr.Error != nil {
-		return fail(fmt.Errorf("hc: hello refused"))
-	}
 	call, _ := json.Marshal(map[string]any{
 		"jsonrpc": "2.0", "id": "attach",
 		"method": "terminal.attach",
@@ -227,7 +343,7 @@ func encodeFrame(channel uint32, kind byte, payload []byte) []byte {
 }
 
 // Attach wraps the client's framed attach as an observe viewer: the
-// phone only reads; input rides keys.
+// phone only reads; input rides keys and the writer attach (ADR-0012).
 func (d *Driver) Attach(ctx context.Context, addr string, cols, rows int) (*AttachStream, error) {
 	return d.c.Attach(ctx, addr, cols, rows, true)
 }

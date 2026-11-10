@@ -361,6 +361,14 @@ func (d *Driver) TypeText(ctx context.Context, addr, text string) error {
 	return err
 }
 
+// Write injects raw bytes into the pty without appending Enter - the
+// paste verb behind the Terminal tab's composer box. Each call rides
+// its own writer attach; the client fails closed without
+// automatic_input.
+func (d *Driver) Write(ctx context.Context, addr string, data []byte) error {
+	return d.c.Write(ctx, addr, data)
+}
+
 // reported waits until the terminal has filed its first status report
 // (bounded), so a Prompt never lands in the first-paint composer.
 func (d *Driver) reported(addr string) {

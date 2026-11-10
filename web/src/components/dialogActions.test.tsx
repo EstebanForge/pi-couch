@@ -123,7 +123,7 @@ describe("DialogActions", () => {
 		expect(dialogAnswerVerb("Submit", true, true)).toBe("option");
 	});
 
-	it("renders an editor draft read-only with Submit and Cancel", () => {
+	it("renders an editor draft editable with Submit and Cancel", () => {
 		const html = flat(
 			renderToString(
 				<DialogActions
@@ -138,8 +138,9 @@ describe("DialogActions", () => {
 			),
 		);
 		expect(html).toContain("Commit staged changes with this message?");
-		// the buffer is pi's, shown read-only: Submit accepts as-is
-		expect(html).toContain('readOnly=""');
+		// the box starts as pi's buffer and accepts edits; Submit sends
+		// the rewrite (type) or accepts as-is (yes) when untouched
+		expect(html).not.toContain("readOnly");
 		expect(html).toContain(">probe commit</textarea>");
 		expect(html).toContain(">Submit<");
 		expect(html).toContain(">Cancel<");

@@ -299,7 +299,7 @@ func TestHCTerminalStreamsDeltas(t *testing.T) {
 	}
 }
 
-func TestHCTerminalInputSendsKeysAndRefusesRawText(t *testing.T) {
+func TestHCTerminalInputSendsKeysAndRoutesText(t *testing.T) {
 	a, f := hcStreamApp(t)
 	post := func(body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodPost, "/api/sessions/s1/terminal/input", strings.NewReader(body))
@@ -315,8 +315,14 @@ func TestHCTerminalInputSendsKeysAndRefusesRawText(t *testing.T) {
 	if got := f.keyLog()[0]; len(got) != 2 || got[0] != "up" || got[1] != "enter" {
 		t.Fatalf("keys = %v, want up+enter", got)
 	}
-	if w := post(`{"text":"raw typing"}`); w.Code != http.StatusConflict {
-		t.Fatalf("raw text under hc: code=%d, want 409 (Send always submits)", w.Code)
+	if w := post(`{"text":"raw paste"}`); w.Code != http.StatusNotImplemented {
+		t.Fatalf("text against a fail-closed core: code=%d, want 501 (this fake advertises no automatic_input)", w.Code)
+	}
+	if w := post(`{"text":"bad\u001binput"}`); w.Code != http.StatusBadRequest {
+		t.Fatalf("control bytes: code=%d, want 400", w.Code)
+	}
+	if w := post(`{"text":"multi\nline\npaste"}`); w.Code != http.StatusNotImplemented {
+		t.Fatalf("multi-line paste: code=%d, want 501 (newlines are paste-legal)", w.Code)
 	}
 }
 

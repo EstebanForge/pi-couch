@@ -58,7 +58,7 @@ Pins: fsnotify v1.10.1, webpush-go v1.4.0; the web stack pins live in web/packag
 
 - Scanner: walks `~/.pi/agent/sessions/`, parses jsonl tolerantly, tails with fsnotify. Indexes by mtime with in-memory metadata.
 - hc client (`internal/hc`): one JSON-RPC call per dial, one events connection feeding the label-driven session map, framed attach for the terminal stream, and the read-only `doc.get` reader for the app document. `internal/hc/driver.go` maps hc terminals onto the status quad, commands and panes.
-- Terminal bridge: hc framed attach fans raw pty bytes out as the SSE delta frames the phone's xterm renders; wheel input rides `terminal.keys` (hc's send always appends Enter, so raw text input refuses).
+- Terminal bridge: hc framed attach fans raw pty bytes out as the SSE delta frames the phone's xterm renders; wheel input rides `terminal.keys`, and composer text rides a writer attach (hc kind 6 automatic input, raw bytes, no Enter - ADR-0012).
 - Git service: repo discovery by pruned scan, diffs via exec git.
 - State: comments in a plain JSON file per session; UI preferences (enter-send behavior, quick keys) in browser localStorage per device. Push subscriptions and the VAPID key live in the store state dir. No database.
 - Push watcher: one events subscription for all terminals; a buzz rides a turn ending or a blocked/error status, deduped per terminal (ADR-0005 as amended by ADR-0011).

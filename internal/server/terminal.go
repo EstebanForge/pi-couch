@@ -73,7 +73,8 @@ func writeSSE(w http.ResponseWriter, event, data string) bool {
 	return true
 }
 
-// terminalInput forwards wheel input: named keys, or text runs.
+// terminalInput forwards phone input: raw text rides a writer
+// attach (kind 6, no Enter appended), named keys ride terminal.keys.
 func (a *app) terminalInput(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
 	meta, ok := a.idx.Meta(key)
@@ -90,6 +91,13 @@ func (a *app) terminalInput(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "empty input", http.StatusBadRequest)
 		return
 	}
+	if hasControls(in.Text) {
+		// User text is hostile: ESC or ctrl-c pasted into the pty would
+		// drive pi's TUI (dialogs cancel, lines kill). Newlines and
+		// tabs are the paste case; everything below 0x20 else refuses.
+		http.Error(w, "control characters are not supported", http.StatusBadRequest)
+		return
+	}
 	if a.hcDrv == nil {
 		http.Error(w, "no driver", http.StatusServiceUnavailable)
 		return
@@ -102,17 +110,42 @@ func (a *app) terminalInput(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if in.Text != "" {
-		// hc's Send always appends Enter: raw typing would submit
-		// half-written text. Same refusal as editor answers.
-		http.Error(w, "raw text input is not supported", http.StatusConflict)
-		return
+		if err := a.hcDrv.Write(ctx, target, []byte(in.Text)); err != nil {
+			a.logger.Error("hc terminal write", "err", err)
+			if errors.Is(err, hc.ErrNoAutomaticInput) {
+				// Permanent: this core will never take paste bytes.
+				http.Error(w, "paste unsupported", http.StatusNotImplemented)
+			} else {
+				http.Error(w, "input failed", http.StatusBadGateway)
+			}
+			return
+		}
 	}
-	if err := a.hcDrv.PressKeys(ctx, target, in.Keys); err != nil {
-		a.logger.Error("hc terminal input", "err", err)
-		http.Error(w, "input failed", http.StatusBadGateway)
-		return
+	// Keys ride after text only when the write succeeded; failing the
+	// text short-circuits so keys never land in a half-pasted state.
+	if len(in.Keys) > 0 {
+		if err := a.hcDrv.PressKeys(ctx, target, in.Keys); err != nil {
+			a.logger.Error("hc terminal input", "err", err)
+			http.Error(w, "input failed", http.StatusBadGateway)
+			return
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// hasControls reports text carrying C0 control bytes other than the
+// paste-safe newline and tab: anything else would drive pi's TUI
+// rather than fill a buffer.
+func hasControls(s string) bool {
+	for _, r := range s {
+		if r < 0x20 && r != '\n' && r != '\t' {
+			return true
+		}
+		if r == 0x7f {
+			return true
+		}
+	}
+	return false
 }
 
 // streamTerminalHC fans an hc attach out as delta SSE frames: raw pty
