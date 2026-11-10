@@ -29,13 +29,19 @@ func rewindFixture(t *testing.T, twoTurns bool) (*app, string, http.Handler, *hc
 	})
 	// The rewind busy gate reads the driver badges; pi parked idle is
 	// the rewindable state. The map holds the seed status, so the
-	// change rides the same event the core would send.
+	// change rides the same event the core would send. Wait until the
+	// driver consumed it: a POST racing the event would read the
+	// seed's working state and take the 409 busy branch forever.
 	f.mu.Lock()
 	f.state = "idle"
 	f.mu.Unlock()
 	f.event("status", "t1", map[string]any{
 		"status":   map[string]any{"state": "idle", "app": "pi"},
 		"reported": true,
+	})
+	waitForHC(t, func() bool {
+		badges, _ := a.hcDrv.DriveStatus(t.Context())
+		return badges[sessPath] == "idle"
 	})
 	if twoTurns {
 		f2, err := os.OpenFile(sessPath, os.O_APPEND|os.O_WRONLY, 0o644)
@@ -117,13 +123,19 @@ func TestRewindDrivesTheBridgeCommand(t *testing.T) {
 }
 
 func TestRewindRefusesABusySession(t *testing.T) {
-	_, _, h, f := rewindFixture(t, false)
+	a, sessPath, h, f := rewindFixture(t, false)
 	f.mu.Lock()
 	f.state = "working"
 	f.mu.Unlock()
 	f.event("status", "t1", map[string]any{
 		"status":   map[string]any{"state": "working", "app": "pi"},
 		"reported": true,
+	})
+	// Same event race as the fixture: wait until the driver consumed
+	// working, or the POST could read idle and dispatch.
+	waitForHC(t, func() bool {
+		badges, _ := a.hcDrv.DriveStatus(t.Context())
+		return badges[sessPath] == "working"
 	})
 
 	rec := rewindPost(t, h, "s1", `{"seq":0}`)

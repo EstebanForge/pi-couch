@@ -109,7 +109,8 @@ func (a *app) apiDialogAnswer(w http.ResponseWriter, r *http.Request) {
 // answerDispatch runs one answer attempt; true means keys were sent
 // and the 200 already written. expectID/expectTitle are the identity
 // the pane must still show: yes/no and escape verify the fresh parse
-// matches, not merely that some dialog is up.
+// matches, not merely that some dialog is up. yes on an editor is the
+// submit-as-is accept, content-checked against the card's copy.
 //
 // Two hc facts shape the type verb: terminal.send always appends Enter
 // (no type-then-verify-then-submit, and an editor rewrite would
@@ -172,7 +173,37 @@ func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, tex
 	switch {
 	case answer == "yes" || answer == "no":
 		screen, ok := read()
-		if !ok || !piConfirmOnScreen(screen) || !stillUp(screen) {
+		if !ok || !stillUp(screen) {
+			a.logger.Warn("dialog answer refused", "cause", "dialog off screen", "session", path)
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+			return false, true
+		}
+		// pi's editor accepts as-is: the buffer lives in pi, so yes is
+		// one enter on the targeted editor. The unscrolled buffer is
+		// verifiable, so the card's served copy must still match what
+		// pi paints - a same-title successor dialog then refuses
+		// instead of committing a buffer the user never saw. A scrolled
+		// editor paints only the tail, so it rests on the identity gate.
+		// hc's send appends Enter and cannot rewrite a buffer, so no
+		// stays refused here.
+		if m := parsePiDialog(screen); m != nil && m.Kind == "editor" {
+			if answer != "yes" {
+				a.logger.Warn("dialog answer refused", "cause", "editor has no no", "session", path)
+				writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+				return false, true
+			}
+			if !m.Scrolled {
+				served := strings.Join(strings.Fields(text), " ")
+				painted := strings.Join(strings.Fields(m.Body), " ")
+				if served == "" || served != painted {
+					a.logger.Warn("dialog answer refused", "cause", "editor buffer moved on", "session", path)
+					writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
+					return false, true
+				}
+			}
+			return a.answerSend(w, ctx, drv, addr, "", []string{"enter"}), true
+		}
+		if !piConfirmOnScreen(screen) {
 			a.logger.Warn("dialog answer refused", "cause", "confirm off screen", "session", path)
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
 			return false, true

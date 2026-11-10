@@ -9,7 +9,8 @@ const checkboxPrefixRe = /^\[[ xX]\]\s*/;
 /** The inline dialog card: whatever pi waits on, read off the pane by
  * the server's parser and answered from the chat - no Terminal trip.
  * Option rows tap into the verify-then-fire walk (the cursor highlight
- * is the pane's), an editor draft shows its text with Submit, and a
+ * is the pane's), an editor draft shows pi's buffer read-only with an
+ * accept-as-is Submit (hc's send cannot rewrite a buffer), and a
  * free-text row turns into a real input - pi's "Type something." and
  * native input widgets both answer from here. An in-band refusal
  * (409 changed, send failed) reads as pi refusing; a network throw
@@ -23,7 +24,9 @@ export function dialogAnswerVerb(_label: string, multi: boolean, next = false): 
 }
 
 export function dialogServedSignature(dialog: BridgeDialog): string {
-	return `${dialog.title}\n${(dialog.options ?? []).map((o) => `${o.label}:${o.checked === true}`).join("\n")}\n${dialog.input_mode === true}`;
+	// Body rides along: two same-title commit previews are different
+	// dialogs, and the second must re-arm the card's busy state.
+	return `${dialog.title}\n${(dialog.options ?? []).map((o) => `${o.label}:${o.checked === true}`).join("\n")}\n${dialog.input_mode === true}\n${dialog.body ?? ""}`;
 }
 
 export function DialogActions({ k, dialog }: { k: string; dialog: BridgeDialog }) {
@@ -41,14 +44,11 @@ function KeystrokeDialogActions({ k, dialog }: { k: string; dialog: BridgeDialog
 	const [failed, setFailed] = useState<"refused" | "network" | "timeout" | null>(null);
 	const [detail, setDetail] = useState("");
 	const [draft, setDraft] = useState("");
-	// The editor dialog's buffer is one message, exactly as pi paints
-	// it: title, blank line, description. One textarea edits it all at
-	// once and Submit rewrites pi's editor and accepts in one step.
-	// A scrolled editor paints only the buffer's tail - the head is
-	// not on the pane - so the box starts empty instead of prefilling
-	// a fragment whose subject would be silently lost on a rewrite.
-	const [message, setMessage] = useState(dialog.scrolled ? "" : (dialog.body ?? ""));
-	const servedBody = useRef(message);
+	// The editor dialog's buffer is one message, exactly as pi holds
+	// it: shown read-only, Submit accepts it as-is with one enter. A
+	// scrolled editor paints only the tail, so the box stays empty and
+	// the note says what Submit actually accepts.
+	const message = dialog.scrolled ? "" : (dialog.body ?? "");
 	// A multi-question rpiv dialog keeps one id across its questions, so
 	// a successful answer never brings the closing dialog:null frame -
 	// the next question's paint arrives instead. New served content
@@ -64,15 +64,6 @@ function KeystrokeDialogActions({ k, dialog }: { k: string; dialog: BridgeDialog
 		}
 		servedSig.current = sig;
 	}, [dialog]);
-	// biome-ignore lint/correctness/useExhaustiveDependencies: dialog.id re-runs the resync when a new dialog replaces the old, even if the body text is identical.
-	useEffect(() => {
-		const next = dialog.scrolled ? "" : (dialog.body ?? "");
-		// A stream tick never touches text mid-typing: the box only
-		// takes a new parse while it still holds what was served last -
-		// the scrolled-to-stitched transition fills it, edits survive.
-		setMessage((prev) => (prev === servedBody.current ? next : prev));
-		servedBody.current = next;
-	}, [dialog.id, dialog.body, dialog.scrolled]);
 	const id = dialog.id;
 	// A refused answer keeps the card with a retry note: pi may still be
 	// waiting, and collapsing the panel strands a header sliver until
@@ -110,11 +101,12 @@ function KeystrokeDialogActions({ k, dialog }: { k: string; dialog: BridgeDialog
 			});
 	};
 
-	const saveEdit = () => {
+	const accept = () => {
 		if (busy) return;
-		const text = message.trim();
-		if (!text) return;
-		answer("type", "submit", text);
+		// The served copy rides along as content proof: an unscrolled
+		// editor whose buffer pi replaced refuses instead of committing
+		// a message the user never saw.
+		answer("yes", "submit", message || undefined);
 	};
 
 	return (
@@ -203,16 +195,15 @@ function KeystrokeDialogActions({ k, dialog }: { k: string; dialog: BridgeDialog
 				<>
 					{dialog.scrolled && (
 						<p className="mt-2 text-[12px] text-muted">
-							The message is longer than pi's editor shows. Write the full message below - it
-							replaces the whole buffer.
+							The message is longer than pi's editor shows. Submit accepts the whole buffer as it
+							stands in pi; edit it there first if it needs changing.
 						</p>
 					)}
 					<textarea
 						value={message}
-						onChange={(e) => setMessage(e.target.value)}
-						disabled={busy}
+						readOnly
 						rows={Math.min(10, Math.max(3, message.split("\n").length))}
-						placeholder="Commit message"
+						placeholder="pi's editor holds the message"
 						aria-label="Commit message"
 						className="mt-2 w-full resize-none rounded-xl bg-base-300 px-3 py-2 font-mono text-[13px] outline-none placeholder:text-muted"
 					/>
@@ -249,7 +240,7 @@ function KeystrokeDialogActions({ k, dialog }: { k: string; dialog: BridgeDialog
 					<button
 						type="button"
 						disabled={busy}
-						onClick={saveEdit}
+						onClick={accept}
 						className="flex min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-[14px] font-medium text-primary-content active:scale-[0.99] disabled:opacity-50"
 					>
 						{active === "submit" && <Spinner size={14} />}

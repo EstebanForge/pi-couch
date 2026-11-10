@@ -89,6 +89,13 @@ describe("DialogActions", () => {
 		);
 	});
 
+	it("re-arms when a same-title editor gets a new buffer", () => {
+		const base = { id: "d1", kind: "editor", title: "Commit staged changes?", body: "feat: a" };
+		expect(dialogServedSignature({ ...base, body: "feat: b" })).not.toBe(
+			dialogServedSignature(base),
+		);
+	});
+
 	it("handles checkbox custom rows and toggle verbs", () => {
 		const html = flat(
 			renderToString(
@@ -116,7 +123,7 @@ describe("DialogActions", () => {
 		expect(dialogAnswerVerb("Submit", true, true)).toBe("option");
 	});
 
-	it("renders an editor draft with Submit and Cancel", () => {
+	it("renders an editor draft read-only with Submit and Cancel", () => {
 		const html = flat(
 			renderToString(
 				<DialogActions
@@ -131,8 +138,8 @@ describe("DialogActions", () => {
 			),
 		);
 		expect(html).toContain("Commit staged changes with this message?");
-		// the whole buffer is one editable message, like pi's editor
-		expect(html).toContain('placeholder="Commit message"');
+		// the buffer is pi's, shown read-only: Submit accepts as-is
+		expect(html).toContain('readOnly=""');
 		expect(html).toContain(">probe commit</textarea>");
 		expect(html).toContain(">Submit<");
 		expect(html).toContain(">Cancel<");

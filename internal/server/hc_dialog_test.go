@@ -299,9 +299,11 @@ func wireHC(a *app, drv *hc.Driver) {
 }
 
 // waitForHC waits until the driver's session map resolves the path.
+// Five seconds: under ci's parallel load the subscribe/reseed plus
+// dispatch chain can outgrow a 2s window without any real hang.
 func waitForHC(t *testing.T, cond func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		if cond() {
 			return
@@ -386,6 +388,81 @@ func TestHCDialogAnswerTypeRefusesEditor(t *testing.T) {
 	}
 	if keys := fake.keyLog(); len(keys) != 0 {
 		t.Fatalf("keys = %v, want none", keys)
+	}
+}
+
+func TestHCDialogAnswerEditorAcceptSendsEnter(t *testing.T) {
+	// Accepting pi's editor from the phone is submit-as-is: the buffer
+	// lives in pi, so yes is one enter. The card sends its served copy
+	// back so the server can refuse when pi now paints a different
+	// buffer under the same title. hc's send cannot rewrite a buffer
+	// (it always appends Enter), so no text may go out.
+	a, sessPath := hcDialogApp(t)
+	drv, fake := startHCFake(t, sessPath, editorPaint("feat: x\n\nbody line\n"))
+	wireHC(a, drv)
+	waitForHC(t, func() bool {
+		_, err := a.hcDrv.TargetForPath(context.Background(), sessPath)
+		return err == nil
+	})
+	plantBridge(t, a, sessPath, BridgeDialog{ID: "d9", Kind: "editor", Title: "Commit staged changes with this message?"})
+
+	rec := hcAnswerReq(t, a, `{"id":"d9","answer":"yes","text":"feat: x\n\nbody line"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code %d body %s, want 200", rec.Code, rec.Body.String())
+	}
+	if keys := fake.keyLog(); len(keys) != 1 || len(keys[0]) != 1 || keys[0][0] != "enter" {
+		t.Fatalf("keys = %v, want exactly one enter", keys)
+	}
+	if sends := fake.sendLog(); len(sends) != 0 {
+		t.Fatalf("sends = %v, want none (no rewrite)", sends)
+	}
+}
+
+func TestHCDialogAnswerEditorRefusesABufferSwap(t *testing.T) {
+	// Two commit previews share a title: without a content check the
+	// stale card would commit the successor buffer sight-unseen.
+	a, sessPath := hcDialogApp(t)
+	drv, fake := startHCFake(t, sessPath, editorPaint("feat: y\n\nreplaced body\n"))
+	wireHC(a, drv)
+	waitForHC(t, func() bool {
+		_, err := a.hcDrv.TargetForPath(context.Background(), sessPath)
+		return err == nil
+	})
+	plantBridge(t, a, sessPath, BridgeDialog{ID: "d9", Kind: "editor", Title: "Commit staged changes with this message?"})
+
+	rec := hcAnswerReq(t, a, `{"id":"d9","answer":"yes","text":"feat: x\n\nbody line"}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("code %d body %s, want 409", rec.Code, rec.Body.String())
+	}
+	if keys := fake.keyLog(); len(keys) != 0 {
+		t.Fatalf("keys = %v, want none", keys)
+	}
+}
+
+func TestHCDialogAnswerEditorScrolledAcceptsTitleOnly(t *testing.T) {
+	// A scrolled editor serves no comparable copy - the painted body
+	// is the tail - so acceptance rests on the identity gate alone.
+	const paint = " Commit staged changes with this message?\n" +
+		"────────────────────────────────────────────\n" +
+		"──── ↑ 4 more ────\n" +
+		"tail line one\ntail line two\n" +
+		"────────────────────────────────────────────\n\n" +
+		" enter submit  shift+enter/ctrl+j newline  escape/ctrl+c cancel  ctrl+g external editor"
+	a, sessPath := hcDialogApp(t)
+	drv, fake := startHCFake(t, sessPath, paint)
+	wireHC(a, drv)
+	waitForHC(t, func() bool {
+		_, err := a.hcDrv.TargetForPath(context.Background(), sessPath)
+		return err == nil
+	})
+	plantBridge(t, a, sessPath, BridgeDialog{ID: "d9", Kind: "editor", Title: "Commit staged changes with this message?"})
+
+	rec := hcAnswerReq(t, a, `{"id":"d9","answer":"yes"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code %d body %s, want 200", rec.Code, rec.Body.String())
+	}
+	if keys := fake.keyLog(); len(keys) != 1 || keys[0][0] != "enter" {
+		t.Fatalf("keys = %v, want one enter", keys)
 	}
 }
 
