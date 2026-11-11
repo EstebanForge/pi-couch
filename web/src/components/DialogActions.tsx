@@ -81,7 +81,8 @@ function KeystrokeDialogActions({ k, dialog }: { k: string; dialog: BridgeDialog
 	// the custom row: its rows toggle, so a tap would answer wrong.
 	const tappable = multi ? options.filter((o) => o !== ownAnswer) : options;
 	const isEditor = dialog.kind === "editor";
-	const freeText = dialog.kind === "input" || Boolean(dialog.input_mode) || (Boolean(ownAnswer) && multi);
+	const freeText =
+		dialog.kind === "input" || Boolean(dialog.input_mode) || (Boolean(ownAnswer) && multi);
 
 	const answer = (a: string, label: string, text?: string, was?: string) => {
 		if (busy) return;
