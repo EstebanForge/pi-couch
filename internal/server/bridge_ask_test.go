@@ -393,6 +393,23 @@ func TestBridgeAskPhoneIDGate(t *testing.T) {
 	}
 }
 
+// pi never flips its 7501 status to blocked while a questionnaire
+// waits (hc findings), so the ask entry must surface on its own
+// lifetime - the close POST and the entry TTL bound it, not the badge.
+func TestDialogForSurfacesAskWithoutBlockedBadge(t *testing.T) {
+	pane := "Deploy?\n[ ] GitHub Release\n[ ] Manual install"
+	a, sessPath := hcDialogApp(t)
+	drv, _ := startHCFake(t, sessPath, pane)
+	wireHC(a, drv)
+	a.awaiting.tick(t.Context())
+
+	askOpen(t, a, strings.Replace(testAskOpenBody(), "/s/a.jsonl", sessPath, 1))
+	d, ok := a.dialogFor(sessPath, "working")
+	if !ok || d.Kind != "ask" || d.ID != testAskID {
+		t.Fatalf("dialogFor = %+v ok=%v", d, ok)
+	}
+}
+
 // The ask wire skips the pane parse: questions are the truth, and the
 // rpiv overlay must not leak checkbox rows into the card.
 func TestDialogWireAskSkipsPaneParse(t *testing.T) {

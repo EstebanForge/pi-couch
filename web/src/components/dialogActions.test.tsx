@@ -51,14 +51,34 @@ describe("DialogActions", () => {
 		expect(html).toContain("Which color, Red or Blue?");
 		expect(html).toContain(">Red<");
 		expect(html).toContain("Pick red.");
-		// the own-answer row is not a tap; it is a real input with a send
-		expect(html).not.toContain(">Type something.<");
-		expect(html).toContain('placeholder="Type your answer…"');
-		expect(html).toContain(">Send<");
+		// hc cannot type into a select: the custom row is a tap that
+		// opens pi's real input, and the box appears on the next parse.
+		expect(html).toContain(">Type something.<");
+		expect(html).not.toContain('placeholder="Type your answer…"');
 		expect(html).toContain(">Cancel<");
 	});
 
-	it("uses a numbered custom row as a text input, not an option", () => {
+	it("renders the text box only for a real input state", () => {
+		const html = flat(
+			renderToString(
+				<DialogActions
+					k="k"
+					dialog={{
+						id: "d1",
+						kind: "select",
+						title: "Name",
+						options: [{ label: "Keep" }],
+						cursor: 0,
+						input_mode: true,
+					}}
+				/>,
+			),
+		);
+		expect(html).toContain('placeholder="Type your answer…"');
+		expect(html).toContain(">Send<");
+	});
+
+	it("uses a numbered custom row as a tap that opens pi's input", () => {
 		const html = flat(
 			renderToString(
 				<DialogActions
@@ -73,8 +93,8 @@ describe("DialogActions", () => {
 				/>,
 			),
 		);
-		expect(html).not.toContain(">3.<");
-		expect(html).toContain('placeholder="Type your answer…"');
+		expect(html).toContain(">3.<");
+		expect(html).not.toContain('placeholder="Type your answer…"');
 	});
 
 	it("re-arms when the same dialog enters input mode", () => {

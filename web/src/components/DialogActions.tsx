@@ -74,9 +74,14 @@ function KeystrokeDialogActions({ k, dialog }: { k: string; dialog: BridgeDialog
 	const options = dialog.options ?? [];
 	const multi = options.some((o) => o.checkbox);
 	const ownAnswer = options.find((o) => piOwnAnswerRe.test(o.label.replace(checkboxPrefixRe, "")));
-	const tappable = options.filter((o) => o !== ownAnswer);
+	// hc's type verb only lands in a real input state: an input-kind
+	// dialog or an open input hint. On a single-select the custom row is
+	// a tappable option that opens pi's input, and the box appears on
+	// the next pane parse. Multi-select keeps the legacy box and hides
+	// the custom row: its rows toggle, so a tap would answer wrong.
+	const tappable = multi ? options.filter((o) => o !== ownAnswer) : options;
 	const isEditor = dialog.kind === "editor";
-	const freeText = Boolean(ownAnswer) || dialog.kind === "input";
+	const freeText = dialog.kind === "input" || Boolean(dialog.input_mode) || (Boolean(ownAnswer) && multi);
 
 	const answer = (a: string, label: string, text?: string, was?: string) => {
 		if (busy) return;

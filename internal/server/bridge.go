@@ -45,15 +45,17 @@ type AskOption struct {
 
 // dialogFor prefers the bridge entry while herdr reports blocked, and
 // falls back to the pane parse, which survives both the entry's TTL
-// and badge flaps. The bridge entry alone never surfaces without the
-// badge: both map the same ui_prompt events, so a dialog without the
-// badge is a stale entry whose end event was lost - a crashed pi, not
-// a waiting one.
+// and badge flaps. Non-ask entries stay badge-gated: both map the
+// same ui_prompt events, so a dialog without the badge is a stale
+// entry whose end event was lost - a crashed pi, not a waiting one.
+// An ask is exempt: pi never flips its 7501 status to blocked while a
+// questionnaire waits (hc findings), so the badge gate would hide the
+// ask card for the questionnaire's whole open window; rpiv's close
+// POST and the entry TTL bound a stale ask instead.
 func (a *app) dialogFor(sessionPath, badge string) (BridgeDialog, bool) {
-	if badge == "blocked" {
-		if d, ok := a.bridgeDialog(sessionPath); ok {
-			return d, true
-		}
+	d, hasEntry := a.bridgeDialog(sessionPath)
+	if hasEntry && (d.Kind == "ask" || badge == "blocked") {
+		return d, true
 	}
 	// The bridge entry is ephemeral (TTL, and herdr's blocked badge
 	// flaps mid-turn). The pane parse is the durable source: a dialog
