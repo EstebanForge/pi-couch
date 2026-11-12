@@ -333,7 +333,7 @@ class MainActivity : Activity() {
         view.addJavascriptInterface(speech, "CouchPiSpeech")
         view.addJavascriptInterface(haptics, "CouchPiHaptics")
         setContentView(view)
-        setupBackInvocation()
+        syncBackInvocation()
         @Suppress("DEPRECATION") // pre-35 devices; ignored on 35+
         window.statusBarColor = Color.TRANSPARENT
         view.loadUrl(url)
@@ -549,6 +549,7 @@ class MainActivity : Activity() {
             }
 
             override fun onPageFinished(view: WebView, url: String?) {
+                syncBackInvocation()
                 val ins = view.rootWindowInsets?.getInsets(
                     WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars()
                 ) ?: return
@@ -561,6 +562,12 @@ class MainActivity : Activity() {
                     // while keeping the app close to the bottom edge.
                     "(\"--safe-bottom\",\"${ins.bottom / d / 2}px\")"
                 view.evaluateJavascript(js, null)
+            }
+
+            // SPA navigation (pushState/replaceState, the router's own
+            // backs) never fires onPageFinished; this does.
+            override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
+                syncBackInvocation()
             }
 
             // A failed load (tailnet down, server stopped, proxy 5xx)
@@ -672,22 +679,40 @@ class MainActivity : Activity() {
         return body
     }
 
-    private fun setupBackInvocation() {
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+    // Registered only while the WebView can go back: a PRIORITY_DEFAULT
+    // callback consumes every back gesture, and a consumed gesture never
+    // reaches the system's predictive back-to-home animation. Unregistered
+    // at the app root, the gesture falls through to the system and the
+    // preview plays (Android 15+, dev option on 13/14). API 32 keeps the
+    // legacy onBackPressed path below.
+    private var backCallback: OnBackInvokedCallback? = null
+
+    private fun syncBackInvocation() {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) return
+        val canBack = web?.canGoBack() ?: false
+        val registered = backCallback
+        if (canBack && registered == null) {
+            val cb = OnBackInvokedCallback {
+                val w = web
+                if (w != null && w.canGoBack()) {
+                    w.goBack()
+                } else {
+                    finish()
+                }
+            }
+            backCallback = cb
             onBackInvokedDispatcher.registerOnBackInvokedCallback(
                 android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,
-                OnBackInvokedCallback {
-                    val w = web
-                    if (w != null && w.canGoBack()) {
-                        w.goBack()
-                    } else {
-                        finish()
-                    }
-                }
+                cb,
             )
+        } else if (!canBack && registered != null) {
+            onBackInvokedDispatcher.unregisterOnBackInvokedCallback(registered)
+            backCallback = null
         }
     }
 
+    // API 32 only: Android 13+ dispatches through the callback above and
+    // never calls this (enableOnBackInvokedCallback is on in the manifest).
     // Back walks browser history inside the shell before leaving the app.
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
