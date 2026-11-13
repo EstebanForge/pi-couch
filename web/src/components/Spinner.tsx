@@ -19,8 +19,12 @@ export function Spinner({
 	variant?: SpinnerStyle;
 }) {
 	const uid = useId();
-	if ((variant ?? spinnerStylePref()) === "squares") {
-		return <SpinnerSquares size={size} className={className} />;
+	const style = variant ?? spinnerStylePref();
+	if (style === "gears") {
+		return <SpinnerGears size={size} className={className} />;
+	}
+	if (style === "hops") {
+		return <SpinnerHops size={size} className={className} />;
 	}
 	const id = (n: string) => `${uid}${n}`;
 	const begin = (n: string) => `${id(n)}.end`;
@@ -122,21 +126,41 @@ export function Spinner({
 	);
 }
 
-// Alternate style, pickable in Settings: the pure-CSS two-square
-// rotator. Squares draw as inset currentColor rings so status colors
-// (yellow waiting, theme primary) carry over; the span's height and
-// the --sq-* vars scale every part off the same size prop as the svg.
-function SpinnerSquares({ size, className }: { size: number; className: string }) {
+// Alternate style, pickable in Settings: two dotted wheels spinning in
+// opposite directions. Dots draw as currentColor so status colors (yellow
+// waiting, theme primary) carry over; the wheels wear the page surface so
+// only the dots show. --size scales the whole loader off the same size
+// prop as the svg (the unit grid is 60x40).
+function SpinnerGears({ size, className }: { size: number; className: string }) {
 	return (
 		<span
 			role="img"
 			aria-label="waiting"
-			className={`spinner-squares inline-block shrink-0 align-[-2px] ${className}`}
+			className={`spinner-gears inline-block shrink-0 align-[-2px] ${className}`}
 			style={{
-				height: Math.max(4, Math.round(size * 0.4)),
-				gap: size * 0.22,
-				["--sq-ring" as string]: `${(size * 0.12).toFixed(2)}px`,
-				["--sq-slide" as string]: `${(size * 0.11).toFixed(2)}px`,
+				width: Math.max(6, Math.round(size * 1.5)),
+				height: Math.max(4, Math.round(size)),
+				["--size" as string]: `${(size / 40).toFixed(3)}px`,
+			}}
+		/>
+	);
+}
+
+// A single dot hopping between the four corners: the box-shadow keyframes
+// are the whole animation, so the pseudo carries the 0% state as its static
+// shadow for reduced motion (a resting dot). Dots inherit currentColor
+// (status colors carry over); the pseudo centers the box so the corners
+// sit symmetric in the span, whose --size scales the 35-unit grid.
+function SpinnerHops({ size, className }: { size: number; className: string }) {
+	return (
+		<span
+			role="img"
+			aria-label="waiting"
+			className={`spinner-hops inline-block shrink-0 align-[-2px] ${className}`}
+			style={{
+				width: Math.max(4, Math.round(size)),
+				height: Math.max(4, Math.round(size)),
+				["--size" as string]: `${(size / 35).toFixed(3)}px`,
 			}}
 		/>
 	);

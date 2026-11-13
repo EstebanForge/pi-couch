@@ -21,17 +21,30 @@ describe("Spinner", () => {
 		expect(html).toContain('aria-label="waiting"');
 	});
 
-	it("renders the two-square rotator when squares is picked", () => {
-		const html = renderToString(<Spinner variant="squares" />);
+	it("renders the counter-rotating gears when gears is picked", () => {
+		const html = renderToString(<Spinner variant="gears" />);
 		expect(html).not.toContain("<svg");
-		expect(html).toContain("spinner-squares");
+		expect(html).toContain("spinner-gears");
 		expect(html).toContain('aria-label="waiting"');
 	});
 
-	it("picks squares from the stored pref", () => {
-		stubStore("squares");
-		expect(spinnerStylePref()).toBe("squares");
-		expect(renderToString(<Spinner />)).toContain("spinner-squares");
+	it("picks gears from the stored pref", () => {
+		stubStore("gears");
+		expect(spinnerStylePref()).toBe("gears");
+		expect(renderToString(<Spinner />)).toContain("spinner-gears");
+	});
+
+	it("renders the hopping corner dot when hops is picked", () => {
+		const html = renderToString(<Spinner variant="hops" />);
+		expect(html).not.toContain("<svg");
+		expect(html).toContain("spinner-hops");
+		expect(html).toContain('aria-label="waiting"');
+	});
+
+	it("picks hops from the stored pref", () => {
+		stubStore("hops");
+		expect(spinnerStylePref()).toBe("hops");
+		expect(renderToString(<Spinner />)).toContain("spinner-hops");
 	});
 
 	it("falls back to blocks on a junk or missing pref", () => {
