@@ -147,8 +147,9 @@ function SpinnerGears({ size, className }: { size: number; className: string }) 
 
 // A pulsing dot: the span is the dot (currentColor, status colors carry
 // over) and two ring pseudos ripple outward on offset delays; reduced
-// motion keeps only the resting dot. --size scales the 16-unit grid off
-// the same size prop as the svg.
+// motion keeps only the resting dot. Rendered at half unit scale (the
+// pasted 0.5px grid) so the dot reads smaller than the other spinners:
+// --size scales the 16-unit grid off half the size prop of the svg.
 function SpinnerHops({ size, className }: { size: number; className: string }) {
 	return (
 		<span
@@ -156,9 +157,9 @@ function SpinnerHops({ size, className }: { size: number; className: string }) {
 			aria-label="waiting"
 			className={`spinner-hops inline-block shrink-0 align-[-2px] ${className}`}
 			style={{
-				width: Math.max(4, Math.round(size)),
-				height: Math.max(4, Math.round(size)),
-				["--size" as string]: `${(size / 16).toFixed(3)}px`,
+				width: Math.max(4, Math.round(size / 2)),
+				height: Math.max(4, Math.round(size / 2)),
+				["--size" as string]: `${(size / 32).toFixed(3)}px`,
 			}}
 		/>
 	);
