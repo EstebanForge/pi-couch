@@ -189,13 +189,7 @@ function windowRank(w: WindowQuota): number {
 // cannot express. Unlisted labels sort after the listed ones by
 // windowRank, so a new agy bucket still lands sensibly.
 const preferredWindowOrder: Record<string, string[]> = {
-	antigravity: [
-		"Gemini 5h",
-		"Gemini weekly",
-		"Argon weekly",
-		"Claude/GPT 5h",
-		"Claude/GPT weekly",
-	],
+	antigravity: ["Gemini 5h", "Gemini weekly", "Argon weekly", "Claude/GPT 5h", "Claude/GPT weekly"],
 };
 
 function windowOrder(providerId: string, w: WindowQuota): number {
