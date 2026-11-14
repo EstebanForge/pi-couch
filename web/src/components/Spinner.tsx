@@ -126,11 +126,10 @@ export function Spinner({
 	);
 }
 
-// Alternate style, pickable in Settings: two dotted wheels spinning in
-// opposite directions. Dots draw as currentColor so status colors (yellow
-// waiting, theme primary) carry over; the wheels wear the page surface so
-// only the dots show. --size scales the whole loader off the same size
-// prop as the svg (the unit grid is 60x40).
+// Alternate style, pickable in Settings: two balls trading ends inside
+// a rotating, pumping frame. Ball one draws currentColor (status colors
+// carry over), ball two the theme primary. --size scales the whole
+// loader off the same size prop as the svg (the unit grid is 50x50).
 function SpinnerGears({ size, className }: { size: number; className: string }) {
 	return (
 		<span
@@ -138,19 +137,18 @@ function SpinnerGears({ size, className }: { size: number; className: string }) 
 			aria-label="waiting"
 			className={`spinner-gears inline-block shrink-0 align-[-2px] ${className}`}
 			style={{
-				width: Math.max(6, Math.round(size * 1.5)),
-				height: Math.max(4, Math.round(size)),
-				["--size" as string]: `${(size / 40).toFixed(3)}px`,
+				width: Math.max(6, Math.round(size)),
+				height: Math.max(6, Math.round(size)),
+				["--size" as string]: `${(size / 50).toFixed(3)}px`,
 			}}
 		/>
 	);
 }
 
-// A single dot hopping between the four corners: the box-shadow keyframes
-// are the whole animation, so the pseudo carries the 0% state as its static
-// shadow for reduced motion (a resting dot). Dots inherit currentColor
-// (status colors carry over); the pseudo centers the box so the corners
-// sit symmetric in the span, whose --size scales the 35-unit grid.
+// A pulsing dot: the span is the dot (currentColor, status colors carry
+// over) and two ring pseudos ripple outward on offset delays; reduced
+// motion keeps only the resting dot. --size scales the 16-unit grid off
+// the same size prop as the svg.
 function SpinnerHops({ size, className }: { size: number; className: string }) {
 	return (
 		<span
@@ -160,7 +158,7 @@ function SpinnerHops({ size, className }: { size: number; className: string }) {
 			style={{
 				width: Math.max(4, Math.round(size)),
 				height: Math.max(4, Math.round(size)),
-				["--size" as string]: `${(size / 35).toFixed(3)}px`,
+				["--size" as string]: `${(size / 16).toFixed(3)}px`,
 			}}
 		/>
 	);

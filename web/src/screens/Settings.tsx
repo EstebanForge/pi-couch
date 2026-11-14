@@ -39,8 +39,8 @@ const ENTER_CHOICES: { value: EnterSendsPref; label: string; hint: string }[] = 
 
 const SPINNER_CHOICES: { value: SpinnerStyle; label: string }[] = [
 	{ value: "blocks", label: "Blocks" },
-	{ value: "gears", label: "Gears" },
-	{ value: "hops", label: "Hops" },
+	{ value: "gears", label: "Orbit" },
+	{ value: "hops", label: "Pulse" },
 ];
 
 export default function SettingsScreen() {

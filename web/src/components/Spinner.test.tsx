@@ -21,7 +21,7 @@ describe("Spinner", () => {
 		expect(html).toContain('aria-label="waiting"');
 	});
 
-	it("renders the counter-rotating gears when gears is picked", () => {
+	it("renders the orbiting-balls loader when gears is picked", () => {
 		const html = renderToString(<Spinner variant="gears" />);
 		expect(html).not.toContain("<svg");
 		expect(html).toContain("spinner-gears");
@@ -34,7 +34,7 @@ describe("Spinner", () => {
 		expect(renderToString(<Spinner />)).toContain("spinner-gears");
 	});
 
-	it("renders the hopping corner dot when hops is picked", () => {
+	it("renders the pulse loader when hops is picked", () => {
 		const html = renderToString(<Spinner variant="hops" />);
 		expect(html).not.toContain("<svg");
 		expect(html).toContain("spinner-hops");

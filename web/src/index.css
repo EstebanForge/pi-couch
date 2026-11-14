@@ -381,264 +381,122 @@
 	}
 }
 
-/* Counter-rotating gears, the alternate waiting spinner (Settings >
-   Waiting spinner). Two dotted wheels spin in opposite directions; the
-   dots carry currentColor (status colors) and the wheels wear the page
-   surface so only dots show. The span's inline --size scales the whole
-   60x40 unit grid off one size prop. */
+/* Orbiting-balls loader, the alternate waiting spinner (Settings >
+   Waiting spinner). Two balls trade ends while the frame rotates and
+   pumps; ball one carries currentColor (status colors), ball two the
+   theme primary. Base rules mirror the 0% state, so reduced motion
+   rests on a static ball square. The span's inline --size scales the
+   50-unit grid off one size prop. */
 .spinner-gears {
 	display: inline-block;
-	position: relative;
-	--gear-color: currentColor;
-	--gear-surface: var(--color-base-300);
+	--ball-2: var(--color-primary);
+	animation: gears-rotate 1s infinite;
 }
 .spinner-gears::before,
 .spinner-gears::after {
-	content: "";
-	position: absolute;
 	border-radius: 50%;
-	background-color: var(--gear-surface);
-	background-repeat: no-repeat;
-	box-sizing: border-box;
-	animation: gear-spin-back 3s linear infinite;
+	content: "";
+	display: block;
+	height: calc(20 * var(--size));
+	width: calc(20 * var(--size));
 }
 .spinner-gears::before {
-	left: 0;
-	top: 0;
-	width: calc(36 * var(--size));
-	height: calc(36 * var(--size));
-	background-image:
-		radial-gradient(
-			circle calc(8 * var(--size)) at calc(18 * var(--size)) calc(18 * var(--size)),
-			var(--gear-color) 100%,
-			transparent 0
-		),
-		radial-gradient(
-			circle calc(4 * var(--size)) at calc(18 * var(--size)) 0,
-			var(--gear-color) 100%,
-			transparent 0
-		),
-		radial-gradient(
-			circle calc(4 * var(--size)) at 0 calc(18 * var(--size)),
-			var(--gear-color) 100%,
-			transparent 0
-		),
-		radial-gradient(
-			circle calc(4 * var(--size)) at calc(36 * var(--size)) calc(18 * var(--size)),
-			var(--gear-color) 100%,
-			transparent 0
-		),
-		radial-gradient(
-			circle calc(4 * var(--size)) at calc(18 * var(--size)) calc(36 * var(--size)),
-			var(--gear-color) 100%,
-			transparent 0
-		),
-		radial-gradient(
-			circle calc(4 * var(--size)) at calc(30 * var(--size)) calc(5 * var(--size)),
-			var(--gear-color) 100%,
-			transparent 0
-		),
-		radial-gradient(
-			circle calc(4 * var(--size)) at calc(5 * var(--size)) calc(30 * var(--size)),
-			var(--gear-color) 100%,
-			transparent 0
-		),
-		radial-gradient(
-			circle calc(4 * var(--size)) at calc(5 * var(--size)) calc(5 * var(--size)),
-			var(--gear-color) 100%,
-			transparent 0
-		);
+	animation: gears-ball1 1s infinite;
+	background-color: currentColor;
+	box-shadow: calc(30 * var(--size)) 0 0 var(--ball-2);
+	margin-bottom: calc(10 * var(--size));
 }
 .spinner-gears::after {
-	left: calc(35 * var(--size));
-	top: calc(15 * var(--size));
-	width: calc(24 * var(--size));
-	height: calc(24 * var(--size));
-	animation-duration: 4s;
-	animation-direction: reverse;
-	background-image:
-		radial-gradient(
-			circle calc(5 * var(--size)) at calc(12 * var(--size)) calc(12 * var(--size)),
-			var(--gear-color) 100%,
-			transparent 0
-		),
-		radial-gradient(
-			circle calc(2.5 * var(--size)) at calc(12 * var(--size)) 0,
-			var(--gear-color) 100%,
-			transparent 0
-		),
-		radial-gradient(
-			circle calc(2.5 * var(--size)) at 0 calc(12 * var(--size)),
-			var(--gear-color) 100%,
-			transparent 0
-		),
-		radial-gradient(
-			circle calc(2.5 * var(--size)) at calc(24 * var(--size)) calc(12 * var(--size)),
-			var(--gear-color) 100%,
-			transparent 0
-		),
-		radial-gradient(
-			circle calc(2.5 * var(--size)) at calc(12 * var(--size)) calc(24 * var(--size)),
-			var(--gear-color) 100%,
-			transparent 0
-		),
-		radial-gradient(
-			circle calc(2.5 * var(--size)) at calc(20 * var(--size)) calc(3 * var(--size)),
-			var(--gear-color) 100%,
-			transparent 0
-		),
-		radial-gradient(
-			circle calc(2.5 * var(--size)) at calc(20 * var(--size)) calc(20 * var(--size)),
-			var(--gear-color) 100%,
-			transparent 0
-		),
-		radial-gradient(
-			circle calc(2.5 * var(--size)) at calc(3 * var(--size)) calc(20 * var(--size)),
-			var(--gear-color) 100%,
-			transparent 0
-		),
-		radial-gradient(
-			circle calc(2.5 * var(--size)) at calc(3 * var(--size)) calc(3 * var(--size)),
-			var(--gear-color) 100%,
-			transparent 0
-		);
+	animation: gears-ball2 1s infinite;
+	background-color: var(--ball-2);
+	box-shadow: calc(30 * var(--size)) 0 0 currentColor;
 }
-@keyframes gear-spin-back {
-	from {
-		transform: rotate(0deg);
+@keyframes gears-rotate {
+	0% {
+		transform: rotate(0deg) scale(0.8);
 	}
-	to {
-		transform: rotate(-360deg);
+	50% {
+		transform: rotate(360deg) scale(1.2);
+	}
+	100% {
+		transform: rotate(720deg) scale(0.8);
+	}
+}
+@keyframes gears-ball1 {
+	0% {
+		box-shadow: calc(30 * var(--size)) 0 0 var(--ball-2);
+	}
+	50% {
+		box-shadow: 0 0 0 var(--ball-2);
+		margin-bottom: 0;
+		transform: translate(calc(15 * var(--size)), calc(15 * var(--size)));
+	}
+	100% {
+		box-shadow: calc(30 * var(--size)) 0 0 var(--ball-2);
+		margin-bottom: calc(10 * var(--size));
+	}
+}
+@keyframes gears-ball2 {
+	0% {
+		box-shadow: calc(30 * var(--size)) 0 0 currentColor;
+	}
+	50% {
+		box-shadow: 0 0 0 currentColor;
+		margin-top: calc(-20 * var(--size));
+		transform: translate(calc(15 * var(--size)), calc(15 * var(--size)));
+	}
+	100% {
+		box-shadow: calc(30 * var(--size)) 0 0 currentColor;
+		margin-top: 0;
 	}
 }
 @media (prefers-reduced-motion: reduce) {
+	.spinner-gears,
 	.spinner-gears::before,
 	.spinner-gears::after {
 		animation: none;
 	}
 }
 
-/* Corner-hopping dot, the third waiting spinner (Settings > Waiting
-   spinner). One dot rides box-shadow copies between the four corners;
-   the keyframes are the whole animation, so the pseudo carries the 0%
-   state as its static shadow for reduced motion (a resting dot). Dots
-   inherit currentColor (status colors carry over); the pseudo centers
-   the box so the corners sit symmetric, and --size scales the 35-unit
-   grid off the same size prop as the svg. */
+/* Pulse loader, the third waiting spinner (Settings > Waiting
+   spinner). The span is the dot (currentColor, status colors carry
+   over) and two ring pseudos ripple outward on offset delays.
+   Reduced motion keeps only the resting dot. The span's inline --size
+   scales the 16-unit grid off the same size prop as the svg. */
 .spinner-hops {
 	position: relative;
 	display: inline-block;
+	border-radius: 50%;
+	background-color: currentColor;
+	box-sizing: border-box;
 }
-.spinner-hops::before {
+.spinner-hops::before,
+.spinner-hops::after {
 	content: "";
 	position: absolute;
-	left: 50%;
-	top: 50%;
-	width: calc(5 * var(--size));
-	height: calc(5 * var(--size));
-	box-shadow:
-		calc(-10 * var(--size)) calc(-10 * var(--size)) 0 calc(5 * var(--size)),
-		calc(-10 * var(--size)) calc(-10 * var(--size)) 0 calc(5 * var(--size)),
-		calc(-10 * var(--size)) calc(-10 * var(--size)) 0 calc(5 * var(--size)),
-		calc(-10 * var(--size)) calc(-10 * var(--size)) 0 calc(5 * var(--size));
-	animation: hops-cycle 6s infinite;
+	inset: 0;
+	border-radius: 50%;
+	border: calc(2 * var(--size)) solid currentColor;
+	box-sizing: border-box;
+	animation: hops-ripple 1.4s ease-out infinite;
 }
-@keyframes hops-cycle {
+.spinner-hops::after {
+	animation-delay: -0.7s;
+}
+@keyframes hops-ripple {
 	0% {
-		box-shadow:
-			calc(-10 * var(--size)) calc(-10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(-10 * var(--size)) calc(-10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(-10 * var(--size)) calc(-10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(-10 * var(--size)) calc(-10 * var(--size)) 0 calc(5 * var(--size));
-	}
-	8.33% {
-		box-shadow:
-			calc(-10 * var(--size)) calc(-10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(10 * var(--size)) calc(-10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(10 * var(--size)) calc(-10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(10 * var(--size)) calc(-10 * var(--size)) 0 calc(5 * var(--size));
-	}
-	16.66% {
-		box-shadow:
-			calc(-10 * var(--size)) calc(-10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(10 * var(--size)) calc(-10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(10 * var(--size)) calc(10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(10 * var(--size)) calc(10 * var(--size)) 0 calc(5 * var(--size));
-	}
-	24.99% {
-		box-shadow:
-			calc(-10 * var(--size)) calc(-10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(10 * var(--size)) calc(-10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(10 * var(--size)) calc(10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(-10 * var(--size)) calc(10 * var(--size)) 0 calc(5 * var(--size));
-	}
-	33.32% {
-		box-shadow:
-			calc(-10 * var(--size)) calc(-10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(10 * var(--size)) calc(-10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(10 * var(--size)) calc(10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(-10 * var(--size)) calc(-10 * var(--size)) 0 calc(5 * var(--size));
-	}
-	41.65% {
-		box-shadow:
-			calc(10 * var(--size)) calc(-10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(10 * var(--size)) calc(-10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(10 * var(--size)) calc(10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(10 * var(--size)) calc(-10 * var(--size)) 0 calc(5 * var(--size));
-	}
-	49.98% {
-		box-shadow:
-			calc(10 * var(--size)) calc(10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(10 * var(--size)) calc(10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(10 * var(--size)) calc(10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(10 * var(--size)) calc(10 * var(--size)) 0 calc(5 * var(--size));
-	}
-	58.31% {
-		box-shadow:
-			calc(-10 * var(--size)) calc(10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(-10 * var(--size)) calc(10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(10 * var(--size)) calc(10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(-10 * var(--size)) calc(10 * var(--size)) 0 calc(5 * var(--size));
-	}
-	66.64% {
-		box-shadow:
-			calc(-10 * var(--size)) calc(-10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(-10 * var(--size)) calc(-10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(10 * var(--size)) calc(10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(-10 * var(--size)) calc(10 * var(--size)) 0 calc(5 * var(--size));
-	}
-	74.97% {
-		box-shadow:
-			calc(-10 * var(--size)) calc(-10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(10 * var(--size)) calc(-10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(10 * var(--size)) calc(10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(-10 * var(--size)) calc(10 * var(--size)) 0 calc(5 * var(--size));
-	}
-	83.3% {
-		box-shadow:
-			calc(-10 * var(--size)) calc(-10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(10 * var(--size)) calc(10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(10 * var(--size)) calc(10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(-10 * var(--size)) calc(10 * var(--size)) 0 calc(5 * var(--size));
-	}
-	91.63% {
-		box-shadow:
-			calc(-10 * var(--size)) calc(-10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(-10 * var(--size)) calc(10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(-10 * var(--size)) calc(10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(-10 * var(--size)) calc(10 * var(--size)) 0 calc(5 * var(--size));
+		transform: scale(1);
+		opacity: 0.8;
 	}
 	100% {
-		box-shadow:
-			calc(-10 * var(--size)) calc(-10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(-10 * var(--size)) calc(-10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(-10 * var(--size)) calc(-10 * var(--size)) 0 calc(5 * var(--size)),
-			calc(-10 * var(--size)) calc(-10 * var(--size)) 0 calc(5 * var(--size));
+		transform: scale(4);
+		opacity: 0;
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.spinner-hops::before {
-		animation: none;
+	.spinner-hops::before,
+	.spinner-hops::after {
+		display: none;
 	}
 }
 
