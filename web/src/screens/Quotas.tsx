@@ -184,6 +184,27 @@ function windowRank(w: WindowQuota): number {
 	return 2;
 }
 
+// Per-provider row orders beat windowRank: some providers read best
+// with weekly and hourly windows interleaved, which a global rank
+// cannot express. Unlisted labels sort after the listed ones by
+// windowRank, so a new agy bucket still lands sensibly.
+const preferredWindowOrder: Record<string, string[]> = {
+	antigravity: [
+		"Gemini 5h",
+		"Gemini weekly",
+		"Argon weekly",
+		"Claude/GPT 5h",
+		"Claude/GPT weekly",
+	],
+};
+
+function windowOrder(providerId: string, w: WindowQuota): number {
+	const order = preferredWindowOrder[providerId];
+	if (!order) return windowRank(w);
+	const i = order.indexOf(w.label);
+	return i === -1 ? order.length + windowRank(w) : i;
+}
+
 export function ProviderCard({ provider }: { provider: ProviderQuota }) {
 	const hasWindows = provider.windows && provider.windows.length > 0;
 	const isError = Boolean(provider.error);
@@ -217,7 +238,7 @@ export function ProviderCard({ provider }: { provider: ProviderQuota }) {
 			{hasWindows && (
 				<div className="flex flex-col gap-3 border-t border-base-content/6 pt-3">
 					{[...(provider.windows ?? [])]
-						.sort((a, b) => windowRank(a) - windowRank(b))
+						.sort((a, b) => windowOrder(provider.id, a) - windowOrder(provider.id, b))
 						.map((w) => (
 							<WindowRow key={w.label} window={w} />
 						))}

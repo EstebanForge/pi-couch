@@ -50,7 +50,7 @@ describe("ProviderCard", () => {
 		expect(html).toContain("Session remaining (5h)");
 	});
 
-	it("orders antigravity 5h windows above its weeklies", () => {
+	it("orders antigravity windows in the preferred interleaved order", () => {
 		const html = renderToString(
 			<ProviderCard
 				provider={{
@@ -70,7 +70,26 @@ describe("ProviderCard", () => {
 		);
 		const at = (label: string) => html.indexOf(label);
 		expect(at("Gemini 5h")).toBeLessThan(at("Gemini weekly"));
+		expect(at("Gemini weekly")).toBeLessThan(at("Argon weekly"));
+		expect(at("Argon weekly")).toBeLessThan(at("Claude/GPT 5h"));
 		expect(at("Claude/GPT 5h")).toBeLessThan(at("Claude/GPT weekly"));
-		expect(at("Claude/GPT 5h")).toBeLessThan(at("Argon weekly"));
+	});
+
+	it("still ranks non-antigravity cards weekly before 5h-free labels", () => {
+		const html = renderToString(
+			<ProviderCard
+				provider={{
+					id: "copilot",
+					name: "GitHub Copilot",
+					plan: "Individual",
+					updated_at: "2026-11-14T00:00:00Z",
+					windows: [
+						{ label: "Chat", percent: 0, unit: "%", resets_at: "" },
+						{ label: "Session remaining (5h)", percent: 15, unit: "%", resets_at: "" },
+					],
+				}}
+			/>,
+		);
+		expect(html.indexOf("Session remaining (5h)")).toBeLessThan(html.indexOf("Chat"));
 	});
 });
