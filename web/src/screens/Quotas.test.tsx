@@ -49,4 +49,28 @@ describe("ProviderCard", () => {
 		expect(html).not.toContain("unavailable");
 		expect(html).toContain("Session remaining (5h)");
 	});
+
+	it("orders antigravity 5h windows above its weeklies", () => {
+		const html = renderToString(
+			<ProviderCard
+				provider={{
+					id: "antigravity",
+					name: "Antigravity",
+					plan: "Pro",
+					updated_at: "2026-11-14T00:00:00Z",
+					windows: [
+						{ label: "Gemini weekly", percent: 93, unit: "%", resets_at: "" },
+						{ label: "Claude/GPT weekly", percent: 50, unit: "%", resets_at: "" },
+						{ label: "Argon weekly", percent: 100, unit: "%", resets_at: "" },
+						{ label: "Gemini 5h", percent: 76, unit: "%", resets_at: "" },
+						{ label: "Claude/GPT 5h", percent: 100, unit: "%", resets_at: "" },
+					],
+				}}
+			/>,
+		);
+		const at = (label: string) => html.indexOf(label);
+		expect(at("Gemini 5h")).toBeLessThan(at("Gemini weekly"));
+		expect(at("Claude/GPT 5h")).toBeLessThan(at("Claude/GPT weekly"));
+		expect(at("Claude/GPT 5h")).toBeLessThan(at("Argon weekly"));
+	});
 });

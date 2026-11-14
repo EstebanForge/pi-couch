@@ -171,7 +171,14 @@ export default function QuotasScreen() {
 // provider's own order inside each rank.
 function windowRank(w: WindowQuota): number {
 	const l = w.label.toLowerCase();
-	if (l.includes("session") || l.includes("day") || l.includes("hour") || l.includes("interval"))
+	// antigravity labels hourly windows "5h", without the word "hour"
+	if (
+		l.includes("session") ||
+		l.includes("day") ||
+		l.includes("hour") ||
+		l.includes("interval") ||
+		l.includes("5h")
+	)
 		return 0;
 	if (l.includes("week")) return 1;
 	return 2;
