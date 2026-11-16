@@ -444,7 +444,11 @@ func piRowLabel(raw string) (label string, numbered bool, isRow bool) {
 	if cursor {
 		return line, false, true
 	}
-	if indent != 2 || line == "" || strings.Contains(line, "  ") {
+	// pi 1.5.2 insets dialog panes by one column: titles and prose paint
+	// at one space, unselected rows at three (outer pad + the old
+	// two-space gutter). Cursor rows parse at any indent; plain rows
+	// take the old two and the inset three.
+	if indent != 2 && indent != 3 || line == "" || strings.Contains(line, "  ") {
 		return "", false, false
 	}
 	return line, false, true

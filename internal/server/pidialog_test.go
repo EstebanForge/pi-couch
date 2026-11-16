@@ -32,6 +32,31 @@ const confirmScreen = ` Allow edit?
 ~/proj
 55.5k/1.0M tokens`
 
+// pi 1.5.2 insets the dialog pane by one column: title, prose, rows and
+// hint all sit one space in, so unselected rows land on three leading
+// spaces. Captured live 2026-11-16 (a ctx.ui.confirm publish gate in a
+// throwaway hc terminal); with rows read at only the old two-space
+// indent the parser dropped No, refused the two-row gate, and every
+// confirm dialog fell back to the open-Terminal banner.
+const confirmScreen152 = ` Operation aborted
+
+────────────────────────────────────────────────────────────
+
+ Publish?
+ cd /var/tmp/esteban/repro-gate && git push origin main
+
+ 2 file(s) changed since last peer review
+
+ → Yes
+   No
+
+ ↑↓ navigate  enter select  escape/ctrl+c cancel
+
+────────────────────────────────────────────────────────────
+/var/tmp/esteban/repro-gate (main)
+↑115k ↓1.6k R128 $0.018 5.8%/1.0M (auto)
+💻 ATTD-Zenless 🧠`
+
 const plainMenuScreen = `→ Alpha
   Beta
   Gamma
@@ -190,6 +215,14 @@ func TestParsePiDialogPlainMenuAndConfirm(t *testing.T) {
 	}
 	if c.Title != "Allow edit?" {
 		t.Errorf("title=%q", c.Title)
+	}
+}
+
+func TestParsePiDialogConfirmInset152(t *testing.T) {
+	d := parsePiDialog(confirmScreen152)
+	if d == nil || d.Kind != "select" || len(d.Options) != 2 ||
+		d.Options[0].Label != "Yes" || d.Options[1].Label != "No" || d.Cursor != 0 {
+		t.Fatalf("inset confirm = %+v", d)
 	}
 }
 
