@@ -39,7 +39,7 @@ One Android-first client that shows every pi session on this server, drives them
 - D3. Steer any session through herdr `agent prompt`. Works on sessions started anywhere, including herdr itself.
 - D4. Queue a follow-up: same mechanism; pi's own queue mode governs steer versus follow-up. Documented limit, not a UI toggle (ADR-0001).
 - D5. Stop button: Ctrl-C through herdr `send-keys`.
-- D6. Attachments: the composer uploads the image (POST /api/upload, sniffed type, 10MB cap) and Send appends the stored /tmp path to the prompt text; pi reads the file and the model sees it, the same flow as herdr's clipboard paste. Shipped.
+- D6. Attachments: the composer uploads the image (POST /api/upload, sniffed type, 50MB cap since 20261119, sized for phone videos; big bodies stream to disk) and Send appends the stored /tmp path to the prompt text; pi reads the file and the model sees it, the same flow as herdr's clipboard paste. Shipped.
 - D7. Stop a Session: herdr tab or workspace close. Confirmation required. Close (hide) stays separate. The composer stop box carries Close for the session's whole workspace (D7 shipped).
 - D8. Resume from the phone: new herdr tab, agent start with `pi --session <id>`.
 - D9. Drive from any client. Phone, tablet, desktop: same server, same herdr.

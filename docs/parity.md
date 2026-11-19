@@ -32,7 +32,7 @@ islands in internal/web/static/js/main.ts.
 | Close session (confirm) | yes | yes | overflow menu + Konsta Dialog. |
 | Composer send with pending bubble | yes | yes | reconcile rules per plan; unknown never retries. |
 | Draft persistence per session | yes | yes | templ: textarea survives redirect; SPA: localStorage couch-pi.draft.<key>. |
-| Attachments (10MB, 10 cap, chips, path-in-prompt) | yes | yes | |
+| Attachments (50MB, 10 cap, chips, path-in-prompt) | yes | yes | |
 | Model picker (catalog search + free-text pattern) | yes | yes | Konsta Sheet vs templ datalist. |
 | Thinking picker (7 levels) | yes | yes | |
 | Unconfirmed 8s Esc timeout on model/thinking | yes | yes | |

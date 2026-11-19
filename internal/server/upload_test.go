@@ -68,6 +68,23 @@ func TestUploadAcceptsAnyType(t *testing.T) {
 	}
 }
 
+// Phone videos are tens of MB; the cap exists for the server's memory,
+// not the model's context. A body above the old image-era cap must pass.
+func TestUploadAcceptsVideoSizedBody(t *testing.T) {
+	body := make([]byte, 12<<20)
+	w, path := postUpload(t, "clip.mp4", body)
+	if w.Code != http.StatusOK {
+		t.Fatalf("code %d body %s", w.Code, w.Body.String())
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	if int64(len(data)) != int64(len(body)) {
+		t.Fatalf("stored %d bytes, want %d", len(data), len(body))
+	}
+}
+
 func TestUploadExtensionSanitized(t *testing.T) {
 	png := append([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}, make([]byte, 32)...)
 	// Uppercase folds; junk or missing extensions fall back to the

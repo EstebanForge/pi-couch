@@ -17,7 +17,11 @@ import (
 // message). Upload stores the bytes, the composer appends the returned
 // path to the message.
 
-const maxUploadBytes = 10 << 20
+const maxUploadBytes = 50 << 20
+
+// maxUploadMemory stays tiny so video-sized bodies spill to disk temp
+// files instead of buffering in the server's heap.
+const maxUploadMemory = 1 << 20
 
 // defaultUploadsDir is /tmp so herdr's pi (same machine, no private-tmp in
 // the unit) can read it; the OS clears it like herdr's own clipboard dir.
@@ -50,8 +54,8 @@ func sanitizeExt(clientName, ctype string) string {
 func (a *app) uploadHandler(w http.ResponseWriter, r *http.Request) {
 	dir := cmp.Or(os.Getenv("COUCHPI_UPLOAD_DIR"), a.uploadDir, defaultUploadsDir)
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
-	if err := r.ParseMultipartForm(maxUploadBytes); err != nil {
-		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "too large (10MB cap)"})
+	if err := r.ParseMultipartForm(maxUploadMemory); err != nil {
+		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "too large (50MB cap)"})
 		return
 	}
 	f, header, err := r.FormFile("file")

@@ -2,7 +2,8 @@ import { useCallback, useRef, useState } from "react";
 import { uploadImage } from "./api";
 
 export const MAX_FILES = 10;
-const MAX_BYTES = 10 * 1024 * 1024;
+const MAX_MB = 50;
+const MAX_BYTES = MAX_MB * 1024 * 1024;
 const MAX_PARALLEL = 3;
 
 export type Attachment = { id: number; name: string; path?: string; error?: string };
@@ -63,7 +64,7 @@ export async function uploadAttachments(
 		files.map(async (file, index) => {
 			const attachment = batch[index];
 			if (file.size > MAX_BYTES) {
-				update(attachment.id, { error: "over 10 MB" });
+				update(attachment.id, { error: `over ${MAX_MB} MB` });
 				return;
 			}
 			await acquireUploadSlot();
