@@ -64,10 +64,10 @@ func matchSpace(spaces []hc.Space, dir string, resolve bool) (hc.Space, bool) {
 	bestFolder := ""
 	found := false
 	for _, s := range spaces {
-		if s.Folder == "" || strings.HasPrefix(s.ID, "/") {
+		if s.Dir() == "" || strings.HasPrefix(s.ID, "/") {
 			continue
 		}
-		folder := filepath.Clean(s.Folder)
+		folder := filepath.Clean(s.Dir())
 		if resolve {
 			if r, err := filepath.EvalSymlinks(folder); err == nil {
 				folder = filepath.Clean(r)
@@ -135,9 +135,9 @@ func (a *app) apiSpaces(w http.ResponseWriter, r *http.Request) {
 	for _, s := range spaces {
 		name := s.Name
 		if name == "" {
-			name = filepath.Base(s.Folder)
+			name = filepath.Base(s.Dir())
 		}
-		out = append(out, spaceWire{ID: s.ID, Name: name, Folder: s.Folder})
+		out = append(out, spaceWire{ID: s.ID, Name: name, Folder: s.Dir()})
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -217,9 +217,9 @@ func (a *app) apiAgents(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return "", nil, err
 			}
-			cwd, err := a.homeDir(s.Folder)
+			cwd, err := a.homeDir(s.Dir())
 			if err != nil {
-				return "", nil, fmt.Errorf("%w: %s", errSpaceDir, s.Folder)
+				return "", nil, fmt.Errorf("%w: %s", errSpaceDir, s.Dir())
 			}
 			return cwd, a.spaceLabels(s), nil
 		case "label":
@@ -227,7 +227,7 @@ func (a *app) apiAgents(w http.ResponseWriter, r *http.Request) {
 			// exists; otherwise the folder can still own a space.
 			spaces := a.spacesSoon(ctx)
 			if s, ok := spaceByName(spaces, req.Label); ok {
-				if dir, derr := a.homeDir(s.Folder); derr == nil {
+				if dir, derr := a.homeDir(s.Dir()); derr == nil {
 					return dir, a.spaceLabels(s), nil
 				}
 			}
@@ -280,7 +280,7 @@ func spaceByName(spaces []hc.Space, label string) (hc.Space, bool) {
 	for _, s := range spaces {
 		name := s.Name
 		if name == "" {
-			name = filepath.Base(s.Folder)
+			name = filepath.Base(s.Dir())
 		}
 		if name == label {
 			return s, true

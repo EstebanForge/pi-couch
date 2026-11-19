@@ -35,7 +35,13 @@ func TestSpacesReadsTheAppDocument(t *testing.T) {
 	f := startFakeCore(t, docGetHandler(t, map[string]any{
 		"herdr-app": map[string]any{
 			"spaces": []any{
-				map[string]any{"id": "sp1", "name": "", "folder": "/home/me/Dev/pi-couch", "tabs": []any{map[string]any{"id": "tb1"}}},
+				map[string]any{"id": "sp1", "name": "", "folder": "/home/me/Dev/pi-couch", "tabs": []any{map[string]any{
+					"id": "tb1",
+					"root": map[string]any{"children": []any{
+						map[string]any{"type": "block", "content": map[string]any{"mod": "space-pin", "props": map[string]any{"folder": "/elsewhere", "space": "sp999"}}},
+						map[string]any{"type": "block", "content": map[string]any{"mod": "space-pin", "props": map[string]any{"folder": "/home/me/Dev", "space": "zenless/sp1"}}},
+					}},
+				}}},
 				map[string]any{"id": "sp2", "name": "Forge", "folder": "/home/me/Dev/EstebanForge"},
 				map[string]any{"folder": "/idless/is/skipped"},
 				"junk-not-an-object",
@@ -60,8 +66,17 @@ func TestSpacesReadsTheAppDocument(t *testing.T) {
 	if spaces[0].FirstTab != "tb1" {
 		t.Fatalf("spaces[0].FirstTab = %q, want tb1", spaces[0].FirstTab)
 	}
+	// The space's own pin wins over another space's pin, machine
+	// prefixes in the pin's reference tolerated; a pinless space keeps
+	// its folder field.
+	if spaces[0].PinFolder != "/home/me/Dev" || spaces[0].Dir() != "/home/me/Dev" {
+		t.Fatalf("spaces[0] pin = %q dir = %q, want the own pin", spaces[0].PinFolder, spaces[0].Dir())
+	}
 	if spaces[1].ID != "sp2" || spaces[1].Name != "Forge" || spaces[1].FirstTab != "" {
 		t.Fatalf("spaces[1] = %+v", spaces[1])
+	}
+	if spaces[1].PinFolder != "" || spaces[1].Dir() != "/home/me/Dev/EstebanForge" {
+		t.Fatalf("spaces[1] pin = %q dir = %q, want the folder field", spaces[1].PinFolder, spaces[1].Dir())
 	}
 }
 

@@ -1,7 +1,7 @@
 # ADR-0013: Phone spawns adopt by folder
 
 Date: 2026-11-18
-Status: Accepted (Esteban, 2026-11-18: deepest parent space wins; peer-reviewed change-first, blockers folded in).
+Status: Accepted (Esteban, 2026-11-18: deepest parent space wins; peer-reviewed change-first, blockers folded in). Amended 2026-11-19: the space's own pin folder wins over its folder field.
 Amends: ADR-0011 (clause 3, the space-only adoption).
 
 ## Context
@@ -21,3 +21,9 @@ ADR-0011 taught Couch Pi the herdr app's adoption contract: a terminal spawned w
 - Every phone create and resume lands in the desk app when its folder (or an ancestor) is a space folder; the Quick space at `~/Dev` is the working catch-all Esteban runs, and it inherits anything under `~/Dev` that no deeper space owns.
 - A stale document can now misplace on every path instead of only `space_id` creates: deleted spaces still listed in the doc adopt into unknown ids and the app mints strays. Accepted; the doc is the app's own persisted truth and ids are stable across app restarts.
 - The create sheet's folder picker no longer implies "unplaced": it implies "the space that owns this folder".
+
+## Amendment: pin folders (2026-11-19)
+
+The first live probe exposed that the doc's `space.folder` fields had drifted: every space in the zenless doc carried a folder from an earlier layout (Quick→`~/Dev/EstebanForge/pi-couch`, EstebanForge→`~/Dev/Baluard`, Baluard→`~/Dev/EstebanForge/herdr-limon`, Wicket→`~/Dev/EstebanForge`) while the app's own per-tab `space-pin` blocks hold the maintained association (Quick→`~/Dev`, EstebanForge→`~/Dev/EstebanForge`, Baluard→`~/Dev/Baluard`, Wicket→`~/Dev/Wicket`). A folder field is written when a space is created and never maintained after.
+
+The match therefore runs on the space's effective folder (`Space.Dir` in `internal/hc/doc.go`): the folder from the space's own `space-pin` block when one exists, else the folder field. A pin matches its space with an optional machine prefix on the pin's reference (`machine/<id>`), and another space's pin is ignored. The same effective folder feeds the `space_id` spawn cwd, the Quick flow, and the sheet's display names, so one drifted field can no longer place a spawn in the wrong directory.

@@ -231,6 +231,31 @@ func TestHomeDirRefusesSymlinkEscape(t *testing.T) {
 	}
 }
 
+// A space's pin folder is the app's maintained association; the
+// folder field drifts when a space is re-pointed (live doc,
+// 2026-11-19 had every folder field stale). The pin wins both ways:
+// the pinned space gains its real folder and gives up the stale one.
+func TestInferSpacePinFolderOverridesStaleFolder(t *testing.T) {
+	spaces := []hc.Space{
+		{ID: "spF", Name: "Forge", Folder: "/h/Dev/EstebanForge", FirstTab: "tbF"},
+		{ID: "spW", Name: "Wicket", Folder: "/h/Dev/EstebanForge", PinFolder: "/h/Dev/Wicket", FirstTab: "tbW"},
+	}
+	if s, ok := inferSpace(spaces, "/h/Dev/Wicket/case"); !ok || s.ID != "spW" {
+		t.Fatalf("= %+v ok=%v, want spW by its pin", s, ok)
+	}
+	if s, ok := inferSpace(spaces, "/h/Dev/EstebanForge/sub"); !ok || s.ID != "spF" {
+		t.Fatalf("= %+v ok=%v, want spF (the pinned space moved away)", s, ok)
+	}
+}
+
+// A pin rescues a space whose folder field is empty.
+func TestInferSpacePinRescuesEmptyFolder(t *testing.T) {
+	spaces := []hc.Space{{ID: "spP", Folder: "", PinFolder: "/h/Dev/pin-only", FirstTab: "tbP"}}
+	if s, ok := inferSpace(spaces, "/h/Dev/pin-only/x"); !ok || s.ID != "spP" {
+		t.Fatalf("= %+v ok=%v, want spP", s, ok)
+	}
+}
+
 // --- ADR-0013: folder inference ---
 
 // inferSpace picks the space a folder belongs to (ADR-0013): the
@@ -372,6 +397,44 @@ func TestAPIAgentsCwdCreateAdoptsOwningSpace(t *testing.T) {
 	}
 	if got := f.docGetCount(); got != 1 {
 		t.Fatalf("doc.get calls = %d, want 1 per create", got)
+	}
+}
+
+// The folder field can lie while the space's own pin holds the truth
+// (live doc 2026-11-19): a create at the pinned folder adopts that
+// space, not the stale folder's owner.
+func TestAPIAgentsCwdCreateAdoptsByPinFolder(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	stale := filepath.Join(home, "stale-owner")
+	real := filepath.Join(home, "real-home")
+	sub := filepath.Join(real, "pkg")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sessPath := filepath.Join(home, ".pi", "agent", "sessions", "s1.jsonl")
+
+	a, _ := hcDialogApp(t)
+	drv, f := startHCFake(t, sessPath)
+	f.mu.Lock()
+	f.snap = func() []map[string]any { return nil }
+	f.mu.Unlock()
+	wireHC(a, drv)
+	spaceDoc(t, f,
+		map[string]any{"id": "spStale", "name": "Stale", "folder": stale, "tabs": []any{map[string]any{"id": "tbS"}}},
+		map[string]any{"id": "spReal", "name": "Real", "folder": stale, "tabs": []any{map[string]any{
+			"id":   "tbR",
+			"root": map[string]any{"children": []any{map[string]any{"type": "block", "content": map[string]any{"mod": "space-pin", "props": map[string]any{"folder": real, "space": "spReal"}}}}},
+		}}},
+	)
+
+	code, body := spaceCreate(t, a, map[string]any{"cwd": sub, "prompt": "hello"}, f, sessPath)
+	if code != 200 {
+		t.Fatalf("cwd create code = %d (%v), want 200", code, body)
+	}
+	labels, _ := f.runLog()[0]["labels"].(map[string]any)
+	if labels["herdr.space"] != "spReal" || labels["herdr.tab"] != "tbR" {
+		t.Fatalf("labels = %v, want the pin's space spReal/tbR", labels)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // appDocName is the document the herdr desktop app keeps per machine:
@@ -19,6 +20,11 @@ type Space struct {
 	ID     string `json:"id"`
 	Name   string `json:"name"`
 	Folder string `json:"folder"`
+	// PinFolder is the folder from the space's own space-pin block in
+	// its tabs. The app maintains the pin when a space is re-pointed,
+	// while the folder field drifts (live doc, 2026-11-19), so Dir()
+	// prefers the pin.
+	PinFolder string `json:"-"`
 	// FirstTab is the id of the doc's first tab in this space: the
 	// herdr.tab adoption target for a phone spawn. Empty when the doc
 	// lists no tab, and callers then spawn without labels rather than
@@ -26,9 +32,42 @@ type Space struct {
 	FirstTab string `json:"-"`
 }
 
+// Dir is the folder this space owns: the pin folder when the doc
+// carries the space's own pin, else the folder field.
+func (s Space) Dir() string {
+	if s.PinFolder != "" {
+		return s.PinFolder
+	}
+	return s.Folder
+}
+
 // docTab is the slice of a doc tab Couch Pi needs.
 type docTab struct {
-	ID string `json:"id"`
+	ID   string     `json:"id"`
+	Root docTabRoot `json:"root"`
+}
+
+// docTabRoot carries the tab's pane blocks; a space-pin block names
+// the folder the space is pinned to.
+type docTabRoot struct {
+	Children []docBlock `json:"children"`
+}
+
+type docBlock struct {
+	Type    string `json:"type"`
+	Content struct {
+		Mod   string `json:"mod"`
+		Props struct {
+			Folder string `json:"folder"`
+			Space  string `json:"space"`
+		} `json:"props"`
+	} `json:"content"`
+}
+
+// pinOwnsSpace matches a pin's space reference to a space id: the pin
+// may carry a machine prefix ("machine/<id>") on a federated doc.
+func pinOwnsSpace(spaceID, pinSpace string) bool {
+	return pinSpace == spaceID || strings.HasSuffix(pinSpace, "/"+spaceID)
 }
 
 // DocGet reads one core document and its version. A name never
@@ -75,6 +114,16 @@ func (c *Client) Spaces(ctx context.Context) ([]Space, error) {
 		}
 		if len(s.Tabs) > 0 {
 			s.FirstTab = s.Tabs[0].ID
+		}
+		for _, tab := range s.Tabs {
+			for _, b := range tab.Root.Children {
+				if b.Content.Mod != "space-pin" || !pinOwnsSpace(s.ID, b.Content.Props.Space) {
+					continue
+				}
+				if s.PinFolder == "" {
+					s.PinFolder = b.Content.Props.Folder
+				}
+			}
 		}
 		out = append(out, s.Space)
 	}
