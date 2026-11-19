@@ -231,6 +231,270 @@ func TestHomeDirRefusesSymlinkEscape(t *testing.T) {
 	}
 }
 
+// --- ADR-0013: folder inference ---
+
+// inferSpace picks the space a folder belongs to (ADR-0013): the
+// space whose folder is the folder itself, else the deepest ancestor
+// folder.
+func TestInferSpacePicksDeepestOwningFolder(t *testing.T) {
+	spaces := []hc.Space{
+		{ID: "spQ", Folder: "/h/Dev", FirstTab: "tbQ"},
+		{ID: "spB", Folder: "/h/Dev/Baluard", FirstTab: "tbB"},
+		{ID: "spW", Folder: "/h/Dev/Wicket", FirstTab: "tbW"},
+	}
+	if s, ok := inferSpace(spaces, "/h/Dev/Baluard"); !ok || s.ID != "spB" {
+		t.Fatalf("exact = %+v ok=%v, want spB", s, ok)
+	}
+	if s, ok := inferSpace(spaces, "/h/Dev/Baluard/sub/deep"); !ok || s.ID != "spB" {
+		t.Fatalf("subfolder = %+v ok=%v, want the deepest parent spB", s, ok)
+	}
+	if s, ok := inferSpace(spaces, "/h/Dev/Freelance/whooo"); !ok || s.ID != "spQ" {
+		t.Fatalf("shallow = %+v ok=%v, want the parent spQ", s, ok)
+	}
+	if _, ok := inferSpace(spaces, "/elsewhere"); ok {
+		t.Fatal("a folder outside every space matched")
+	}
+}
+
+// A space with no folder and a remote machine's space (its id carries
+// the "/" machine prefix and its folders are not this machine's
+// paths) never own a local spawn.
+func TestInferSpaceSkipsRemoteAndEmptyFolders(t *testing.T) {
+	spaces := []hc.Space{
+		{ID: "/spRemote", Folder: "/h/Dev", FirstTab: "tbR"},
+		{ID: "spEmpty", Folder: "", FirstTab: "tbE"},
+		{ID: "spQ", Folder: "/h/Dev", FirstTab: "tbQ"},
+	}
+	if s, ok := inferSpace(spaces, "/h/Dev/work"); !ok || s.ID != "spQ" {
+		t.Fatalf("= %+v ok=%v, want spQ (remote and empty skipped)", s, ok)
+	}
+}
+
+// A prefix compares at separator boundaries: owning ~/Dev/foo must
+// not swallow ~/Dev/foobar.
+func TestInferSpacePrefixIsSeparatorAware(t *testing.T) {
+	spaces := []hc.Space{{ID: "spF", Folder: "/h/Dev/foo", FirstTab: "tbF"}}
+	if s, ok := inferSpace(spaces, "/h/Dev/foobar"); ok {
+		t.Fatalf("foobar matched %s", s.ID)
+	}
+	if s, ok := inferSpace(spaces, "/h/Dev/foo/sub"); !ok || s.ID != "spF" {
+		t.Fatalf("sub = %+v ok=%v, want spF", s, ok)
+	}
+}
+
+// Duplicate folders pick the space that can actually label (a tab),
+// then document order.
+func TestInferSpaceTiebreakPrefersTabbedThenDocOrder(t *testing.T) {
+	tabbed := []hc.Space{
+		{ID: "spNoTab", Folder: "/h/Dev"},
+		{ID: "spTab", Folder: "/h/Dev", FirstTab: "tb"},
+	}
+	if s, ok := inferSpace(tabbed, "/h/Dev/x"); !ok || s.ID != "spTab" {
+		t.Fatalf("= %+v ok=%v, want the tabbed duplicate", s, ok)
+	}
+	both := []hc.Space{
+		{ID: "spA", Folder: "/h/Dev"},
+		{ID: "spB", Folder: "/h/Dev"},
+	}
+	if s, ok := inferSpace(both, "/h/Dev/x"); !ok || s.ID != "spA" {
+		t.Fatalf("= %+v ok=%v, want doc order spA", s, ok)
+	}
+}
+
+// A tabless deepest match wins and labels nil later; falling through
+// to a tabbed parent would place the session in the wrong space.
+func TestInferSpaceDeepestTablessWinsWithoutFallback(t *testing.T) {
+	spaces := []hc.Space{
+		{ID: "spQ", Folder: "/h/Dev", FirstTab: "tbQ"},
+		{ID: "spDeep", Folder: "/h/Dev/Baluard"},
+	}
+	s, ok := inferSpace(spaces, "/h/Dev/Baluard/sub")
+	if !ok || s.ID != "spDeep" || s.FirstTab != "" {
+		t.Fatalf("= %+v ok=%v, want the tabless deepest, not the parent", s, ok)
+	}
+}
+
+// Client cwds, session headers and doc folders disagree on symlinks;
+// the resolved retry must match through a link on either side.
+func TestInferSpaceRetriesSymlinkedFolders(t *testing.T) {
+	root := t.TempDir()
+	real := filepath.Join(root, "real")
+	if err := os.MkdirAll(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	if s, ok := inferSpace([]hc.Space{{ID: "spR", Folder: real, FirstTab: "tbR"}}, link); !ok || s.ID != "spR" {
+		t.Fatalf("link dir = %+v ok=%v, want spR", s, ok)
+	}
+	if s, ok := inferSpace([]hc.Space{{ID: "spL", Folder: link, FirstTab: "tbL"}}, real); !ok || s.ID != "spL" {
+		t.Fatalf("link folder = %+v ok=%v, want spL", s, ok)
+	}
+}
+
+// A folder-only create adopts the owning space: the exact folder
+// beats the shallower parent, the spawn keeps the client's cwd, and
+// the document is read once.
+func TestAPIAgentsCwdCreateAdoptsOwningSpace(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	proj := filepath.Join(home, "proj")
+	sub := filepath.Join(proj, "pkg")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sessPath := filepath.Join(home, ".pi", "agent", "sessions", "s1.jsonl")
+
+	a, _ := hcDialogApp(t)
+	drv, f := startHCFake(t, sessPath)
+	f.mu.Lock()
+	f.snap = func() []map[string]any { return nil }
+	f.mu.Unlock()
+	wireHC(a, drv)
+	spaceDoc(t, f,
+		map[string]any{"id": "spQ", "name": "Quick", "folder": home, "tabs": []any{map[string]any{"id": "tbQ"}}},
+		map[string]any{"id": "spB", "name": "Baluard", "folder": proj, "tabs": []any{map[string]any{"id": "tbB"}}},
+	)
+
+	code, body := spaceCreate(t, a, map[string]any{"cwd": sub, "prompt": "hello"}, f, sessPath)
+	if code != 200 {
+		t.Fatalf("cwd create code = %d (%v), want 200", code, body)
+	}
+	runs := f.runLog()
+	if len(runs) != 1 || runs[0]["cwd"] != sub {
+		t.Fatalf("run = %v, want cwd %s", runs, sub)
+	}
+	labels, _ := runs[0]["labels"].(map[string]any)
+	if labels["herdr.space"] != "spB" || labels["herdr.tab"] != "tbB" {
+		t.Fatalf("labels = %v, want the deepest parent spB/tbB", labels)
+	}
+	if got := f.docGetCount(); got != 1 {
+		t.Fatalf("doc.get calls = %d, want 1 per create", got)
+	}
+}
+
+// A folder outside every space keeps the plain unlabeled spawn.
+func TestAPIAgentsCwdCreateOutsideSpacesStaysUnlabeled(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	proj := filepath.Join(home, "proj")
+	lone := filepath.Join(home, "lone")
+	if err := os.MkdirAll(lone, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sessPath := filepath.Join(home, ".pi", "agent", "sessions", "s1.jsonl")
+
+	a, _ := hcDialogApp(t)
+	drv, f := startHCFake(t, sessPath)
+	f.mu.Lock()
+	f.snap = func() []map[string]any { return nil }
+	f.mu.Unlock()
+	wireHC(a, drv)
+	spaceDoc(t, f, map[string]any{"id": "spB", "name": "Baluard", "folder": proj, "tabs": []any{map[string]any{"id": "tbB"}}})
+
+	code, body := spaceCreate(t, a, map[string]any{"cwd": lone, "prompt": "hello"}, f, sessPath)
+	if code != 200 {
+		t.Fatalf("create code = %d (%v), want 200", code, body)
+	}
+	labels, _ := f.runLog()[0]["labels"].(map[string]any)
+	if len(labels) != 0 {
+		t.Fatalf("labels = %v, want none", labels)
+	}
+}
+
+// A Quick label that names no space falls back to owning-folder
+// inference instead of dropping the spawn unplaced.
+func TestAPIAgentsQuickUnmatchedLabelAdoptsByFolder(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	proj := filepath.Join(home, "proj")
+	sub := filepath.Join(proj, "pkg")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sessPath := filepath.Join(home, ".pi", "agent", "sessions", "s1.jsonl")
+
+	a, _ := hcDialogApp(t)
+	drv, f := startHCFake(t, sessPath)
+	f.mu.Lock()
+	f.snap = func() []map[string]any { return nil }
+	f.mu.Unlock()
+	wireHC(a, drv)
+	spaceDoc(t, f, map[string]any{"id": "spB", "name": "Baluard", "folder": proj, "tabs": []any{map[string]any{"id": "tbB"}}})
+
+	code, body := spaceCreate(t, a, map[string]any{"label": "nope", "cwd": sub, "prompt": "go"}, f, sessPath)
+	if code != 200 {
+		t.Fatalf("quick create code = %d (%v), want 200", code, body)
+	}
+	labels, _ := f.runLog()[0]["labels"].(map[string]any)
+	if labels["herdr.space"] != "spB" || labels["herdr.tab"] != "tbB" {
+		t.Fatalf("labels = %v, want the folder adoption", labels)
+	}
+}
+
+// An unreadable document must not break the create: the spawn fails
+// open to the plain folder path.
+func TestAPIAgentsCwdCreateSurvivesDocFailure(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	proj := filepath.Join(home, "proj")
+	if err := os.MkdirAll(proj, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sessPath := filepath.Join(home, ".pi", "agent", "sessions", "s1.jsonl")
+
+	a, _ := hcDialogApp(t)
+	drv, f := startHCFake(t, sessPath)
+	f.mu.Lock()
+	f.snap = func() []map[string]any { return nil }
+	f.failDocs = true
+	f.mu.Unlock()
+	wireHC(a, drv)
+
+	code, body := spaceCreate(t, a, map[string]any{"cwd": proj, "prompt": "hello"}, f, sessPath)
+	if code != 200 {
+		t.Fatalf("create code = %d (%v), want 200", code, body)
+	}
+	labels, _ := f.runLog()[0]["labels"].(map[string]any)
+	if len(labels) != 0 {
+		t.Fatalf("labels = %v, want none", labels)
+	}
+}
+
+// A stalled document read rides its own short budget: the create
+// still answers, unlabeled, without eating the spawn's runway.
+func TestAPIAgentsCwdCreateShrugsAtSlowDoc(t *testing.T) {
+	old := inferBudget
+	inferBudget = 200 * time.Millisecond
+	t.Cleanup(func() { inferBudget = old })
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	proj := filepath.Join(home, "proj")
+	if err := os.MkdirAll(proj, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sessPath := filepath.Join(home, ".pi", "agent", "sessions", "s1.jsonl")
+
+	a, _ := hcDialogApp(t)
+	drv, f := startHCFake(t, sessPath)
+	f.mu.Lock()
+	f.snap = func() []map[string]any { return nil }
+	f.docsDelay = 5 * time.Second
+	f.mu.Unlock()
+	wireHC(a, drv)
+
+	code, body := spaceCreate(t, a, map[string]any{"cwd": proj, "prompt": "hello"}, f, sessPath)
+	if code != 200 {
+		t.Fatalf("create code = %d (%v), want 200", code, body)
+	}
+	labels, _ := f.runLog()[0]["labels"].(map[string]any)
+	if len(labels) != 0 {
+		t.Fatalf("labels = %v, want none", labels)
+	}
+}
+
 // Any create without a prompt is a refusal: pi writes the session
 // file only at turn start, so a promptless agent could never surface
 // on the home list.

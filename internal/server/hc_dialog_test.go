@@ -36,15 +36,18 @@ type hcFakeCore struct {
 	paints []string // terminal.read sequence; the last repeats
 	ri     int
 
-	subs     []net.Conn              // connections that subscribed, in order
-	runs     []map[string]any        // terminal.run params
-	sends    []map[string]any        // terminal.send params
-	kills    []string                // terminal.kill addresses
-	attaches []map[string]any        // framed terminal.attach params
-	writes   [][]byte                // framed kind-6 payloads, in order
-	docs     map[string]any          // doc.get values keyed by name
-	state    string                  // snapshot status state; empty = working
-	snap     func() []map[string]any // snapshot terminals; nil = labeled t1
+	subs      []net.Conn              // connections that subscribed, in order
+	runs      []map[string]any        // terminal.run params
+	sends     []map[string]any        // terminal.send params
+	kills     []string                // terminal.kill addresses
+	attaches  []map[string]any        // framed terminal.attach params
+	writes    [][]byte                // framed kind-6 payloads, in order
+	docs      map[string]any          // doc.get values keyed by name
+	docsDelay time.Duration           // doc.get stall before answering
+	failDocs  bool                    // doc.get answers with an RPC error
+	docGets   int                     // doc.get request count
+	state     string                  // snapshot status state; empty = working
+	snap      func() []map[string]any // snapshot terminals; nil = labeled t1
 
 	// failKeysNext fails this many terminal.keys calls (send failures,
 	// memo release tests); 0 means all succeed.
@@ -233,8 +236,17 @@ func (f *hcFakeCore) reply(conn net.Conn, line string) {
 	case "doc.get":
 		name, _ := req.Params["name"].(string)
 		f.mu.Lock()
-		v := f.docs[name]
+		f.docGets++
+		delay, fail, v := f.docsDelay, f.failDocs, f.docs[name]
 		f.mu.Unlock()
+		if delay > 0 {
+			time.Sleep(delay)
+		}
+		if fail {
+			out, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": req.ID, "error": map[string]any{"code": -32000, "message": "hc: doc lost"}})
+			_, _ = conn.Write(append(out, '\n'))
+			return
+		}
 		result = map[string]any{"value": v, "version": 7}
 	case "terminal.kill":
 		addr, _ := req.Params["terminal"].(string)
@@ -348,6 +360,12 @@ func (f *hcFakeCore) runLog() []map[string]any {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]map[string]any{}, f.runs...)
+}
+
+func (f *hcFakeCore) docGetCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.docGets
 }
 
 func (f *hcFakeCore) sendLog() []map[string]any {

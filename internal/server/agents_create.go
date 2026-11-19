@@ -31,6 +31,58 @@ func (a *app) createBudget() time.Duration {
 	return agentCreateTimeout
 }
 
+// inferBudget bounds the document read behind folder inference
+// (ADR-0013). Inference improves a plain folder spawn, so a stalled
+// core costs it the labels, never the create's runway.
+var inferBudget = 3 * time.Second
+
+// inferSpace picks the space a folder belongs to: the space whose
+// folder is the folder itself, else the deepest ancestor folder.
+// Duplicates prefer a tabbed space (labels need one), then document
+// order.
+func inferSpace(spaces []hc.Space, dir string) (hc.Space, bool) {
+	if s, ok := matchSpace(spaces, dir, false); ok {
+		return s, true
+	}
+	// Client cwds, session headers and doc folders disagree on
+	// symlinks; one resolved retry catches what the clean comparison
+	// missed.
+	return matchSpace(spaces, dir, true)
+}
+
+// matchSpace applies the ADR-0013 rules: remote-machine spaces (ids
+// carry a "/" prefix) and folderless spaces never own a local spawn,
+// prefixes compare at separator boundaries, and a deeper folder beats
+// a shallower one regardless of tabs.
+func matchSpace(spaces []hc.Space, dir string, resolve bool) (hc.Space, bool) {
+	if resolve {
+		if r, err := filepath.EvalSymlinks(dir); err == nil {
+			dir = filepath.Clean(r)
+		}
+	}
+	var best hc.Space
+	bestFolder := ""
+	found := false
+	for _, s := range spaces {
+		if s.Folder == "" || strings.HasPrefix(s.ID, "/") {
+			continue
+		}
+		folder := filepath.Clean(s.Folder)
+		if resolve {
+			if r, err := filepath.EvalSymlinks(folder); err == nil {
+				folder = filepath.Clean(r)
+			}
+		}
+		if folder != dir && !strings.HasPrefix(dir, folder+string(filepath.Separator)) {
+			continue
+		}
+		if !found || len(folder) > len(bestFolder) || (len(folder) == len(bestFolder) && best.FirstTab == "" && s.FirstTab != "") {
+			best, bestFolder, found = s, folder, true
+		}
+	}
+	return best, found
+}
+
 // agentName folds a folder basename into a spawn name: start with a
 // lowercase letter, only [a-z0-9-_], 1-32 chars. Real folders violate
 // every one of those (leading dots, dots, upper case), so anything
@@ -93,10 +145,11 @@ func (a *app) apiSpaces(w http.ResponseWriter, r *http.Request) {
 // apiAgents creates a pi agent and submits the first prompt,
 // answering {key} once pi has a session file (it only appears after
 // the first prompt). Three selectors, exactly one required: cwd
-// (fresh spawn at that folder), space_id (spawn into the space: its
-// folder as cwd, adopted into the app's space tree via labels), or
-// label with cwd (the Quick flow: reuse the space named label, else
-// spawn at cwd).
+// (fresh spawn at that folder, adopted by the space owning the
+// folder when the document names one), space_id (spawn into the
+// space: its folder as cwd, adopted into the app's space tree via
+// labels), or label with cwd (the Quick flow: reuse the space named
+// label, else adopt by folder, else spawn at cwd).
 func (a *app) apiAgents(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Cwd      string `json:"cwd"`
@@ -171,15 +224,16 @@ func (a *app) apiAgents(w http.ResponseWriter, r *http.Request) {
 			return cwd, a.spaceLabels(s), nil
 		case "label":
 			// The Quick flow's label matches a space by name when one
-			// exists; an unmatched label keeps the plain spawn.
-			if s, ok := a.spaceByName(ctx, req.Label); ok {
+			// exists; otherwise the folder can still own a space.
+			spaces := a.spacesSoon(ctx)
+			if s, ok := spaceByName(spaces, req.Label); ok {
 				if dir, derr := a.homeDir(s.Folder); derr == nil {
 					return dir, a.spaceLabels(s), nil
 				}
 			}
-			return jailed, nil, nil
+			return jailed, a.inferLabels(spaces, jailed), nil
 		default:
-			return jailed, nil, nil
+			return jailed, a.inferLabels(a.spacesSoon(ctx), jailed), nil
 		}
 	}
 	cwd, labels, err := resolveDir()
@@ -222,11 +276,7 @@ func (a *app) spaceByID(ctx context.Context, id string) (hc.Space, error) {
 
 // spaceByName matches the Quick flow's label against space names
 // (unnamed spaces fold to their folder basename first).
-func (a *app) spaceByName(ctx context.Context, label string) (hc.Space, bool) {
-	spaces, err := a.hcDrv.Spaces(ctx)
-	if err != nil {
-		return hc.Space{}, false
-	}
+func spaceByName(spaces []hc.Space, label string) (hc.Space, bool) {
 	for _, s := range spaces {
 		name := s.Name
 		if name == "" {
@@ -237,6 +287,28 @@ func (a *app) spaceByName(ctx context.Context, label string) (hc.Space, bool) {
 		}
 	}
 	return hc.Space{}, false
+}
+
+// inferLabels derives the adoption labels from the folder's owning
+// space: exact folder first, else the deepest ancestor (ADR-0013).
+// No owner or a tabless owner degrades to the plain folder spawn.
+func (a *app) inferLabels(spaces []hc.Space, dir string) map[string]string {
+	s, ok := inferSpace(spaces, dir)
+	if !ok {
+		return nil
+	}
+	a.logger.Debug("spawn adopts by folder", slog.String("space", s.ID), slog.String("cwd", dir))
+	return a.spaceLabels(s)
+}
+
+// spacesSoon fetches the app document once under the inference
+// budget; a failure costs the labels, never the spawn (an explicit
+// space_id keeps its loud lookup).
+func (a *app) spacesSoon(ctx context.Context) []hc.Space {
+	sctx, cancel := context.WithTimeout(ctx, inferBudget)
+	defer cancel()
+	spaces, _ := a.hcDrv.Spaces(sctx)
+	return spaces
 }
 
 // spaceLabels builds the adoption labels that place a spawn inside
@@ -402,12 +474,12 @@ func (a *app) createAgentSessionHC(ctx context.Context, label, cwd, prompt strin
 // resumeSessionHC starts pi again over a closed session's jsonl via
 // --session, which loads that exact file, so the phone's key never
 // changes and no session discovery is needed.
-func (a *app) resumeSessionHC(ctx context.Context, label, cwd, path, text string) (string, error) {
+func (a *app) resumeSessionHC(ctx context.Context, label, cwd, path, text string, labels map[string]string) (string, error) {
 	name := hcSpawnName(label)
-	t9, err := a.hcDrv.Spawn(ctx, cwd, name, []string{"--session", path}, nil)
+	t9, err := a.hcDrv.Spawn(ctx, cwd, name, []string{"--session", path}, labels)
 	if err != nil && hcNameTaken(err) {
 		name = hcSpawnRetryName(label)
-		t9, err = a.hcDrv.Spawn(ctx, cwd, name, []string{"--session", path}, nil)
+		t9, err = a.hcDrv.Spawn(ctx, cwd, name, []string{"--session", path}, labels)
 	}
 	if err != nil {
 		return "", fmt.Errorf("hc spawn: %w", err)
@@ -426,6 +498,8 @@ func (a *app) resumeSessionHC(ctx context.Context, label, cwd, path, text string
 // the session's cwd runs pi --session <jsonl>, and the optional text
 // rides along as the first prompt. The jsonl already exists, so the
 // answer needs no session discovery - the requested key is the key.
+// The terminal adopts the space owning the session's folder (ADR-0013);
+// the $HOME fallback stays unplaced, since no space owns home.
 func (a *app) apiSessionResume(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
 	var req struct {
@@ -450,8 +524,11 @@ func (a *app) apiSessionResume(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "running"})
 		return
 	}
+	var labels map[string]string
 	cwd, err := a.homeDir(meta.Cwd)
-	if err != nil {
+	if err == nil {
+		labels = a.inferLabels(a.spacesSoon(ctx), cwd)
+	} else {
 		// The session's project may be gone; pi --session takes an
 		// absolute path, so the spawn cwd only needs to be legal.
 		cwd, err = os.UserHomeDir()
@@ -464,7 +541,7 @@ func (a *app) apiSessionResume(w http.ResponseWriter, r *http.Request) {
 	if label == "" {
 		label = filepath.Base(cwd)
 	}
-	name, err := a.resumeSessionHC(ctx, label, cwd, meta.Path, strings.TrimSpace(req.Text))
+	name, err := a.resumeSessionHC(ctx, label, cwd, meta.Path, strings.TrimSpace(req.Text), labels)
 	if err != nil {
 		a.logger.Error("resume failed", slog.String("key", key), slog.String("error", err.Error()))
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "resume failed"})
