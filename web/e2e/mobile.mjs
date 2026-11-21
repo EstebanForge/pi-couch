@@ -475,3 +475,124 @@ test("entering a tall session lands on the latest message", async () => {
 		`${bad.length}/12 passes opened away from the latest message: ${JSON.stringify(bad)}`,
 	);
 });
+
+// Reading anchor: a tall assistant reply parks at its start instead of
+// riding its end; a short one keeps the usual bottom glue. The Latest
+// pill stays as the explicit way down, with no unread counter ticking.
+test("a tall reply anchors at its start, a short one stays glued", async () => {
+	fixture.reset();
+	await open("/sessions/long");
+	await page.waitFor("document.querySelector('textarea')", "long session composer");
+	await page.waitFor("document.querySelector('[data-virtuoso-scroller]')", "scroller");
+	await sleep(450);
+	const glued = await page.evaluate(`(() => {
+		const sc = document.querySelector('[data-virtuoso-scroller]');
+		return sc.scrollHeight - (sc.scrollTop + sc.clientHeight);
+	})()`);
+	assert.ok(glued <= 12, `entry must sit at the bottom before the reply, gap ${glued}`);
+
+	const tall = Array.from(
+		{ length: 40 },
+		(_, i) =>
+			`Anchor probe paragraph ${i}. Filler sentence long enough to wrap across several lines on a 360px phone screen and stack up real height inside the message body block.`,
+	).join("\n\n");
+	fixture.pushAssistant(tall);
+	await page.waitFor(
+		"document.body.innerText.includes('Anchor probe paragraph 39')",
+		"tall reply rendered",
+	);
+	await sleep(450);
+	const anchored = await page.evaluate(`(() => {
+		const sc = document.querySelector('[data-virtuoso-scroller]');
+		const view = sc.getBoundingClientRect();
+		const walker = document.createTreeWalker(sc, NodeFilter.SHOW_TEXT);
+		let row = null;
+		while (walker.nextNode()) {
+			if (walker.currentNode.textContent.includes("Anchor probe paragraph 0.")) {
+				row = walker.currentNode.parentElement.closest("[data-item-index]");
+				break;
+			}
+		}
+		if (!row) return { hasRow: false };
+		const rect = row.getBoundingClientRect();
+		const pill = [...document.querySelectorAll("button")].find((n) => n.textContent.includes("Latest"));
+		return {
+			hasRow: true,
+			topDelta: Math.round(rect.top - view.top),
+			bottomGap: Math.round(sc.scrollHeight - (sc.scrollTop + sc.clientHeight)),
+			pillShown: !!pill,
+			pillText: pill?.textContent.replace(/\\s+/g, " ").trim(),
+		};
+	})()`);
+	assert.ok(anchored.hasRow, "tall reply row missing");
+	assert.ok(
+		Math.abs(anchored.topDelta) <= 16,
+		`anchor must park at the reply start, topDelta ${anchored.topDelta}`,
+	);
+	assert.ok(
+		anchored.bottomGap > 100,
+		`anchored view must leave the bottom, gap ${anchored.bottomGap}`,
+	);
+	assert.ok(anchored.pillShown, "Latest pill must stay available while anchored");
+	assert.ok(
+		!/\\d/.test(anchored.pillText ?? ""),
+		`unread must not tick while anchored: ${anchored.pillText}`,
+	);
+
+	const heightBefore = await page.evaluate(
+		"document.querySelector('[data-virtuoso-scroller]').scrollHeight",
+	);
+	fixture.pushAssistant("Short follow-up landing after the anchor.");
+	await page.waitFor(
+		`(() => { const sc = document.querySelector('[data-virtuoso-scroller]'); return sc.scrollHeight > ${heightBefore} + 40; })()`,
+		"short reply lands below the fold",
+	);
+	await sleep(350);
+	const still = await page.evaluate(`(() => {
+		const sc = document.querySelector('[data-virtuoso-scroller]');
+		const view = sc.getBoundingClientRect();
+		const walker = document.createTreeWalker(sc, NodeFilter.SHOW_TEXT);
+		let row = null;
+		while (walker.nextNode()) {
+			if (walker.currentNode.textContent.includes("Anchor probe paragraph 0.")) {
+				row = walker.currentNode.parentElement.closest("[data-item-index]");
+				break;
+			}
+		}
+		return {
+			topDelta: row ? Math.round(row.getBoundingClientRect().top - view.top) : null,
+			bottomGap: Math.round(sc.scrollHeight - (sc.scrollTop + sc.clientHeight)),
+		};
+	})()`);
+	assert.ok(
+		still.topDelta !== null && Math.abs(still.topDelta) <= 16,
+		`anchor must hold while short replies land, topDelta ${still.topDelta}`,
+	);
+	assert.ok(still.bottomGap > 100, "short follow-up must not re-glue the view");
+
+	await page.tapText("Latest", "button", false);
+	await page.waitFor(
+		"(() => { const sc = document.querySelector('[data-virtuoso-scroller]'); return sc.scrollHeight - (sc.scrollTop + sc.clientHeight) <= 12; })()",
+		"pill tap re-pins the bottom",
+	);
+	const repinned = await page.evaluate(`(() => {
+		const sc = document.querySelector('[data-virtuoso-scroller]');
+		const pill = [...document.querySelectorAll("button")].find((n) => n.textContent.includes("Latest"));
+		return {
+			bottomGap: Math.round(sc.scrollHeight - (sc.scrollTop + sc.clientHeight)),
+			pillShown: !!pill,
+			shortVisible: document.body.innerText.includes("Short follow-up landing"),
+		};
+	})()`);
+	assert.ok(repinned.bottomGap <= 12, `pill tap must re-pin the bottom, gap ${repinned.bottomGap}`);
+	assert.ok(!repinned.pillShown, "pill must hide once the bottom re-pins");
+	assert.ok(repinned.shortVisible, "the short reply must render once the view returns down");
+
+	fixture.pushAssistant("Short reply while glued again.");
+	await page.waitFor("document.body.innerText.includes('while glued again')", "post re-pin reply");
+	await sleep(350);
+	const reglued = await page.evaluate(
+		"(() => { const sc = document.querySelector('[data-virtuoso-scroller]'); return sc.scrollHeight - (sc.scrollTop + sc.clientHeight); })()",
+	);
+	assert.ok(reglued <= 12, `bottom follow must resume after re-pin, gap ${reglued}`);
+});

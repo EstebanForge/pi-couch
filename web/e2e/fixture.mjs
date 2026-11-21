@@ -351,6 +351,14 @@ export async function startFixture() {
 			state.status = "blocked";
 		},
 		setIdle,
+		pushAssistant(text, key = "long") {
+			if (key !== "long") return;
+			longItems.push({ kind: "text", text });
+			const item = longItems[longItems.length - 1];
+			for (const res of transcriptStreams) {
+				writeEvent(res, "append", { items: [{ ...item, seq: longItems.length }] });
+			}
+		},
 		setTodos(todos) {
 			state.todos = todos;
 			broadcast();

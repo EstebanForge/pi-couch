@@ -764,6 +764,12 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 	const [unreadCount, setUnreadCount] = useState(0);
 	const [atBottom, setAtBottom] = useState(true);
 	const pinned = useRef(true);
+	// Reading anchor: the seq of the assistant text that just landed
+	// taller than the viewport. The view parks at its start instead of
+	// riding its end, and unread stops ticking until the user re-pins
+	// at the bottom or the next user message opens a new turn.
+	const anchorSeq = useRef<number | null>(null);
+	const pendingAnchor = useRef<number | null>(null);
 	const virtuoso = useRef<VirtuosoHandle | null>(null);
 	const scroller = useRef<HTMLDivElement | null>(null);
 	const dragStart = useRef<{ y: number } | null>(null);
@@ -775,6 +781,7 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 	// only after it: an empty mount latches the initial index at the top
 	// and the entry parks mid-history instead of on the latest message.
 	const [tailLoaded, setTailLoaded] = useState(false);
+	const tailLoadedRef = useRef(false);
 	// Bumped when a resume completes so the transcript stream reopens
 	// fresh instead of trusting a connection that predates the new driver.
 	const [streamGen, setStreamGen] = useState(0);
@@ -790,11 +797,19 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 					// and their index bookkeeping restart with it.
 					setFirstItemIndex(INDEX_BASE);
 					setMoreHistory(true);
+					// The entry reset places the view; only later resets (an
+					// in-place edit mid-turn, a reconnect) can carry fresh
+					// messages worth anchoring.
+					const p = JSON.parse(data) as TranscriptReset;
+					if (tailLoadedRef.current) takeAnchorReset(p.items);
+					tailLoadedRef.current = true;
 					setTailLoaded(true);
-					dispatch({ t: "reset", p: JSON.parse(data) as TranscriptReset });
+					dispatch({ t: "reset", p });
 				} else if (name === "append") {
-					dispatch({ t: "append", p: JSON.parse(data) as TranscriptAppend });
-					if (!pinned.current) {
+					const p = JSON.parse(data) as TranscriptAppend;
+					takeAnchor(p.items);
+					dispatch({ t: "append", p });
+					if (!pinned.current && anchorSeq.current === null && pendingAnchor.current === null) {
 						setUnreadCount((c) => c + 1);
 					}
 				} else if (name === "status")
@@ -955,6 +970,71 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 	// only the last user message of an idle driven session gets it.
 	const itemsRef = useRef(state.items);
 	itemsRef.current = state.items;
+	// A newly landed assistant text becomes the reading anchor when the
+	// chat is glued to the bottom: the view parks at its start instead
+	// of riding its end. Measured after render, so the pick parks in
+	// pendingAnchor until Virtuoso draws the block.
+	const takeAnchor = (fresh: StreamItem[]) => {
+		if (query) return;
+		if (fresh.some((it) => it.kind === "user")) {
+			anchorSeq.current = null;
+			pendingAnchor.current = null;
+			return;
+		}
+		if (!pinned.current) return;
+		if (anchorSeq.current !== null || pendingAnchor.current !== null) return;
+		const text = [...fresh].reverse().find((it) => it.kind === "text");
+		if (!text) return;
+		pinned.current = false;
+		pendingAnchor.current = text.seq;
+	};
+	const takeAnchorReset = (items: StreamItem[]) => {
+		const known = new Set(itemsRef.current.map((it) => it.seq));
+		takeAnchor(items.filter((it) => !known.has(it.seq)));
+	};
+	// Land the anchor: taller than the viewport parks at its start,
+	// shorter hands control back to the bottom follow. A block can sit
+	// below Virtuoso's rendered window, so an unseen block over ~900
+	// runes jumps there first and measures on the next pass.
+	useEffect(() => {
+		if (pendingAnchor.current === null || query) return;
+		const seq = pendingAnchor.current;
+		pendingAnchor.current = null;
+		let alive = true;
+		const timers: ReturnType<typeof setTimeout>[] = [];
+		const settle = (tries: number) => {
+			if (!alive) return;
+			const sc = scroller.current?.querySelector("[data-virtuoso-scroller]");
+			const bi = blocks.findIndex((b) => b.type === "item" && b.item.seq === seq);
+			const found = blocks.find((b) => b.type === "item" && b.item.seq === seq);
+			const text = found?.type === "item" ? found.item.text : "";
+			const row = bi >= 0 ? sc?.querySelector(`[data-item-index="${bi}"]`) : null;
+			if (!sc || !row) {
+				if (bi >= 0 && text.length >= 900) {
+					virtuoso.current?.scrollToIndex({ index: bi, align: "start", behavior: "auto" });
+				}
+				if (tries > 0) timers.push(setTimeout(() => settle(tries - 1), 60));
+				else pinned.current = true;
+				return;
+			}
+			if (row.clientHeight <= sc.clientHeight) {
+				pinned.current = true;
+				virtuoso.current?.scrollToIndex({
+					index: blocks.length - 1,
+					align: "end",
+					behavior: "auto",
+				});
+				return;
+			}
+			anchorSeq.current = seq;
+			virtuoso.current?.scrollToIndex({ index: bi, align: "start", behavior: "auto" });
+		};
+		timers.push(setTimeout(() => settle(8), 60));
+		return () => {
+			alive = false;
+			for (const t of timers) clearTimeout(t);
+		};
+	}, [blocks, query]);
 	const rewindApi = useMemo(
 		() => ({
 			canRewind: (it: StreamItem) =>
@@ -1252,7 +1332,10 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 						atBottomStateChange={(bottom) => {
 							pinned.current = bottom;
 							setAtBottom(bottom);
-							if (bottom) setUnreadCount(0);
+							if (bottom) {
+								setUnreadCount(0);
+								anchorSeq.current = null;
+							}
 						}}
 						initialTopMostItemIndex={Math.max(0, blocks.length - 1)}
 						className="h-full"
