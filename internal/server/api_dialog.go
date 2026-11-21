@@ -146,6 +146,21 @@ func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, tex
 		// match above plus a live dialog here is the identity gate.
 		return true
 	}
+	// offScreenArgs names why a read failed the identity gate, so a
+	// refusal diagnoses from the journal alone: dead read vs nil parse
+	// vs title drift.
+	offScreenArgs := func(ok bool, screen string) []any {
+		args := []any{"cause", "dialog off screen", "session", path, "read_ok", ok}
+		if !ok {
+			return args
+		}
+		if p := parsePiDialog(screen); p != nil {
+			args = append(args, "parse_ok", true, "parsed_title", p.Title, "expect_title", expectTitle)
+		} else {
+			args = append(args, "parse_ok", false, "expect_title", expectTitle)
+		}
+		return args
+	}
 	read := func() (string, bool) {
 		screen, err := drv.ReadScreen(ctx, addr, 60)
 		if err != nil {
@@ -172,7 +187,8 @@ func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, tex
 	case answer == "yes" || answer == "no":
 		screen, ok := read()
 		if !ok || !stillUp(screen) {
-			a.logger.Warn("dialog answer refused", "cause", "dialog off screen", "session", path)
+			args := offScreenArgs(ok, screen)
+			a.logger.Warn("dialog answer refused", args...)
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
 			return false, true
 		}
@@ -223,7 +239,8 @@ func (a *app) answerDispatch(w http.ResponseWriter, r *http.Request, answer, tex
 		// an identity mismatch is worse than a redundant esc. Only a
 		// dialog-less screen refuses, protecting pi's idle editor.
 		if !ok || !dialogOpen(screen) {
-			a.logger.Warn("dialog answer refused", "cause", "dialog off screen", "session", path)
+			args := offScreenArgs(ok, screen)
+			a.logger.Warn("dialog answer refused", args...)
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "changed"})
 			return false, true
 		}

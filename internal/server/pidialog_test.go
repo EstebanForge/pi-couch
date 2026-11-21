@@ -357,6 +357,84 @@ func TestParsePiDialogEditorScrollDown(t *testing.T) {
 	}
 }
 
+// pi (1.5.2+) paints the overlay with Spacer blanks: rule, blank, title,
+// blank, then the buffer viewport whose own top border carries the ↑
+// indicator. The bridge card's title is the event's full string, so the
+// parse must recover it across the blank - an empty title fails the
+// answer path's identity gate on every attempt.
+func TestParsePiDialogEditorScrolledSpacers(t *testing.T) {
+	screen := "some transcript line\n\n" +
+		"────────────────────────────────────────────────────────────\n" +
+		"\n" +
+		" Commit staged changes with this message?\n" +
+		"\n" +
+		"────── ↑ 24 more ────────────────────────────────────────────\n" +
+		"the visible tail\nlines two\n" +
+		"────────────────────────────────────────────────────────────\n" +
+		"\n" +
+		" enter submit  shift+enter/ctrl+j newline  escape/ctrl+c cancel  ctrl+g external editor\n" +
+		"\n" +
+		"────────────────────────────────────────────────────────────\n"
+	d := parsePiDialog(screen)
+	if d == nil || d.Kind != "editor" {
+		t.Fatalf("parse: %+v", d)
+	}
+	if !d.Scrolled || d.HiddenAbove != 24 {
+		t.Fatalf("scrolled=%v hidden=%d", d.Scrolled, d.HiddenAbove)
+	}
+	if d.Title != "Commit staged changes with this message?" {
+		t.Fatalf("title=%q", d.Title)
+	}
+	if want := "the visible tail\nlines two"; d.Body != want {
+		t.Fatalf("body=%q, want %q", d.Body, want)
+	}
+}
+
+// A title wider than the pane wraps inside the overlay; the parse joins
+// the run with single spaces, which is exactly the bridge's title.
+func TestParsePiDialogEditorScrolledSpacersWrappedTitle(t *testing.T) {
+	screen := "some transcript line\n\n" +
+		"──────────────────────────────────────\n" +
+		"\n" +
+		" Commit staged changes with this message? (repo:\n" +
+		" /home/esteban/Dev/Baluard/baluard)\n" +
+		"\n" +
+		"──── ↑ 4 more ────────────────────────\n" +
+		"the visible tail\n" +
+		"──────────────────────────────────────\n" +
+		"\n" +
+		" enter submit  shift+enter/ctrl+j newline  escape/ctrl+c cancel  ctrl+g external editor\n" +
+		"\n" +
+		"──────────────────────────────────────\n"
+	d := parsePiDialog(screen)
+	if d == nil || d.Kind != "editor" {
+		t.Fatalf("parse: %+v", d)
+	}
+	if want := "Commit staged changes with this message? (repo: /home/esteban/Dev/Baluard/baluard)"; d.Title != want {
+		t.Fatalf("title=%q, want %q", d.Title, want)
+	}
+}
+
+// Prose directly above the indicator with no blank, rule or screen-top
+// boundary is the transcript, never a title.
+func TestParsePiDialogEditorScrolledSpacerJunkGuard(t *testing.T) {
+	screen := "transcript one\ntranscript two\ntranscript three\n" +
+		"──── ↑ 4 more ────────────────────────\n" +
+		"the visible tail\n" +
+		"──────────────────────────────────────\n" +
+		"\n" +
+		" enter submit  shift+enter/ctrl+j newline  escape/ctrl+c cancel  ctrl+g external editor\n" +
+		"\n" +
+		"──────────────────────────────────────\n"
+	d := parsePiDialog(screen)
+	if d == nil || d.Kind != "editor" {
+		t.Fatalf("parse: %+v", d)
+	}
+	if d.Title != "" {
+		t.Fatalf("transcript must not serve as title: %q", d.Title)
+	}
+}
+
 func TestParsePiDialogEditorScrolled(t *testing.T) {
 	screen := "some transcript line\n\n" +
 		"────────────────────────────────────────────────────────────\n" +

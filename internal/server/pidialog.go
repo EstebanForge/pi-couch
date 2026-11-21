@@ -260,26 +260,50 @@ func parsePiEditorBlock(lines []string) *piDialog {
 		return nil
 	}
 	d := &piDialog{Kind: "editor", Body: strings.Join(buf, "\n"), Scrolled: scrolled, HiddenAbove: hiddenAbove, HiddenBelow: hiddenBelow}
-	// The scroll rule replaced the buffer's top edge and i still points
-	// at it, so the unscrolled walk below would wear the scroll line as
-	// the title. The overlay's title block (rule, title, rule) sits
-	// above; recover it only when that shape holds, else leave the
-	// title empty rather than serve pane chrome as the card's title.
+	// The scroll rule replaced the buffer's top edge, so the unscrolled
+	// title walk below would wear the scroll line as the title; recover
+	// the overlay's title from above the indicator instead.
 	if hiddenAbove > 0 {
-		if j := i - 1; j > 0 && piDividerRe.MatchString(strings.TrimSpace(lines[j-1])) {
+		// pi's overlay pads a Spacer blank between the title and the
+		// viewport, and the ↑ indicator rides the viewport's top border;
+		// older paints sat a closing rule directly on the indicator.
+		// Skip the pad blanks, step over an optional closing rule, then
+		// collect the title run. A run still fenced by prose above it is
+		// the transcript, not a title - leave the title empty.
+		j := i - 1
+		hadRule := false
+		for pad := 0; j > 0 && pad < 2 && strings.TrimSpace(lines[j-1]) == ""; pad++ {
 			j--
-			var title []string
-			for j > 0 && len(title) < 4 {
-				line := strings.TrimSpace(lines[j-1])
-				if line == "" || piDividerRe.MatchString(line) {
-					break
+		}
+		if j > 0 && piDividerRe.MatchString(strings.TrimSpace(lines[j-1])) {
+			hadRule = true
+			j--
+		}
+		var title []string
+		for j > 0 && len(title) < 4 {
+			line := strings.TrimSpace(lines[j-1])
+			if line == "" || piDividerRe.MatchString(line) {
+				break
+			}
+			title = append([]string{line}, title...)
+			j--
+		}
+		if len(title) > 0 {
+			// Without a closing rule anchoring the run, prose continuing to
+			// the screen top is the transcript, not a title.
+			bounded := func() bool {
+				if j == 0 {
+					return false
 				}
-				title = append([]string{line}, title...)
-				j--
+				above := strings.TrimSpace(lines[j-1])
+				return above == "" || piDividerRe.MatchString(above)
 			}
-			if len(title) > 0 {
-				d.Title = strings.Join(title, " ")
+			if !hadRule && !bounded() {
+				title = nil
 			}
+		}
+		if len(title) > 0 {
+			d.Title = strings.Join(title, " ")
 		}
 		return d
 	}
