@@ -84,6 +84,7 @@ Boundaries:
 - hc attach is exclusive per connection and the core answers `finished` with a kind-tagged error; the terminal tab treats that as gone and everything else as reset-reconnect.
 - Compression scope: the Vite build emits `.gz` sidecars for hashed assets and the Go embed serves them only when the client sends `Accept-Encoding: gzip` (curl and the native door get raw bytes); plain `/api` JSON responses and the transcript SSE compress (buffered vs per-frame flush respectively), while the terminal and sessions SSE streams stay raw on purpose: tiny frequent frames lose more to flush overhead than compression saves. Any change to response writing must keep the `WriteHeader`-before-body discipline in mind, since the gzip wrappers stamp headers at `WriteHeader`.
 - Ephemeral sessions (`--no-session`) are invisible by design.
+- pi's dialog paints are the parse contract: the editor overlay pads Spacer blanks around the title and rides the scroll indicator on the viewport's own border, so parser fixtures must be derived from a live pi paint, not memory. A 409 "dialog off screen" on every retry with the dialog visibly up means a pane-parse vs bridge-title drift - the refusal log now carries `parsed_title`/`expect_title` to say which.
 - No backward-compat layers or fallback paths; remove obsolete code instead (project rule, ADR consequences included).
 
 ## Versions
