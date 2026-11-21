@@ -426,3 +426,52 @@ test("quotas refresh CPU history and RAM every five seconds only while open", as
 	await sleep(5500);
 	assert.equal(fixture.state.metricsRequests, stoppedAt, "closed quotas must stop sampling");
 });
+
+// Entry placement: opening a session with a tall transcript must land
+// on the latest message, not somewhere back in the history. Half the
+// passes deliver the tail window late, the way a phone radio does on a
+// cold connect.
+test("entering a tall session lands on the latest message", async () => {
+	const placements = [];
+	for (let pass = 0; pass < 12; pass++) {
+		fixture.state.resetDelay = pass >= 6 ? 60 + Math.floor(Math.random() * 90) : 0;
+		await open("/sessions/long");
+		await page.waitFor("document.querySelector('textarea')", `long session composer, pass ${pass}`);
+		await page.waitFor(
+			"document.querySelector('[data-virtuoso-scroller]') !== null",
+			`transcript scroller, pass ${pass}`,
+		);
+		await sleep(350);
+		const m = await page.evaluate(`(() => {
+			const pass = ${pass};
+			const sc = document.querySelector('[data-virtuoso-scroller]');
+			if (!sc) return null;
+			const bottomGap = sc.scrollHeight - (sc.scrollTop + sc.clientHeight);
+			const walker = document.createTreeWalker(sc, NodeFilter.SHOW_TEXT);
+			let node = null;
+			while (walker.nextNode()) {
+				if (walker.currentNode.textContent.includes("Final fixture marker")) {
+					node = walker.currentNode.parentElement;
+					break;
+				}
+			}
+			let markerVisible = null;
+			if (node) {
+				const rect = node.getBoundingClientRect();
+				const view = sc.getBoundingClientRect();
+				markerVisible = rect.bottom <= view.bottom + 8 && rect.top >= view.top - 8;
+			}
+			return { pass, bottomGap, markerVisible, hasMarker: node !== null };
+		})()`);
+		placements.push(m);
+	}
+	fixture.state.resetDelay = 0;
+	const bad = placements.filter(
+		(p) => !p?.hasMarker || p.bottomGap > 12 || p.markerVisible !== true,
+	);
+	assert.deepEqual(
+		bad,
+		[],
+		`${bad.length}/12 passes opened away from the latest message: ${JSON.stringify(bad)}`,
+	);
+});

@@ -50,6 +50,20 @@ const sleep = (ms) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms)
 
 export async function startFixture() {
 	const recorded = JSON.parse(await readFile(resolve(here, "../dev/fixture-session.json"), "utf8"));
+	// A tall transcript for entry-placement tests: enough pairs to fill
+	// several viewport heights on a phone, ending on a findable marker.
+	const LONG_PAIRS = 60;
+	const longItems = [];
+	for (let i = 1; i <= LONG_PAIRS; i++) {
+		longItems.push({ kind: "user", text: `Long fixture question ${i}: answer this one please.` });
+		longItems.push({
+			kind: "text",
+			text:
+				i === LONG_PAIRS
+					? "Final fixture marker - the newest message in the thread."
+					: `Long fixture answer ${i}. Padding paragraph so the block has real height on a 360px screen, wrapping across a few lines of rendered markdown text.`,
+		});
+	}
 	const state = {
 		dialog: null,
 		todos: [],
@@ -66,6 +80,7 @@ export async function startFixture() {
 		maxActiveUploads: 0,
 		uploadDelay: 120,
 		metricsRequests: 0,
+		resetDelay: 0,
 		rewinds: [],
 	};
 	const sessions = [structuredClone(demoSession)];
@@ -127,6 +142,7 @@ export async function startFixture() {
 		state.maxActiveUploads = 0;
 		state.uploadDelay = 120;
 		state.metricsRequests = 0;
+		state.resetDelay = 0;
 		state.rewinds.length = 0;
 		sessions.splice(1);
 	};
@@ -156,15 +172,23 @@ export async function startFixture() {
 			}
 			if (/^\/api\/stream\/transcript\/[^/]+$/.test(path)) {
 				openSSE(res, transcriptStreams);
-				writeEvent(res, "reset", {
-					items: recorded.map((item, index) => ({ ...item, seq: index + 1 })),
-					...transcriptStatus(),
-					meta: {
-						name: "Fixture session",
-						first_user: "First user line",
-						cwd: "/tmp/demo",
-					},
-				});
+				const key = decodeURIComponent(path.split("/").pop() ?? "");
+				const long = key === "long";
+				const items = long ? longItems : recorded;
+				const deliver = () =>
+					writeEvent(res, "reset", {
+						items: items.map((item, index) => ({ ...item, seq: index + 1 })),
+						...transcriptStatus(),
+						meta: {
+							name: long ? "Long fixture session" : "Fixture session",
+							first_user: "First user line",
+							cwd: "/tmp/demo",
+						},
+					});
+				// The reset-delay knob reproduces a slow phone radio: on a
+				// cold connect the tail window often lands well after mount.
+				if (state.resetDelay > 0) setTimeout(deliver, state.resetDelay);
+				else deliver();
 				return;
 			}
 			if (path === "/api/version") {

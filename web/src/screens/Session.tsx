@@ -771,6 +771,10 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 
 	const [streamRetry, setStreamRetry] = useState(0);
 	const [resuming, setResuming] = useState(false);
+	// True once the session's first tail window landed. Virtuoso mounts
+	// only after it: an empty mount latches the initial index at the top
+	// and the entry parks mid-history instead of on the latest message.
+	const [tailLoaded, setTailLoaded] = useState(false);
 	// Bumped when a resume completes so the transcript stream reopens
 	// fresh instead of trusting a connection that predates the new driver.
 	const [streamGen, setStreamGen] = useState(0);
@@ -786,6 +790,7 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 					// and their index bookkeeping restart with it.
 					setFirstItemIndex(INDEX_BASE);
 					setMoreHistory(true);
+					setTailLoaded(true);
 					dispatch({ t: "reset", p: JSON.parse(data) as TranscriptReset });
 				} else if (name === "append") {
 					dispatch({ t: "append", p: JSON.parse(data) as TranscriptAppend });
@@ -1235,24 +1240,26 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 					}
 				}}
 			>
-				<Virtuoso
-					ref={virtuoso}
-					data={blocks}
-					computeItemKey={(_, b) => itemKey(b)}
-					firstItemIndex={firstItemIndex}
-					startReached={loadOlder}
-					followOutput={(isAtBottom) => (pinned.current && isAtBottom ? "auto" : false)}
-					atBottomThreshold={90}
-					atBottomStateChange={(bottom) => {
-						pinned.current = bottom;
-						setAtBottom(bottom);
-						if (bottom) setUnreadCount(0);
-					}}
-					initialTopMostItemIndex={Math.max(0, blocks.length - 1)}
-					className="h-full"
-					itemContent={renderItem}
-					components={listHeader}
-				/>
+				{tailLoaded && (
+					<Virtuoso
+						ref={virtuoso}
+						data={blocks}
+						computeItemKey={(_, b) => itemKey(b)}
+						firstItemIndex={firstItemIndex}
+						startReached={loadOlder}
+						followOutput={(isAtBottom) => (pinned.current && isAtBottom ? "auto" : false)}
+						atBottomThreshold={90}
+						atBottomStateChange={(bottom) => {
+							pinned.current = bottom;
+							setAtBottom(bottom);
+							if (bottom) setUnreadCount(0);
+						}}
+						initialTopMostItemIndex={Math.max(0, blocks.length - 1)}
+						className="h-full"
+						itemContent={renderItem}
+						components={listHeader}
+					/>
+				)}
 				{blocks.length === 0 && (
 					<div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 text-[13px] text-muted">
 						{state.status === "" ? <Spinner size={22} /> : <span>Nothing here yet.</span>}
