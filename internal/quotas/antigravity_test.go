@@ -19,14 +19,12 @@ const agyCLIJSON = `{"description":"quota report","groups":[
    {"id":"gemini-5h","name":"Five Hour Limit Remaining","window":"5h","remaining_fraction":0.9848448038101196,"reset_time":"2026-10-27T22:42:59Z"}]},
  {"name":"Claude and GPT models","description":"…","buckets":[
    {"id":"3p-weekly","name":"Weekly Limit Remaining","window":"weekly","remaining_fraction":1,"reset_time":"2026-11-03T17:49:19Z"},
-   {"id":"3p-5h","name":"Five Hour Limit Remaining","window":"5h","remaining_fraction":1,"reset_time":"2026-10-27T22:49:19Z"}]},
- {"name":"Gemini 4 Argon","description":"…","buckets":[
-   {"id":"gemini-argon-wtu-weekly","name":"Gemini 4 Argon Weekly Limit","window":"weekly","remaining_fraction":1,"reset_time":"2026-11-03T17:49:19Z"}]}]}`
+   {"id":"3p-5h","name":"Five Hour Limit Remaining","window":"5h","remaining_fraction":1,"reset_time":"2026-10-27T22:49:19Z"}]}]}`
 
 func TestParseAgyCLIQuota(t *testing.T) {
 	windows := parseAgyCLIQuota([]byte(agyCLIJSON))
-	if len(windows) != 5 {
-		t.Fatalf("windows = %d, want 5", len(windows))
+	if len(windows) != 4 {
+		t.Fatalf("windows = %d, want 4", len(windows))
 	}
 	want := []struct {
 		label  string
@@ -37,7 +35,6 @@ func TestParseAgyCLIQuota(t *testing.T) {
 		{"Gemini 5h", 1.5, "2026-10-27T22:42:59Z"},
 		{"Claude/GPT weekly", 0, "2026-11-03T17:49:19Z"},
 		{"Claude/GPT 5h", 0, "2026-10-27T22:49:19Z"},
-		{"Argon weekly", 0, "2026-11-03T17:49:19Z"},
 	}
 	for i, w := range want {
 		got := windows[i]
@@ -84,8 +81,8 @@ func TestFetchAgyQuotaPrefersCLI(t *testing.T) {
 	if calls != 0 {
 		t.Fatalf("summary endpoint hit %d times, want 0 (CLI carries all pools)", calls)
 	}
-	if len(q.Windows) != 5 {
-		t.Fatalf("windows = %d, want 5", len(q.Windows))
+	if len(q.Windows) != 4 {
+		t.Fatalf("windows = %d, want 4", len(q.Windows))
 	}
 }
 

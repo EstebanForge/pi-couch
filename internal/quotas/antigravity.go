@@ -56,8 +56,8 @@ func fetchAntigravityQuota(client *http.Client) ProviderQuota {
 
 // fetchAntigravityQuotaAt prefers the agy CLI's own quota report: the
 // HTTP summary endpoint serves only the third-party pool on both known
-// hosts (the Gemini and Argon pools are omitted), while the CLI carries
-// every group. The CLI failing (missing binary, cold language server)
+// hosts (the Gemini pool is omitted), while the CLI carries every
+// group. The CLI failing (missing binary, cold language server)
 // falls back to the summary.
 func fetchAntigravityQuotaAt(client *http.Client, quotaURL, tokenURL, bin string) ProviderQuota {
 	q := ProviderQuota{
@@ -128,8 +128,6 @@ func agyShortName(name string) string {
 		return "Gemini"
 	case "Claude and GPT models":
 		return "Claude/GPT"
-	case "Gemini 4 Argon":
-		return "Argon"
 	}
 	return name
 }

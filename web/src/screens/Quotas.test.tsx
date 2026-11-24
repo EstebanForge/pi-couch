@@ -61,7 +61,6 @@ describe("ProviderCard", () => {
 					windows: [
 						{ label: "Gemini weekly", percent: 93, unit: "%", resets_at: "" },
 						{ label: "Claude/GPT weekly", percent: 50, unit: "%", resets_at: "" },
-						{ label: "Argon weekly", percent: 100, unit: "%", resets_at: "" },
 						{ label: "Gemini 5h", percent: 76, unit: "%", resets_at: "" },
 						{ label: "Claude/GPT 5h", percent: 100, unit: "%", resets_at: "" },
 					],
@@ -70,8 +69,7 @@ describe("ProviderCard", () => {
 		);
 		const at = (label: string) => html.indexOf(label);
 		expect(at("Gemini 5h")).toBeLessThan(at("Gemini weekly"));
-		expect(at("Gemini weekly")).toBeLessThan(at("Argon weekly"));
-		expect(at("Argon weekly")).toBeLessThan(at("Claude/GPT 5h"));
+		expect(at("Gemini weekly")).toBeLessThan(at("Claude/GPT 5h"));
 		expect(at("Claude/GPT 5h")).toBeLessThan(at("Claude/GPT weekly"));
 	});
 
