@@ -1008,7 +1008,10 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 			const bi = blocks.findIndex((b) => b.type === "item" && b.item.seq === seq);
 			const found = blocks.find((b) => b.type === "item" && b.item.seq === seq);
 			const text = found?.type === "item" ? found.item.text : "";
-			const row = bi >= 0 ? sc?.querySelector(`[data-item-index="${bi}"]`) : null;
+			// Virtuoso stamps data-item-index in absolute index space
+			// (position + firstItemIndex, the 1e6 headroom), so the lookup
+			// must offset too or the row never matches.
+			const row = bi >= 0 ? sc?.querySelector(`[data-item-index="${bi + firstItemIndex}"]`) : null;
 			if (!sc || !row) {
 				if (bi >= 0 && text.length >= 900) {
 					virtuoso.current?.scrollToIndex({ index: bi, align: "start", behavior: "auto" });
@@ -1034,7 +1037,7 @@ export default function SessionScreen({ sessionKey }: { sessionKey: string }) {
 			alive = false;
 			for (const t of timers) clearTimeout(t);
 		};
-	}, [blocks, query]);
+	}, [blocks, query, firstItemIndex]);
 	const rewindApi = useMemo(
 		() => ({
 			canRewind: (it: StreamItem) =>
